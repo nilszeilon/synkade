@@ -12,6 +12,7 @@ defmodule Synkade.Application do
 
     children = [
       SynkadeWeb.Telemetry,
+      Synkade.Vault,
       Synkade.Repo,
       {DNSCluster, query: Application.get_env(:synkade, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Synkade.PubSub},

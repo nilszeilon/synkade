@@ -111,9 +111,12 @@ defmodule Synkade.Agent.ClaudeCode do
     end
   end
 
-  defp build_env(_config) do
-    # Pass through relevant env vars
-    []
+  defp build_env(config) do
+    case Config.get(config, "agent", "api_key") do
+      nil -> []
+      "" -> []
+      key -> [{~c"ANTHROPIC_API_KEY", String.to_charlist(key)}]
+    end
   end
 
   defp port_os_pid(port) do

@@ -1,0 +1,63 @@
+defmodule SynkadeWeb.SettingsLiveTest do
+  use SynkadeWeb.ConnCase
+
+  import Phoenix.LiveViewTest
+
+  test "renders settings page with tabs", %{conn: conn} do
+    {:ok, _view, html} = live(conn, "/settings")
+    assert html =~ "Settings"
+    assert html =~ "GitHub"
+    assert html =~ "Agents"
+  end
+
+  test "shows PAT fields by default", %{conn: conn} do
+    {:ok, _view, html} = live(conn, "/settings")
+    assert html =~ "Personal Access Token"
+    assert html =~ "Repository"
+  end
+
+  test "switches to agents tab", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/settings")
+    html = view |> element(~s{button[phx-value-tab="agents"]}) |> render_click()
+    assert html =~ "API Key"
+    assert html =~ "Max Turns"
+  end
+
+  test "validates on change", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/settings")
+
+    html =
+      view
+      |> form("form", setting: %{github_auth_mode: "pat", github_pat: "", github_repo: ""})
+      |> render_change()
+
+    assert html =~ "is required for PAT auth mode"
+  end
+
+  test "saves valid settings", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/settings")
+
+    view
+    |> form("form",
+      setting: %{
+        github_auth_mode: "pat",
+        github_pat: "ghp_test123",
+        github_repo: "owner/repo"
+      }
+    )
+    |> render_submit()
+
+    assert render(view) =~ "Settings saved"
+  end
+
+  test "shows validation errors on submit", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/settings")
+
+    html =
+      view
+      |> form("form", setting: %{github_auth_mode: "pat", github_pat: "", github_repo: ""})
+      |> render_submit()
+
+    assert html =~ "is required for PAT auth mode"
+  end
+end

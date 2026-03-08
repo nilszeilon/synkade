@@ -37,6 +37,14 @@ defmodule Synkade.Prompt.Renderer do
     end
   end
 
+  defp stringify_keys(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+  defp stringify_keys(%NaiveDateTime{} = dt), do: NaiveDateTime.to_iso8601(dt)
+  defp stringify_keys(%Date{} = d), do: Date.to_iso8601(d)
+
+  defp stringify_keys(%{__struct__: _} = struct) do
+    struct |> Map.from_struct() |> stringify_keys()
+  end
+
   defp stringify_keys(map) when is_map(map) do
     Map.new(map, fn
       {k, v} when is_atom(k) -> {Atom.to_string(k), stringify_keys(v)}

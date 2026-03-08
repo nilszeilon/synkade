@@ -63,6 +63,7 @@ defmodule Synkade.MixProject do
       {:yaml_elixir, "~> 2.9"},
       {:solid, "~> 0.15"},
       {:joken, "~> 2.6"},
+      {:cloak_ecto, "~> 1.3"},
       {:file_system, "~> 1.0"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},

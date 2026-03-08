@@ -27,6 +27,12 @@ config :synkade, Synkade.Mailer, adapter: Swoosh.Adapters.Test
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false
 
+# Cloak vault config for field encryption (test-only key)
+config :synkade, Synkade.Vault,
+  ciphers: [
+    default: {Cloak.Ciphers.AES.GCM, tag: "AES.GCM.V1", key: Base.decode64!("dVBuNmtoYXhxNHd5N3FqZGtncjM2aGRrdmZ0cWh5YmE=")}
+  ]
+
 # Print only warnings and errors during test
 config :logger, level: :warning
 

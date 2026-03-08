@@ -8,6 +8,8 @@ defmodule Synkade.Orchestrator do
   alias Synkade.Workflow.{Config, Watcher, ProjectRegistry}
   alias Synkade.Tracker.Client, as: TrackerClient
   alias Synkade.Workspace.Manager, as: WorkspaceManager
+  alias Synkade.Settings
+  alias Synkade.Settings.ConfigAdapter
 
   @pubsub_topic "orchestrator:updates"
 
@@ -34,8 +36,9 @@ defmodule Synkade.Orchestrator do
     watcher = opts[:watcher] || Watcher
     pubsub = opts[:pubsub] || Synkade.PubSub
 
-    # Subscribe to workflow updates
+    # Subscribe to workflow and settings updates
     Phoenix.PubSub.subscribe(pubsub, Watcher.pubsub_topic())
+    Phoenix.PubSub.subscribe(pubsub, Settings.pubsub_topic())
 
     state = %State{} |> Map.put(:__watcher__, watcher) |> Map.put(:__pubsub__, pubsub)
 
@@ -183,6 +186,14 @@ defmodule Synkade.Orchestrator do
   def handle_info({:workflow_reloaded, workflow}, state) do
     Logger.info("Orchestrator: applying reloaded workflow")
     state = apply_workflow(state, workflow)
+    broadcast_state(state)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:settings_updated, _settings}, state) do
+    Logger.info("Orchestrator: applying updated DB settings")
+    state = load_workflow(state)
     broadcast_state(state)
     {:noreply, state}
   end
@@ -384,15 +395,39 @@ defmodule Synkade.Orchestrator do
   defp load_workflow(state) do
     watcher = state.__watcher__
 
-    case Watcher.get_workflow(watcher) do
-      {:ok, nil} ->
-        %{state | workflow: nil, workflow_error: "No workflow loaded"}
+    db_settings =
+      try do
+        Settings.get_settings()
+      rescue
+        _ -> nil
+      end
 
-      {:ok, workflow} ->
+    case {Watcher.get_workflow(watcher), db_settings} do
+      {{:ok, workflow}, %Settings.Setting{} = setting} when not is_nil(workflow) ->
+        # Both exist — merge DB over file (DB wins)
+        merged_config = ConfigAdapter.merge_into(workflow.config, setting)
+        merged_workflow = %{workflow | config: merged_config}
+        apply_workflow(state, merged_workflow)
+
+      {{:ok, nil}, %Settings.Setting{} = setting} ->
+        # Only DB settings — build config from DB
+        config = ConfigAdapter.to_config(setting)
+
+        workflow = %{
+          config: config,
+          prompt_template: setting.prompt_template,
+          raw: nil,
+          path: nil
+        }
+
+        apply_workflow(state, workflow)
+
+      {{:ok, workflow}, nil} when not is_nil(workflow) ->
+        # Only WORKFLOW.md — use as-is
         apply_workflow(state, workflow)
 
       _ ->
-        %{state | workflow: nil, workflow_error: "Failed to get workflow"}
+        %{state | workflow: nil, workflow_error: "No workflow loaded"}
     end
   end
 

@@ -18,6 +18,7 @@ defmodule SynkadeWeb.Router do
     pipe_through :browser
 
     live "/", DashboardLive
+    live "/settings", SettingsLive
   end
 
   scope "/api/v1", SynkadeWeb.Api do
