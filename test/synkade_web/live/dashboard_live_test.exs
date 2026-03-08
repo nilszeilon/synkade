@@ -5,7 +5,7 @@ defmodule SynkadeWeb.DashboardLiveTest do
 
   test "renders dashboard page", %{conn: conn} do
     {:ok, _view, html} = live(conn, "/")
-    assert html =~ "Synkade Dashboard"
+    assert html =~ "Overview"
     assert html =~ "Running"
     assert html =~ "Retry Queue"
     assert html =~ "Total Tokens"
@@ -15,7 +15,7 @@ defmodule SynkadeWeb.DashboardLiveTest do
     {:ok, view, _html} = live(conn, "/")
     # The workflow error should show since there's no WORKFLOW.md in test
     # The dashboard still renders
-    assert render(view) =~ "Dashboard"
+    assert render(view) =~ "Overview"
   end
 
   test "refresh button exists", %{conn: conn} do

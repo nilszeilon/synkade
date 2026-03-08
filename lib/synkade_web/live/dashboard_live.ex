@@ -14,12 +14,19 @@ defmodule SynkadeWeb.DashboardLive do
     {:ok,
      socket
      |> assign(:page_title, "Dashboard")
+     |> assign(:active_tab, :dashboard)
+     |> assign(:current_project, nil)
      |> assign(:running, state.running)
      |> assign(:retry_attempts, state.retry_attempts)
      |> assign(:agent_totals, state.agent_totals)
      |> assign(:agent_totals_by_project, state.agent_totals_by_project)
      |> assign(:projects, state.projects)
      |> assign(:workflow_error, state.workflow_error)}
+  end
+
+  @impl true
+  def handle_params(params, _uri, socket) do
+    {:noreply, assign(socket, :current_project, params["project"])}
   end
 
   @impl true
@@ -42,11 +49,51 @@ defmodule SynkadeWeb.DashboardLive do
 
   @impl true
   def render(assigns) do
+    filtered_running =
+      if assigns.current_project,
+        do: Map.filter(assigns.running, fn {_k, e} -> e.project_name == assigns.current_project end),
+        else: assigns.running
+
+    filtered_retries =
+      if assigns.current_project,
+        do: Map.filter(assigns.retry_attempts, fn {_k, e} -> e.project_name == assigns.current_project end),
+        else: assigns.retry_attempts
+
+    filtered_totals_by_project =
+      if assigns.current_project,
+        do: Map.take(assigns.agent_totals_by_project, [assigns.current_project]),
+        else: assigns.agent_totals_by_project
+
+    display_totals =
+      if assigns.current_project do
+        case Map.get(assigns.agent_totals_by_project, assigns.current_project) do
+          nil -> %{total_tokens: 0, runtime_seconds: 0.0}
+          totals -> totals
+        end
+      else
+        assigns.agent_totals
+      end
+
+    assigns =
+      assigns
+      |> assign(:filtered_running, filtered_running)
+      |> assign(:filtered_retries, filtered_retries)
+      |> assign(:filtered_totals_by_project, filtered_totals_by_project)
+      |> assign(:display_totals, display_totals)
+
     ~H"""
-    <Layouts.app flash={@flash}>
-      <div class="max-w-7xl mx-auto px-4 py-6">
+    <Layouts.app
+      flash={@flash}
+      projects={@projects}
+      running={@running}
+      active_tab={@active_tab}
+      current_project={@current_project}
+    >
+      <div class="px-6 py-6">
         <div class="flex items-center justify-between mb-6">
-          <h1 class="text-2xl font-bold">Synkade Dashboard</h1>
+          <h1 class="text-2xl font-bold">
+            {if @current_project, do: @current_project, else: "Overview"}
+          </h1>
           <button phx-click="refresh" class="btn btn-sm btn-primary">Refresh</button>
         </div>
 
@@ -61,25 +108,25 @@ defmodule SynkadeWeb.DashboardLive do
           <div class="stats shadow">
             <div class="stat">
               <div class="stat-title">Running</div>
-              <div class="stat-value">{map_size(@running)}</div>
+              <div class="stat-value">{map_size(@filtered_running)}</div>
             </div>
           </div>
           <div class="stats shadow">
             <div class="stat">
               <div class="stat-title">Retry Queue</div>
-              <div class="stat-value">{map_size(@retry_attempts)}</div>
+              <div class="stat-value">{map_size(@filtered_retries)}</div>
             </div>
           </div>
           <div class="stats shadow">
             <div class="stat">
               <div class="stat-title">Total Tokens</div>
-              <div class="stat-value text-lg">{format_number(@agent_totals.total_tokens)}</div>
+              <div class="stat-value text-lg">{format_number(@display_totals.total_tokens)}</div>
             </div>
           </div>
           <div class="stats shadow">
             <div class="stat">
               <div class="stat-title">Runtime</div>
-              <div class="stat-value text-lg">{format_duration(@agent_totals.runtime_seconds)}</div>
+              <div class="stat-value text-lg">{format_duration(@display_totals.runtime_seconds)}</div>
             </div>
           </div>
         </div>
@@ -87,7 +134,7 @@ defmodule SynkadeWeb.DashboardLive do
         <!-- Running Sessions -->
         <div class="mb-6">
           <h2 class="text-xl font-semibold mb-3">Running Sessions</h2>
-          <%= if map_size(@running) == 0 do %>
+          <%= if map_size(@filtered_running) == 0 do %>
             <p class="text-base-content/60">No active sessions.</p>
           <% else %>
             <div class="overflow-x-auto">
@@ -103,7 +150,7 @@ defmodule SynkadeWeb.DashboardLive do
                   </tr>
                 </thead>
                 <tbody>
-                  <%= for {_key, entry} <- @running do %>
+                  <%= for {_key, entry} <- @filtered_running do %>
                     <tr>
                       <td>{entry.project_name}</td>
                       <td>{entry.identifier}</td>
@@ -122,7 +169,7 @@ defmodule SynkadeWeb.DashboardLive do
         <!-- Retry Queue -->
         <div class="mb-6">
           <h2 class="text-xl font-semibold mb-3">Retry Queue</h2>
-          <%= if map_size(@retry_attempts) == 0 do %>
+          <%= if map_size(@filtered_retries) == 0 do %>
             <p class="text-base-content/60">No pending retries.</p>
           <% else %>
             <div class="overflow-x-auto">
@@ -136,7 +183,7 @@ defmodule SynkadeWeb.DashboardLive do
                   </tr>
                 </thead>
                 <tbody>
-                  <%= for {_key, entry} <- @retry_attempts do %>
+                  <%= for {_key, entry} <- @filtered_retries do %>
                     <tr>
                       <td>{entry.project_name}</td>
                       <td>{entry.identifier}</td>
@@ -151,9 +198,9 @@ defmodule SynkadeWeb.DashboardLive do
         </div>
 
         <!-- Per-Project Stats -->
-        <div class="mb-6">
+        <div :if={!@current_project} class="mb-6">
           <h2 class="text-xl font-semibold mb-3">Projects</h2>
-          <%= if map_size(@agent_totals_by_project) == 0 do %>
+          <%= if map_size(@filtered_totals_by_project) == 0 do %>
             <p class="text-base-content/60">No project data yet.</p>
           <% else %>
             <div class="overflow-x-auto">
@@ -166,7 +213,7 @@ defmodule SynkadeWeb.DashboardLive do
                   </tr>
                 </thead>
                 <tbody>
-                  <%= for {name, totals} <- @agent_totals_by_project do %>
+                  <%= for {name, totals} <- @filtered_totals_by_project do %>
                     <tr>
                       <td>{name}</td>
                       <td>{format_number(totals.total_tokens)}</td>

@@ -1,6 +1,7 @@
 defmodule SynkadeWeb.SettingsLive do
   use SynkadeWeb, :live_view
 
+  alias Synkade.Orchestrator
   alias Synkade.Settings
   alias Synkade.Settings.ConnectionTest, as: ConnTest
 
@@ -8,11 +9,16 @@ defmodule SynkadeWeb.SettingsLive do
   def mount(_params, _session, socket) do
     setting = Settings.get_settings()
     changeset = Settings.change_settings(setting)
+    orc_state = Orchestrator.get_state()
 
     {:ok,
      socket
      |> assign(:page_title, "Settings")
      |> assign(:setting, setting)
+     |> assign(:nav_active_tab, :settings)
+     |> assign(:current_project, nil)
+     |> assign(:projects, orc_state.projects)
+     |> assign(:running, orc_state.running)
      |> assign(:active_tab, "github")
      |> assign(:connection_status, nil)
      |> assign(:connection_testing, false)
@@ -91,8 +97,14 @@ defmodule SynkadeWeb.SettingsLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash}>
-      <div class="max-w-3xl mx-auto px-4 py-6">
+    <Layouts.app
+      flash={@flash}
+      projects={@projects}
+      running={@running}
+      active_tab={@nav_active_tab}
+      current_project={@current_project}
+    >
+      <div class="max-w-3xl mx-auto px-6 py-6">
         <h1 class="text-2xl font-bold mb-6">Settings</h1>
 
         <div role="tablist" class="tabs tabs-boxed mb-6">
