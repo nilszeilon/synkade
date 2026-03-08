@@ -92,7 +92,7 @@ The `WORKFLOW.md` file controls all orchestrator behavior. Here are the availabl
 |-----|-------------|---------|
 | `tracker.kind` | `github` | `github` |
 | `tracker.repo` | GitHub `owner/repo` (required for PAT mode) | — |
-| `tracker.api_key` | PAT or `$ENV_VAR` reference | `$GITHUB_TOKEN` |
+| `tracker.api_key` | PAT or `$ENV_VAR` reference (falls back to `$GITHUB_TOKEN` env var if omitted) | — |
 | `tracker.endpoint` | Custom API endpoint URL | `https://api.github.com` |
 | `tracker.labels` | Only process issues with these labels | all issues |
 | `tracker.active_states` | Issue states to pick up | `["open"]` |
@@ -147,6 +147,12 @@ The `WORKFLOW.md` file controls all orchestrator behavior. Here are the availabl
 | `hooks.before_remove` | Shell command run before workspace cleanup |
 | `hooks.timeout_ms` | Hook execution timeout (default `60000`) |
 
+### Execution
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| `execution.backend` | Execution backend | `local` |
+
 ### Multi-project
 
 You can define multiple projects in a single workflow:
@@ -183,8 +189,15 @@ The body of `WORKFLOW.md` (after the `---` front matter) is a [Liquid](https://s
 - `{{ issue.url }}` — link to the issue
 - `{{ issue.labels }}` — list of label strings
 - `{{ issue.priority }}` — numeric priority (from `priority:N` labels)
+- `{{ issue.blocked_by }}` — list of blocker issues (each with `id`, `identifier`, `state`)
+- `{{ issue.created_at }}` — issue creation timestamp
+- `{{ issue.updated_at }}` — issue last-updated timestamp
 - `{{ project.name }}` — project name
 - `{{ attempt }}` — retry attempt number (nil on first run)
+
+### Blocker Detection
+
+Synkade automatically detects issue dependencies from the issue body. If an issue contains phrases like "blocked by #123" or "depends on #10", the referenced issues are tracked as blockers. Issues with open blockers are skipped during dispatch until their dependencies are resolved.
 
 ## API
 
