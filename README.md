@@ -1,12 +1,16 @@
 # Synkade
 
-Synkade is a self-hosted orchestrator that automatically assigns coding agents (Claude Code, Codex) to issues from your project tracker (GitHub, Linear). It polls for open issues, spins up isolated workspaces, and dispatches agents to work on them — with retry logic, concurrency control, and a real-time dashboard.
+Synkade is a self-hosted orchestrator that automatically assigns coding agents to issues from your project tracker. It polls for open issues, spins up isolated workspaces, and dispatches AI agents to work on them — with retry logic, concurrency control, and a real-time dashboard.
+
+Currently supported:
+- **Agents:** Claude Code
+- **Trackers:** GitHub (with PAT or GitHub App auth)
 
 ## Prerequisites
 
 - [Elixir](https://elixir-lang.org/install.html) ~> 1.15
 - [PostgreSQL](https://www.postgresql.org/) 17+ (or use the included Docker Compose)
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (or `codex` if using OpenAI Codex)
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)
 - A GitHub personal access token or GitHub App credentials
 
 ## Setup
@@ -56,7 +60,7 @@ Synkade is a self-hosted orchestrator that automatically assigns coding agents (
    {{ issue.description }}
    ```
 
-   The `api_key: $GITHUB_TOKEN` syntax resolves the `GITHUB_TOKEN` environment variable at runtime.
+   The `api_key: $GITHUB_TOKEN` syntax resolves the `GITHUB_TOKEN` environment variable at runtime. Changes to `WORKFLOW.md` are picked up automatically via a file watcher — no restart needed.
 
 5. **Set your GitHub token**
 
@@ -86,14 +90,13 @@ The `WORKFLOW.md` file controls all orchestrator behavior. Here are the availabl
 
 | Key | Description | Default |
 |-----|-------------|---------|
-| `tracker.kind` | `github` or `linear` | `github` |
-| `tracker.repo` | GitHub `owner/repo` (required for GitHub PAT mode) | — |
-| `tracker.api_key` | PAT or `$ENV_VAR` reference | — |
-| `tracker.endpoint` | Custom API endpoint URL | `https://api.github.com` / `https://api.linear.app/graphql` |
+| `tracker.kind` | `github` | `github` |
+| `tracker.repo` | GitHub `owner/repo` (required for PAT mode) | — |
+| `tracker.api_key` | PAT or `$ENV_VAR` reference | `$GITHUB_TOKEN` |
+| `tracker.endpoint` | Custom API endpoint URL | `https://api.github.com` |
 | `tracker.labels` | Only process issues with these labels | all issues |
-| `tracker.assignee` | Only process issues assigned to this user | all assignees |
-| `tracker.active_states` | Issue states to pick up | GitHub: `["open"]`, Linear: `["Todo", "In Progress"]` |
-| `tracker.terminal_states` | States that mean "done" | GitHub: `["closed"]`, Linear: `["Closed", "Cancelled", "Done"]` |
+| `tracker.active_states` | Issue states to pick up | `["open"]` |
+| `tracker.terminal_states` | States that mean "done" | `["closed"]` |
 | `tracker.webhook_secret` | Secret for verifying GitHub webhook payloads | — |
 
 ### GitHub App Auth (alternative to PAT)
@@ -109,17 +112,18 @@ The `WORKFLOW.md` file controls all orchestrator behavior. Here are the availabl
 
 | Key | Description | Default |
 |-----|-------------|---------|
-| `agent.kind` | `claude` or `codex` | `claude` |
-| `agent.max_concurrent_agents` | Max parallel agents | `10` |
-| `agent.max_turns` | Max agent turns per session | `20` |
+| `agent.kind` | `claude` | `claude` |
+| `agent.max_concurrent_agents` | Global max parallel agents | `10` |
+| `agent.max_concurrent_agents_by_state` | Per-state concurrency limits (e.g. `{"open": 3}`) | no limit |
+| `agent.max_turns` | Max agent turns per issue | `20` |
 | `agent.allowed_tools` | Tools the agent can use | `["Read", "Edit", "Write", "Bash", "Glob", "Grep"]` |
 | `agent.model` | Model override (e.g. `claude-sonnet-4-5-20250929`) | CLI default |
-| `agent.command` | Custom command to run the agent | `claude` or `codex app-server` |
-| `agent.append_system_prompt` | Extra text appended to the agent system prompt | none |
-| `agent.turn_timeout_ms` | Timeout per agent turn | `3600000` |
-| `agent.max_tokens` | Max tokens per agent response | none |
-| `agent.stall_timeout_ms` | Kill stalled agents after this | `300000` |
-| `agent.max_retry_backoff_ms` | Max backoff between retries | `300000` |
+| `agent.command` | Custom command to run the agent | `claude` |
+| `agent.append_system_prompt` | Extra text appended to the agent system prompt | — |
+| `agent.turn_timeout_ms` | Timeout per agent turn | `3600000` (1h) |
+| `agent.max_tokens` | Max tokens per agent response | — |
+| `agent.stall_timeout_ms` | Kill stalled agents after this | `300000` (5min) |
+| `agent.max_retry_backoff_ms` | Max backoff between retries | `300000` (5min) |
 
 ### Polling
 
@@ -147,8 +151,11 @@ The `WORKFLOW.md` file controls all orchestrator behavior. Here are the availabl
 
 You can define multiple projects in a single workflow:
 
-```yaml
+```markdown
 ---
+agent:
+  max_concurrent_agents: 10
+
 projects:
   - name: frontend
     tracker:
@@ -156,22 +163,28 @@ projects:
   - name: backend
     tracker:
       repo: your-org/backend
-agent:
-  max_concurrent_agents: 10
 ---
+Work on {{ issue.identifier }}: {{ issue.title }}
+
+{{ issue.description }}
 ```
+
+Per-project settings override the global `tracker`, `agent`, `workspace`, and `hooks` sections. Each project can also define its own `prompt` to override the global template.
 
 ### Prompt Template
 
 The body of `WORKFLOW.md` (after the `---` front matter) is a [Liquid](https://shopify.github.io/liquid/) template. Available variables:
 
 - `{{ issue.identifier }}` — e.g. `owner/repo#42`
+- `{{ issue.id }}` — issue number
 - `{{ issue.title }}` — issue title
 - `{{ issue.description }}` — issue body
-- `{{ issue.id }}` — issue number
-- `{{ issue.state }}` — `open` or `closed`
+- `{{ issue.state }}` — e.g. `open`, `closed`
+- `{{ issue.url }}` — link to the issue
+- `{{ issue.labels }}` — list of label strings
+- `{{ issue.priority }}` — numeric priority (from `priority:N` labels)
 - `{{ project.name }}` — project name
-- `{{ attempt }}` — retry attempt number
+- `{{ attempt }}` — retry attempt number (nil on first run)
 
 ## API
 
