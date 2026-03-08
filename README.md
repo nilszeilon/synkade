@@ -34,7 +34,7 @@ Synkade is a self-hosted orchestrator that automatically assigns coding agents (
    mix setup
    ```
 
-   This runs `deps.get`, `ecto.create`, `ecto.migrate`, and builds assets.
+   This runs `deps.get`, `ecto.create`, `ecto.migrate`, seeds the database, and builds assets.
 
 4. **Configure your workflow**
 
@@ -87,23 +87,23 @@ The `WORKFLOW.md` file controls all orchestrator behavior. Here are the availabl
 | Key | Description | Default |
 |-----|-------------|---------|
 | `tracker.kind` | `github` or `linear` | `github` |
-| `tracker.repo` | GitHub `owner/repo` | required |
-| `tracker.api_key` | PAT or `$ENV_VAR` reference | `$GITHUB_TOKEN` |
+| `tracker.repo` | GitHub `owner/repo` (required for GitHub PAT mode) | — |
+| `tracker.api_key` | PAT or `$ENV_VAR` reference | — |
+| `tracker.endpoint` | Custom API endpoint URL | `https://api.github.com` / `https://api.linear.app/graphql` |
 | `tracker.labels` | Only process issues with these labels | all issues |
-| `tracker.assignee` | Only process issues assigned to this user | all |
-| `tracker.active_states` | Issue states to pick up | `["open"]` |
-| `tracker.terminal_states` | States that mean "done" | `["closed"]` |
-| `tracker.endpoint` | Custom API endpoint URL | `https://api.github.com` |
+| `tracker.assignee` | Only process issues assigned to this user | all assignees |
+| `tracker.active_states` | Issue states to pick up | GitHub: `["open"]`, Linear: `["Todo", "In Progress"]` |
+| `tracker.terminal_states` | States that mean "done" | GitHub: `["closed"]`, Linear: `["Closed", "Cancelled", "Done"]` |
+| `tracker.webhook_secret` | Secret for verifying GitHub webhook payloads | — |
 
 ### GitHub App Auth (alternative to PAT)
 
 | Key | Description |
 |-----|-------------|
 | `tracker.app_id` | GitHub App ID |
-| `tracker.private_key` | PEM key contents (inline) |
-| `tracker.private_key_path` | Path to `.pem` file |
-| `tracker.installation_id` | Installation ID |
-| `tracker.webhook_secret` | Webhook secret for signature verification |
+| `tracker.private_key` | Inline PEM private key |
+| `tracker.private_key_path` | Path to `.pem` file (alternative to `private_key`) |
+| `tracker.installation_id` | Installation ID (optional — auto-discovered if omitted) |
 
 ### Agent
 
@@ -187,6 +187,8 @@ Synkade exposes a JSON API:
 ## GitHub Webhooks
 
 Synkade can receive GitHub webhook events at `POST /github/webhooks`. Configure your GitHub repo or App to send issue events to this endpoint for faster reaction times instead of relying solely on polling.
+
+If you set `tracker.webhook_secret`, Synkade will verify the `X-Hub-Signature-256` header on incoming payloads.
 
 ## Running Tests
 
