@@ -17,13 +17,27 @@ defmodule SynkadeWeb.Router do
   scope "/", SynkadeWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
+    live "/", DashboardLive
   end
 
-  # Other scopes may use custom stacks.
-  # scope "/api", SynkadeWeb do
-  #   pipe_through :api
-  # end
+  scope "/api/v1", SynkadeWeb.Api do
+    pipe_through :api
+
+    get "/state", StateController, :index
+    get "/projects", StateController, :projects
+    get "/projects/:name", StateController, :project
+    post "/refresh", StateController, :refresh
+  end
+
+  scope "/github", SynkadeWeb.GitHub do
+    pipe_through :api
+    post "/webhooks", WebhookController, :handle
+  end
+
+  scope "/github", SynkadeWeb.GitHub do
+    pipe_through :browser
+    get "/callback", OAuthController, :callback
+  end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:synkade, :dev_routes) do

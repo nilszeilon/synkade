@@ -1,8 +1,8 @@
 defmodule SynkadeWeb.PageControllerTest do
   use SynkadeWeb.ConnCase
 
-  test "GET /", %{conn: conn} do
+  test "GET / renders dashboard", %{conn: conn} do
     conn = get(conn, ~p"/")
-    assert html_response(conn, 200) =~ "Peace of mind from prototype to production"
+    assert html_response(conn, 200) =~ "Synkade Dashboard"
   end
 end
