@@ -50,7 +50,9 @@ defmodule Synkade.Settings.ConfigAdapter do
   defp agent_config(%Setting{} = s) do
     %{
       "kind" => s.agent_kind,
+      "auth_mode" => s.agent_auth_mode,
       "api_key" => s.agent_api_key,
+      "oauth_token" => s.agent_oauth_token,
       "model" => s.agent_model,
       "max_turns" => s.agent_max_turns,
       "allowed_tools" => non_empty_list(s.agent_allowed_tools),

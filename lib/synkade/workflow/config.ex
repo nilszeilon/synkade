@@ -33,7 +33,9 @@ defmodule Synkade.Workflow.Config do
     },
     "agent" => %{
       "kind" => "claude",
+      "auth_mode" => "api_key",
       "api_key" => nil,
+      "oauth_token" => nil,
       "max_concurrent_agents" => 10,
       "max_turns" => 20,
       "max_retry_backoff_ms" => 300_000,

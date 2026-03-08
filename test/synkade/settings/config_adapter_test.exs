@@ -83,6 +83,39 @@ defmodule Synkade.Settings.ConfigAdapterTest do
       refute Map.has_key?(config["agent"], "model")
       refute Map.has_key?(config["agent"], "max_turns")
     end
+
+    test "includes auth_mode and oauth_token for OAuth mode" do
+      setting = %Setting{
+        github_auth_mode: "pat",
+        github_pat: "ghp_test",
+        github_repo: "o/r",
+        agent_kind: "claude",
+        agent_auth_mode: "oauth",
+        agent_oauth_token: "oauth-token-abc"
+      }
+
+      config = ConfigAdapter.to_config(setting)
+
+      assert config["agent"]["auth_mode"] == "oauth"
+      assert config["agent"]["oauth_token"] == "oauth-token-abc"
+      refute Map.has_key?(config["agent"], "api_key")
+    end
+
+    test "includes auth_mode for api_key mode" do
+      setting = %Setting{
+        github_auth_mode: "pat",
+        github_pat: "ghp_test",
+        github_repo: "o/r",
+        agent_auth_mode: "api_key",
+        agent_api_key: "sk-ant-test"
+      }
+
+      config = ConfigAdapter.to_config(setting)
+
+      assert config["agent"]["auth_mode"] == "api_key"
+      assert config["agent"]["api_key"] == "sk-ant-test"
+      refute Map.has_key?(config["agent"], "oauth_token")
+    end
   end
 
   describe "to_config/1 prompt template" do

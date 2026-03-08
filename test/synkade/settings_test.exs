@@ -77,6 +77,34 @@ defmodule Synkade.SettingsTest do
       assert {:error, changeset} = Settings.save_settings(attrs)
       assert errors_on(changeset).github_auth_mode
     end
+
+    test "validates agent_auth_mode inclusion" do
+      attrs = Map.put(@valid_pat_attrs, "agent_auth_mode", "invalid")
+      assert {:error, changeset} = Settings.save_settings(attrs)
+      assert errors_on(changeset).agent_auth_mode
+    end
+
+    test "saves settings with OAuth agent auth mode" do
+      attrs = Map.merge(@valid_pat_attrs, %{
+        "agent_auth_mode" => "oauth",
+        "agent_oauth_token" => "oauth-token-123"
+      })
+
+      assert {:ok, %Setting{} = setting} = Settings.save_settings(attrs)
+      assert setting.agent_auth_mode == "oauth"
+      assert setting.agent_oauth_token == "oauth-token-123"
+    end
+
+    test "requires agent_oauth_token when agent_auth_mode is oauth" do
+      attrs = Map.put(@valid_pat_attrs, "agent_auth_mode", "oauth")
+      assert {:error, changeset} = Settings.save_settings(attrs)
+      assert errors_on(changeset).agent_oauth_token
+    end
+
+    test "does not require agent_oauth_token when agent_auth_mode is api_key" do
+      attrs = Map.put(@valid_pat_attrs, "agent_auth_mode", "api_key")
+      assert {:ok, %Setting{}} = Settings.save_settings(attrs)
+    end
   end
 
   describe "change_settings/2" do

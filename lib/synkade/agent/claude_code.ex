@@ -111,11 +111,22 @@ defmodule Synkade.Agent.ClaudeCode do
     end
   end
 
-  defp build_env(config) do
-    case Config.get(config, "agent", "api_key") do
-      nil -> []
-      "" -> []
-      key -> [{~c"ANTHROPIC_API_KEY", String.to_charlist(key)}]
+  @doc false
+  def build_env(config) do
+    case Config.get(config, "agent", "auth_mode") do
+      "oauth" ->
+        case Config.get(config, "agent", "oauth_token") do
+          nil -> []
+          "" -> []
+          token -> [{~c"CLAUDE_OAUTH_TOKEN", String.to_charlist(token)}]
+        end
+
+      _ ->
+        case Config.get(config, "agent", "api_key") do
+          nil -> []
+          "" -> []
+          key -> [{~c"ANTHROPIC_API_KEY", String.to_charlist(key)}]
+        end
     end
   end
 

@@ -282,16 +282,39 @@ defmodule SynkadeWeb.SettingsLive do
       </div>
 
       <div class="form-control">
-        <label class="label"><span class="label-text">API Key</span></label>
-        <input
-          type="password"
-          class="input input-bordered w-full"
-          name={@form[:agent_api_key].name}
-          id={@form[:agent_api_key].id}
-          value={@form[:agent_api_key].value}
-          placeholder="sk-ant-..."
-        />
+        <label class="label"><span class="label-text">Auth Mode</span></label>
+        <select class="select select-bordered w-full" name={@form[:agent_auth_mode].name} id={@form[:agent_auth_mode].id}>
+          <option value="api_key" selected={(@form[:agent_auth_mode].value || "api_key") == "api_key"}>API Key</option>
+          <option value="oauth" selected={@form[:agent_auth_mode].value == "oauth"}>OAuth Token</option>
+        </select>
       </div>
+
+      <%= if (@form[:agent_auth_mode].value || "api_key") == "api_key" do %>
+        <div class="form-control">
+          <label class="label"><span class="label-text">API Key</span></label>
+          <input
+            type="password"
+            class="input input-bordered w-full"
+            name={@form[:agent_api_key].name}
+            id={@form[:agent_api_key].id}
+            value={@form[:agent_api_key].value}
+            placeholder="sk-ant-..."
+          />
+        </div>
+      <% else %>
+        <div class="form-control">
+          <label class="label"><span class="label-text">OAuth Token</span></label>
+          <input
+            type="password"
+            class="input input-bordered w-full"
+            name={@form[:agent_oauth_token].name}
+            id={@form[:agent_oauth_token].id}
+            value={@form[:agent_oauth_token].value}
+            placeholder="oauth-token-..."
+          />
+          <.field_error field={@form[:agent_oauth_token]} />
+        </div>
+      <% end %>
 
       <div class="form-control">
         <label class="label"><span class="label-text">Model (optional)</span></label>

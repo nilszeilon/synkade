@@ -60,4 +60,30 @@ defmodule SynkadeWeb.SettingsLiveTest do
 
     assert html =~ "is required for PAT auth mode"
   end
+
+  test "shows OAuth Token field when auth mode is oauth", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/settings")
+
+    # Switch to agents tab
+    view |> element(~s{button[phx-value-tab="agents"]}) |> render_click()
+
+    # Change auth mode to oauth
+    html =
+      view
+      |> form("form", setting: %{agent_auth_mode: "oauth"})
+      |> render_change()
+
+    assert html =~ "OAuth Token"
+    refute html =~ ~s(placeholder="sk-ant-...")
+  end
+
+  test "shows API Key field when auth mode is api_key", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/settings")
+
+    # Switch to agents tab
+    html = view |> element(~s{button[phx-value-tab="agents"]}) |> render_click()
+
+    # Default is api_key mode
+    assert html =~ ~s(placeholder="sk-ant-...")
+  end
 end

@@ -52,6 +52,38 @@ defmodule Synkade.Agent.ClaudeCodeTest do
     end
   end
 
+  describe "build_env/1" do
+    test "sets ANTHROPIC_API_KEY for api_key auth mode" do
+      config = %{"agent" => %{"auth_mode" => "api_key", "api_key" => "sk-test-123"}}
+      env = ClaudeCode.build_env(config)
+
+      assert {~c"ANTHROPIC_API_KEY", ~c"sk-test-123"} in env
+      refute Enum.any?(env, fn {k, _} -> k == ~c"CLAUDE_OAUTH_TOKEN" end)
+    end
+
+    test "sets ANTHROPIC_API_KEY for default (nil) auth mode" do
+      config = %{"agent" => %{"api_key" => "sk-test-456"}}
+      env = ClaudeCode.build_env(config)
+
+      assert {~c"ANTHROPIC_API_KEY", ~c"sk-test-456"} in env
+    end
+
+    test "sets CLAUDE_OAUTH_TOKEN for oauth auth mode" do
+      config = %{"agent" => %{"auth_mode" => "oauth", "oauth_token" => "oauth-abc"}}
+      env = ClaudeCode.build_env(config)
+
+      assert {~c"CLAUDE_OAUTH_TOKEN", ~c"oauth-abc"} in env
+      refute Enum.any?(env, fn {k, _} -> k == ~c"ANTHROPIC_API_KEY" end)
+    end
+
+    test "returns empty list for oauth mode without token" do
+      config = %{"agent" => %{"auth_mode" => "oauth"}}
+      env = ClaudeCode.build_env(config)
+
+      assert env == []
+    end
+  end
+
   describe "parse_event/1" do
     test "parses assistant event" do
       json = Jason.encode!(%{

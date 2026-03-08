@@ -19,7 +19,9 @@ defmodule Synkade.Settings.Setting do
 
     # Agent config
     field :agent_kind, :string, default: "claude"
+    field :agent_auth_mode, :string, default: "api_key"
     field :agent_api_key, Synkade.Encrypted.Binary
+    field :agent_oauth_token, Synkade.Encrypted.Binary
     field :agent_model, :string
     field :agent_max_turns, :integer
     field :agent_allowed_tools, {:array, :string}, default: []
@@ -34,17 +36,19 @@ defmodule Synkade.Settings.Setting do
   @github_fields ~w(github_auth_mode github_pat github_app_id github_private_key
     github_webhook_secret github_installation_id github_endpoint github_repo tracker_labels)a
 
-  @agent_fields ~w(agent_kind agent_api_key agent_model agent_max_turns
-    agent_allowed_tools agent_max_concurrent prompt_template)a
+  @agent_fields ~w(agent_kind agent_auth_mode agent_api_key agent_oauth_token
+    agent_model agent_max_turns agent_allowed_tools agent_max_concurrent prompt_template)a
 
   def changeset(setting, attrs) do
     setting
     |> cast(attrs, @github_fields ++ @agent_fields)
     |> validate_inclusion(:github_auth_mode, ["pat", "app"])
     |> validate_inclusion(:agent_kind, ["claude", "codex"])
+    |> validate_inclusion(:agent_auth_mode, ["api_key", "oauth"])
     |> validate_number(:agent_max_turns, greater_than: 0)
     |> validate_number(:agent_max_concurrent, greater_than: 0)
     |> validate_auth_mode()
+    |> validate_agent_auth()
   end
 
   defp validate_auth_mode(changeset) do
@@ -59,6 +63,18 @@ defmodule Synkade.Settings.Setting do
         changeset
         |> validate_required([:github_app_id, :github_private_key],
           message: "is required for App auth mode"
+        )
+
+      _ ->
+        changeset
+    end
+  end
+
+  defp validate_agent_auth(changeset) do
+    case get_field(changeset, :agent_auth_mode) do
+      "oauth" ->
+        validate_required(changeset, [:agent_oauth_token],
+          message: "is required for OAuth auth mode"
         )
 
       _ ->
