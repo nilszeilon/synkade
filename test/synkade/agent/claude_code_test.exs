@@ -58,7 +58,7 @@ defmodule Synkade.Agent.ClaudeCodeTest do
       env = ClaudeCode.build_env(config)
 
       assert {~c"ANTHROPIC_API_KEY", ~c"sk-test-123"} in env
-      refute Enum.any?(env, fn {k, _} -> k == ~c"CLAUDE_OAUTH_TOKEN" end)
+      refute Enum.any?(env, fn {k, _} -> k == ~c"CLAUDE_CODE_OAUTH_TOKEN" end)
     end
 
     test "sets ANTHROPIC_API_KEY for default (nil) auth mode" do
@@ -72,7 +72,7 @@ defmodule Synkade.Agent.ClaudeCodeTest do
       config = %{"agent" => %{"auth_mode" => "oauth", "oauth_token" => "oauth-abc"}}
       env = ClaudeCode.build_env(config)
 
-      assert {~c"CLAUDE_OAUTH_TOKEN", ~c"oauth-abc"} in env
+      assert {~c"CLAUDE_CODE_OAUTH_TOKEN", ~c"oauth-abc"} in env
       refute Enum.any?(env, fn {k, _} -> k == ~c"ANTHROPIC_API_KEY" end)
     end
 

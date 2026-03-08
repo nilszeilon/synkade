@@ -118,7 +118,7 @@ defmodule Synkade.Agent.ClaudeCode do
         case Config.get(config, "agent", "oauth_token") do
           nil -> []
           "" -> []
-          token -> [{~c"CLAUDE_OAUTH_TOKEN", String.to_charlist(token)}]
+          token -> [{~c"CLAUDE_CODE_OAUTH_TOKEN", String.to_charlist(token)}]
         end
 
       _ ->
