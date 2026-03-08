@@ -90,8 +90,10 @@ The `WORKFLOW.md` file controls all orchestrator behavior. Here are the availabl
 | `tracker.repo` | GitHub `owner/repo` | required |
 | `tracker.api_key` | PAT or `$ENV_VAR` reference | `$GITHUB_TOKEN` |
 | `tracker.labels` | Only process issues with these labels | all issues |
+| `tracker.assignee` | Only process issues assigned to this user | all |
 | `tracker.active_states` | Issue states to pick up | `["open"]` |
 | `tracker.terminal_states` | States that mean "done" | `["closed"]` |
+| `tracker.endpoint` | Custom API endpoint URL | `https://api.github.com` |
 
 ### GitHub App Auth (alternative to PAT)
 
