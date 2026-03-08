@@ -3,10 +3,8 @@ defmodule Synkade.Orchestrator.Worker do
 
   require Logger
 
-  alias Synkade.Workspace.{Manager, Hooks}
   alias Synkade.Prompt.Renderer
-  alias Synkade.Agent.Client, as: AgentClient
-  alias Synkade.Agent.ClaudeCode
+  alias Synkade.Execution.BackendClient
   alias Synkade.Tracker.Client, as: TrackerClient
   alias Synkade.Workflow.Config
 
@@ -19,14 +17,14 @@ defmodule Synkade.Orchestrator.Worker do
 
     Logger.info("Worker starting for #{project_name}:#{issue.identifier} (attempt #{inspect(attempt)})")
 
-    with {:ok, workspace} <- ensure_workspace(config, project_name, issue),
-         :ok <- run_before_hook(config, workspace),
+    with {:ok, env_ref} <- BackendClient.setup_env(config, project_name, issue.identifier),
+         :ok <- report_env(orchestrator, project_name, issue.id, env_ref),
+         :ok <- BackendClient.run_before_hook(config, env_ref),
          {:ok, prompt} <- render_prompt(prompt_template, project, issue, attempt),
-         {:ok, session} <- start_or_continue(config, attempt, prompt, workspace.path, nil) do
-      # Event loop: read port output, send events back to orchestrator
+         {:ok, session} <- start_or_continue(config, attempt, prompt, env_ref, nil) do
       result = event_loop(orchestrator, project, issue, session, config, max_turns, 1)
 
-      run_after_hook(config, workspace)
+      BackendClient.run_after_hook(config, env_ref)
       result
     else
       {:error, reason} ->
@@ -35,30 +33,9 @@ defmodule Synkade.Orchestrator.Worker do
     end
   end
 
-  defp ensure_workspace(config, project_name, issue) do
-    Manager.ensure_workspace(config, project_name, issue.identifier)
-  end
-
-  defp run_before_hook(config, workspace) do
-    hooks = Config.get_section(config, "hooks")
-    timeout = hooks["timeout_ms"] || 60_000
-
-    case Hooks.run_hook(hooks["before_run"], workspace.path, timeout_ms: timeout) do
-      :ok -> :ok
-      {:error, reason} -> {:error, {:hook_failed, :before_run, reason}}
-    end
-  end
-
-  defp run_after_hook(config, workspace) do
-    hooks = Config.get_section(config, "hooks")
-    timeout = hooks["timeout_ms"] || 60_000
-
-    case Hooks.run_hook(hooks["after_run"], workspace.path, timeout_ms: timeout) do
-      :ok -> :ok
-      {:error, reason} ->
-        Logger.warning("after_run hook failed: #{reason}")
-        :ok
-    end
+  defp report_env(orchestrator, project_name, issue_id, env_ref) do
+    GenServer.cast(orchestrator, {:env_ready, project_name, issue_id, env_ref})
+    :ok
   end
 
   defp render_prompt(prompt_template, project, issue, attempt) do
@@ -67,66 +44,62 @@ defmodule Synkade.Orchestrator.Worker do
     Renderer.render(prompt_template, project_map, issue_map, attempt)
   end
 
-  defp start_or_continue(config, nil, prompt, workspace_path, _session_id) do
-    AgentClient.start_session(config, prompt, workspace_path)
+  defp start_or_continue(config, nil, prompt, env_ref, _session_id) do
+    BackendClient.start_agent(config, prompt, env_ref)
   end
 
-  defp start_or_continue(config, _attempt, prompt, workspace_path, nil) do
-    AgentClient.start_session(config, prompt, workspace_path)
+  defp start_or_continue(config, _attempt, prompt, env_ref, nil) do
+    BackendClient.start_agent(config, prompt, env_ref)
   end
 
-  defp start_or_continue(config, _attempt, prompt, workspace_path, session_id) do
-    AgentClient.continue_session(config, session_id, prompt, workspace_path)
+  defp start_or_continue(config, _attempt, prompt, env_ref, session_id) do
+    BackendClient.continue_agent(config, session_id, prompt, env_ref)
   end
 
   defp event_loop(orchestrator, project, issue, session, config, max_turns, turn) do
-    port = session.port
     turn_timeout = Config.get(config, "agent", "turn_timeout_ms") || 3_600_000
 
-    receive do
-      {^port, {:data, data}} ->
-        {session, events} = process_data(data, session)
+    case BackendClient.await_event(config, session, turn_timeout) do
+      {:data, data} ->
+        {session, events} = process_data(config, data, session)
 
-        # Send events to orchestrator
         for event <- events do
           GenServer.cast(orchestrator, {:agent_event, project.name, issue.id, event})
         end
 
         event_loop(orchestrator, project, issue, session, config, max_turns, turn)
 
-      {^port, {:exit_status, 0}} ->
+      {:exit, 0} ->
         Logger.info("Agent exited normally for #{project.name}:#{issue.identifier}")
-        # Check if issue is still active and we have turns left
+
         if turn < max_turns do
           check_and_continue(orchestrator, project, issue, session, config, max_turns, turn)
         else
           {:ok, :max_turns_reached, session}
         end
 
-      {^port, {:exit_status, code}} ->
+      {:exit, code} ->
         Logger.warning("Agent exited with code #{code} for #{project.name}:#{issue.identifier}")
         {:error, {:agent_exit, code}, session}
-    after
-      turn_timeout ->
+
+      :timeout ->
         Logger.warning("Agent turn timed out for #{project.name}:#{issue.identifier}")
-        AgentClient.stop_session(config, session)
+        BackendClient.stop_agent(config, session)
         {:error, :turn_timeout, session}
     end
   end
 
   defp check_and_continue(orchestrator, project, issue, session, config, max_turns, turn) do
-    # Re-check issue state
     case TrackerClient.fetch_issue_states_by_ids(project.config, project.name, [issue.id]) do
       {:ok, states} ->
         current_state = Map.get(states, issue.id)
         active = Config.active_states(project.config) |> Enum.map(&normalize_state/1)
 
         if current_state && normalize_state(current_state) in active do
-          # Continue with next turn
           continuation_prompt = "Continue working on this issue. Check the current state and proceed."
           session_id = session.session_id
 
-          case start_or_continue(config, turn, continuation_prompt, nil, session_id) do
+          case start_or_continue(config, turn, continuation_prompt, session.env_ref, session_id) do
             {:ok, new_session} ->
               event_loop(orchestrator, project, issue, new_session, config, max_turns, turn + 1)
 
@@ -142,11 +115,11 @@ defmodule Synkade.Orchestrator.Worker do
     end
   end
 
-  defp process_data(data, session) do
+  defp process_data(config, data, session) do
     lines = String.split(data, "\n", trim: true)
 
     Enum.reduce(lines, {session, []}, fn line, {sess, events} ->
-      case ClaudeCode.parse_event(line) do
+      case BackendClient.parse_event(config, line) do
         {:ok, event} ->
           sess =
             if event.session_id do

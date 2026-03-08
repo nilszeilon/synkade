@@ -49,7 +49,9 @@ defmodule Synkade.Workflow.Config do
       "max_tokens" => nil
     },
     "execution" => %{
-      "backend" => "local"
+      "backend" => "local",
+      "sprites_token" => nil,
+      "sprites_org" => nil
     }
   }
 
@@ -136,6 +138,9 @@ defmodule Synkade.Workflow.Config do
     to_pos_integer(get(config, "agent", "max_retry_backoff_ms"), 300_000)
   end
 
+  @spec execution_backend(map()) :: String.t()
+  def execution_backend(config), do: get(config, "execution", "backend") || "local"
+
   @spec agent_kind(map()) :: String.t()
   def agent_kind(config), do: get(config, "agent", "kind") || "claude"
 
@@ -201,6 +206,7 @@ defmodule Synkade.Workflow.Config do
       []
       |> validate_tracker(config)
       |> validate_agent(config)
+      |> validate_execution(config)
       |> validate_projects(config)
 
     case errors do
@@ -322,6 +328,29 @@ defmodule Synkade.Workflow.Config do
 
     if kind not in ["claude", "codex"] do
       ["agent.kind must be 'claude' or 'codex', got: #{kind}" | errors]
+    else
+      errors
+    end
+  end
+
+  defp validate_execution(errors, config) do
+    backend = execution_backend(config)
+
+    errors =
+      if backend not in ["local", "sprites"] do
+        ["execution.backend must be 'local' or 'sprites', got: #{backend}" | errors]
+      else
+        errors
+      end
+
+    if backend == "sprites" do
+      token = get(config, "execution", "sprites_token")
+
+      if is_nil(token) or token == "" do
+        ["execution.sprites_token is required when execution.backend is 'sprites'" | errors]
+      else
+        errors
+      end
     else
       errors
     end

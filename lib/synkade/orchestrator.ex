@@ -7,7 +7,7 @@ defmodule Synkade.Orchestrator do
   alias Synkade.Orchestrator.{State, Dispatch, Retry, Reconciler, Worker}
   alias Synkade.Workflow.{Config, Watcher, ProjectRegistry}
   alias Synkade.Tracker.Client, as: TrackerClient
-  alias Synkade.Workspace.Manager, as: WorkspaceManager
+  alias Synkade.Execution.BackendClient
   alias Synkade.Settings
   alias Synkade.Settings.ConfigAdapter
 
@@ -105,6 +105,19 @@ defmodule Synkade.Orchestrator do
       end
 
     broadcast_state(state)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:env_ready, project_name, issue_id, env_ref}, state) do
+    key = State.composite_key(project_name, issue_id)
+
+    state =
+      case Map.get(state.running, key) do
+        nil -> state
+        entry -> put_in(state.running[key], %{entry | env_ref: env_ref})
+      end
+
     {:noreply, state}
   end
 
@@ -277,18 +290,12 @@ defmodule Synkade.Orchestrator do
 
       reason = Map.get(entry, :should_stop) || :stalled
 
-      # Cleanup workspace for terminal issues
+      # Cleanup env for terminal issues
       if reason == :terminal do
         project = Map.get(acc.projects, entry.project_name)
 
-        if project do
-          workspace = %Synkade.Workspace{
-            project_name: entry.project_name,
-            path: entry.workspace_path || "",
-            workspace_key: key
-          }
-
-          WorkspaceManager.cleanup_workspace(project.config, workspace)
+        if project && entry.env_ref do
+          BackendClient.destroy_env(project.config, entry.env_ref)
         end
       end
 
@@ -375,7 +382,7 @@ defmodule Synkade.Orchestrator do
       identifier: issue.identifier,
       issue_state: issue.state,
       attempt: attempt,
-      workspace_path: nil,
+      env_ref: nil,
       session_id: nil,
       task_ref: task.ref,
       task_pid: task.pid,
