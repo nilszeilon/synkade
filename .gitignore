@@ -35,3 +35,6 @@ synkade-*.tar
 npm-debug.log
 /assets/node_modules/
 
+# Internal spec (not for distribution).
+SPEC.md
+
