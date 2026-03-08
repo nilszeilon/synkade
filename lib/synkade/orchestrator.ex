@@ -204,6 +204,8 @@ defmodule Synkade.Orchestrator do
 
     state = %{state | retry_attempts: Map.delete(state.retry_attempts, key)}
 
+    broadcast_state(state)
+
     # Attempt re-dispatch on next tick
     send(self(), :poll_tick)
 
@@ -245,15 +247,18 @@ defmodule Synkade.Orchestrator do
     state = handle_stopped_sessions(state)
 
     # 3. Validate workflow
-    case state.workflow do
-      nil ->
-        state = load_workflow(state)
-        state
+    state =
+      case state.workflow do
+        nil ->
+          load_workflow(state)
 
-      _workflow ->
-        # 4. Fetch candidates and dispatch
-        dispatch_all_projects(state)
-    end
+        _workflow ->
+          # 4. Fetch candidates and dispatch
+          dispatch_all_projects(state)
+      end
+
+    broadcast_state(state)
+    state
   end
 
   defp handle_stopped_sessions(state) do
@@ -542,7 +547,8 @@ defmodule Synkade.Orchestrator do
       retry_attempts: state.retry_attempts,
       agent_totals: state.agent_totals,
       agent_totals_by_project: state.agent_totals_by_project,
-      projects: state.projects
+      projects: state.projects,
+      workflow_error: state.workflow_error
     }
 
     Phoenix.PubSub.broadcast(pubsub, @pubsub_topic, {:state_changed, snapshot})

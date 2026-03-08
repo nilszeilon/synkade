@@ -30,7 +30,8 @@ defmodule SynkadeWeb.DashboardLive do
      |> assign(:retry_attempts, snapshot.retry_attempts)
      |> assign(:agent_totals, snapshot.agent_totals)
      |> assign(:agent_totals_by_project, snapshot.agent_totals_by_project)
-     |> assign(:projects, snapshot.projects)}
+     |> assign(:projects, snapshot.projects)
+     |> assign(:workflow_error, snapshot.workflow_error)}
   end
 
   @impl true
