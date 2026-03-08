@@ -98,8 +98,10 @@ The `WORKFLOW.md` file controls all orchestrator behavior. Here are the availabl
 | Key | Description |
 |-----|-------------|
 | `tracker.app_id` | GitHub App ID |
+| `tracker.private_key` | PEM key contents (inline) |
 | `tracker.private_key_path` | Path to `.pem` file |
 | `tracker.installation_id` | Installation ID |
+| `tracker.webhook_secret` | Webhook secret for signature verification |
 
 ### Agent
 
@@ -110,6 +112,10 @@ The `WORKFLOW.md` file controls all orchestrator behavior. Here are the availabl
 | `agent.max_turns` | Max agent turns per session | `20` |
 | `agent.allowed_tools` | Tools the agent can use | `["Read", "Edit", "Write", "Bash", "Glob", "Grep"]` |
 | `agent.model` | Model override (e.g. `claude-sonnet-4-5-20250929`) | CLI default |
+| `agent.command` | Custom command to run the agent | `claude` or `codex app-server` |
+| `agent.append_system_prompt` | Extra text appended to the agent system prompt | none |
+| `agent.turn_timeout_ms` | Timeout per agent turn | `3600000` |
+| `agent.max_tokens` | Max tokens per agent response | none |
 | `agent.stall_timeout_ms` | Kill stalled agents after this | `300000` |
 | `agent.max_retry_backoff_ms` | Max backoff between retries | `300000` |
 
