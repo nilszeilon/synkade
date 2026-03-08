@@ -63,6 +63,7 @@ defmodule Synkade.Orchestrator do
       completed: MapSet.to_list(state.completed),
       agent_totals: state.agent_totals,
       agent_totals_by_project: state.agent_totals_by_project,
+      activity_log: state.activity_log,
       workflow_error: state.workflow_error
     }
 
@@ -392,6 +393,11 @@ defmodule Synkade.Orchestrator do
 
     state = %{state | running: Map.put(state.running, key, entry)}
 
+    # Append to activity log (capped at 365 entries)
+    log_entry = %{project_name: project.name, timestamp: DateTime.utc_now()}
+    activity_log = Enum.take([log_entry | state.activity_log], 365)
+    state = %{state | activity_log: activity_log}
+
     Logger.info("Dispatched #{project.name}:#{issue.identifier}")
     broadcast_state(state)
     state
@@ -547,6 +553,7 @@ defmodule Synkade.Orchestrator do
       retry_attempts: state.retry_attempts,
       agent_totals: state.agent_totals,
       agent_totals_by_project: state.agent_totals_by_project,
+      activity_log: state.activity_log,
       projects: state.projects,
       workflow_error: state.workflow_error
     }

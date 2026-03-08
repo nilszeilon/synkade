@@ -21,7 +21,8 @@ defmodule SynkadeWeb.DashboardLive do
      |> assign(:agent_totals, state.agent_totals)
      |> assign(:agent_totals_by_project, state.agent_totals_by_project)
      |> assign(:projects, state.projects)
-     |> assign(:workflow_error, state.workflow_error)}
+     |> assign(:workflow_error, state.workflow_error)
+     |> assign(:activity_log, state.activity_log)}
   end
 
   @impl true
@@ -38,7 +39,8 @@ defmodule SynkadeWeb.DashboardLive do
      |> assign(:agent_totals, snapshot.agent_totals)
      |> assign(:agent_totals_by_project, snapshot.agent_totals_by_project)
      |> assign(:projects, snapshot.projects)
-     |> assign(:workflow_error, snapshot.workflow_error)}
+     |> assign(:workflow_error, snapshot.workflow_error)
+     |> assign(:activity_log, snapshot.activity_log)}
   end
 
   @impl true
@@ -102,6 +104,8 @@ defmodule SynkadeWeb.DashboardLive do
             <span>Workflow Error: {@workflow_error}</span>
           </div>
         <% end %>
+
+        <.activity_graph activity_log={@activity_log} current_project={@current_project} />
 
         <!-- Agent Totals -->
         <div class="grid grid-cols-4 gap-4 mb-6">
@@ -229,6 +233,65 @@ defmodule SynkadeWeb.DashboardLive do
     </Layouts.app>
     """
   end
+
+  attr :activity_log, :list, required: true
+  attr :current_project, :string, default: nil
+
+  defp activity_graph(assigns) do
+    today = Date.utc_today()
+    # Start from the Monday of 52 weeks ago
+    day_of_week = Date.day_of_week(today)
+    # End column aligns today; start_date is the Monday 51 full weeks before this week's Monday
+    this_monday = Date.add(today, -(day_of_week - 1))
+    start_date = Date.add(this_monday, -51 * 7)
+
+    log =
+      if assigns.current_project,
+        do: Enum.filter(assigns.activity_log, &(&1.project_name == assigns.current_project)),
+        else: assigns.activity_log
+
+    counts =
+      log
+      |> Enum.map(&DateTime.to_date(&1.timestamp))
+      |> Enum.frequencies()
+
+    cells =
+      for week <- 0..51, day <- 0..6 do
+        date = Date.add(start_date, week * 7 + day)
+
+        if Date.compare(date, today) != :gt do
+          count = Map.get(counts, date, 0)
+          {week, day, date, count}
+        end
+      end
+      |> Enum.reject(&is_nil/1)
+
+    assigns = assign(assigns, :cells, cells)
+
+    ~H"""
+    <div class="mb-6 overflow-x-auto">
+      <svg viewBox="0 0 732 100" class="w-full max-w-3xl" role="img" aria-label="Activity graph">
+        <%= for {week, day, date, count} <- @cells do %>
+          <rect
+            x={week * 14}
+            y={day * 14}
+            width="12"
+            height="12"
+            rx="2"
+            style={cell_fill(count)}
+          >
+            <title>{Calendar.strftime(date, "%b %-d")}: {count} {if count == 1, do: "trigger", else: "triggers"}</title>
+          </rect>
+        <% end %>
+      </svg>
+    </div>
+    """
+  end
+
+  defp cell_fill(0), do: "fill: oklch(var(--b3))"
+  defp cell_fill(n) when n <= 2, do: "fill: oklch(var(--p) / 0.2)"
+  defp cell_fill(n) when n <= 5, do: "fill: oklch(var(--p) / 0.5)"
+  defp cell_fill(_), do: "fill: oklch(var(--p))"
 
   defp format_number(n) when is_integer(n) and n >= 1_000_000 do
     "#{Float.round(n / 1_000_000, 1)}M"
