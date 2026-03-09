@@ -25,13 +25,20 @@ import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/synkade"
 import topbar from "../vendor/topbar"
 
+const DRAGGABLE_COLUMNS = ["backlog", "queue"]
+
 const KanbanDrag = {
   mounted() {
     this.el.addEventListener("dragstart", (e) => {
       const card = e.target.closest(".kanban-card")
       if (!card) return
+      const fromColumn = card.dataset.column
+      if (!DRAGGABLE_COLUMNS.includes(fromColumn)) {
+        e.preventDefault()
+        return
+      }
       e.dataTransfer.setData("issue_id", card.dataset.issueId)
-      e.dataTransfer.setData("from_column", card.dataset.column)
+      e.dataTransfer.setData("from_column", fromColumn)
       e.dataTransfer.effectAllowed = "move"
       card.classList.add("opacity-50")
     })
@@ -39,23 +46,22 @@ const KanbanDrag = {
     this.el.addEventListener("dragend", (e) => {
       const card = e.target.closest(".kanban-card")
       if (card) card.classList.remove("opacity-50")
-      // Remove all drag-over highlights
       this.el.querySelectorAll(".kanban-column").forEach((col) => {
         col.classList.remove("bg-base-300")
       })
     })
 
     this.el.addEventListener("dragover", (e) => {
+      const column = e.target.closest(".kanban-column")
+      if (!column) return
+      if (column.dataset.droppable !== "true") return
+
       e.preventDefault()
       e.dataTransfer.dropEffect = "move"
-      const column = e.target.closest(".kanban-column")
-      if (column) {
-        // Remove highlight from all columns
-        this.el.querySelectorAll(".kanban-column").forEach((col) => {
-          col.classList.remove("bg-base-300")
-        })
-        column.classList.add("bg-base-300")
-      }
+      this.el.querySelectorAll(".kanban-column").forEach((col) => {
+        col.classList.remove("bg-base-300")
+      })
+      column.classList.add("bg-base-300")
     })
 
     this.el.addEventListener("dragleave", (e) => {
@@ -69,6 +75,7 @@ const KanbanDrag = {
       e.preventDefault()
       const column = e.target.closest(".kanban-column")
       if (!column) return
+      if (column.dataset.droppable !== "true") return
 
       column.classList.remove("bg-base-300")
 

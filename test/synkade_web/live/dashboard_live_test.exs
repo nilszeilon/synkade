@@ -3,9 +3,13 @@ defmodule SynkadeWeb.DashboardLiveTest do
 
   import Phoenix.LiveViewTest
 
-  test "renders board page", %{conn: conn} do
+  test "renders board page with state-driven columns", %{conn: conn} do
     {:ok, _view, html} = live(conn, "/")
     assert html =~ "Board"
+    assert html =~ "Backlog"
+    assert html =~ "Queue"
+    assert html =~ "In Progress"
+    assert html =~ "Human Review"
     assert html =~ "running"
     assert html =~ "review"
     assert html =~ "Refresh"

@@ -3,7 +3,7 @@ defmodule Synkade.Workflow.ProjectRegistry do
 
   alias Synkade.Workflow.Config
 
-  @merge_sections ["tracker", "agent", "execution", "workspace", "kanban"]
+  @merge_sections ["tracker", "agent", "execution", "workspace"]
 
   @spec resolve_projects(map(), String.t()) :: [map()]
   def resolve_projects(config, prompt_template) do

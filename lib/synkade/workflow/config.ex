@@ -52,16 +52,6 @@ defmodule Synkade.Workflow.Config do
       "backend" => "local",
       "sprites_token" => nil,
       "sprites_org" => nil
-    },
-    "kanban" => %{
-      "columns" => [
-        %{"name" => "Backlog", "label" => "backlog"},
-        %{"name" => "Todo", "label" => "todo"},
-        %{"name" => "In Progress", "label" => "in-progress"},
-        %{"name" => "Review", "label" => "review"},
-        %{"name" => "Done", "label" => "done"}
-      ],
-      "uncategorized_column" => "Backlog"
     }
   }
 
@@ -189,19 +179,6 @@ defmodule Synkade.Workflow.Config do
     else
       "pat"
     end
-  end
-
-  @spec kanban_columns(map()) :: [map()]
-  def kanban_columns(config) do
-    case get(config, "kanban", "columns") do
-      cols when is_list(cols) -> cols
-      _ -> get_in(@defaults, ["kanban", "columns"])
-    end
-  end
-
-  @spec kanban_uncategorized_column(map()) :: String.t()
-  def kanban_uncategorized_column(config) do
-    get(config, "kanban", "uncategorized_column") || "Backlog"
   end
 
   @spec private_key_pem(map()) :: String.t() | nil
