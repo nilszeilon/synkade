@@ -10,7 +10,7 @@ defmodule Synkade.Workflow.Config do
       "project_slug" => nil,
       "active_states" => nil,
       "terminal_states" => nil,
-      "labels" => nil,
+      "labels" => ["agent"],
       "assignee" => nil,
       "app_id" => nil,
       "private_key" => nil,

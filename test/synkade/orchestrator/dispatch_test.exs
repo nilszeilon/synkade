@@ -24,7 +24,7 @@ defmodule Synkade.Orchestrator.DispatchTest do
     Map.merge(
       %{
         name: "api",
-        config: %{"tracker" => %{"kind" => "github", "repo" => "acme/api"}},
+        config: %{"tracker" => %{"kind" => "github", "repo" => "acme/api", "labels" => []}},
         max_concurrent_agents: 10,
         enabled: true
       },

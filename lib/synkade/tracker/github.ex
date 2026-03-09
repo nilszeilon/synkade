@@ -25,7 +25,8 @@ defmodule Synkade.Tracker.GitHub do
       end
 
     params = [state: gh_state, per_page: 100, sort: "created", direction: "asc"]
-    params = if labels, do: [{:labels, Enum.join(labels, ",")} | params], else: params
+    params =
+      if labels && labels != [], do: [{:labels, Enum.join(labels, ",")} | params], else: params
 
     url = "#{endpoint}/repos/#{repo}/issues"
 
