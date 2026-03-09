@@ -10,6 +10,7 @@ defmodule Synkade.Orchestrator do
   alias Synkade.Workspace.Manager, as: WorkspaceManager
   alias Synkade.Settings
   alias Synkade.Settings.ConfigAdapter
+  alias Synkade.TokenUsage
 
   @pubsub_topic "orchestrator:updates"
 
@@ -41,6 +42,9 @@ defmodule Synkade.Orchestrator do
     Phoenix.PubSub.subscribe(pubsub, Settings.pubsub_topic())
 
     state = %State{} |> Map.put(:__watcher__, watcher) |> Map.put(:__pubsub__, pubsub)
+
+    # Load persisted token totals from database
+    state = load_persisted_totals(state)
 
     # Load initial workflow
     state = load_workflow(state)
@@ -91,7 +95,8 @@ defmodule Synkade.Orchestrator do
             | last_agent_event: event.type,
               last_agent_timestamp: System.monotonic_time(:millisecond),
               last_agent_message: event.message,
-              session_id: event.session_id || entry.session_id
+              session_id: event.session_id || entry.session_id,
+              model: event.model || entry.model
           }
 
           entry = %{
@@ -369,6 +374,8 @@ defmodule Synkade.Orchestrator do
         Worker.run(orchestrator, project, issue, attempt)
       end)
 
+    auth_mode = Config.get(project.config, "agent", "auth_mode") || "api_key"
+
     entry = %{
       project_name: project.name,
       issue_id: issue.id,
@@ -377,6 +384,8 @@ defmodule Synkade.Orchestrator do
       attempt: attempt,
       workspace_path: nil,
       session_id: nil,
+      model: Config.get(project.config, "agent", "model"),
+      auth_mode: auth_mode,
       task_ref: task.ref,
       task_pid: task.pid,
       started_at: System.monotonic_time(:millisecond),
@@ -510,6 +519,9 @@ defmodule Synkade.Orchestrator do
         0.0
       end
 
+    # Persist to database
+    persist_token_usage(entry, runtime_seconds)
+
     totals = %{
       totals
       | input_tokens: totals.input_tokens + entry.agent_input_tokens,
@@ -539,6 +551,53 @@ defmodule Synkade.Orchestrator do
         agent_totals_by_project:
           Map.put(state.agent_totals_by_project, entry.project_name, project_totals)
     }
+  end
+
+  defp persist_token_usage(entry, runtime_seconds) do
+    TokenUsage.record_usage(%{
+      project_name: entry.project_name,
+      issue_id: entry.issue_id,
+      issue_identifier: entry.identifier,
+      model: entry.model,
+      auth_mode: entry.auth_mode || "api_key",
+      input_tokens: entry.agent_input_tokens,
+      output_tokens: entry.agent_output_tokens,
+      runtime_seconds: runtime_seconds
+    })
+  rescue
+    e ->
+      Logger.warning("Failed to persist token usage: #{Exception.message(e)}")
+  end
+
+  defp load_persisted_totals(state) do
+    case TokenUsage.get_totals() do
+      nil ->
+        state
+
+      totals ->
+        by_project = TokenUsage.get_totals_by_project()
+
+        %{
+          state
+          | agent_totals: %{
+              input_tokens: totals.input_tokens,
+              output_tokens: totals.output_tokens,
+              total_tokens: totals.total_tokens,
+              runtime_seconds: totals.runtime_seconds
+            },
+            agent_totals_by_project:
+              Map.new(by_project, fn {name, t} ->
+                {name, %{
+                  input_tokens: t.input_tokens,
+                  output_tokens: t.output_tokens,
+                  total_tokens: t.total_tokens,
+                  runtime_seconds: t.runtime_seconds
+                }}
+              end)
+        }
+    end
+  rescue
+    _ -> state
   end
 
   defp schedule_tick(interval_ms) do

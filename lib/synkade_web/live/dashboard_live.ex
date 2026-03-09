@@ -2,6 +2,7 @@ defmodule SynkadeWeb.DashboardLive do
   use SynkadeWeb, :live_view
 
   alias Synkade.Orchestrator
+  alias Synkade.TokenUsage
 
   @impl true
   def mount(_params, _session, socket) do
@@ -10,6 +11,7 @@ defmodule SynkadeWeb.DashboardLive do
     end
 
     state = Orchestrator.get_state()
+    usage_summary = load_usage_summary()
 
     {:ok,
      socket
@@ -22,7 +24,9 @@ defmodule SynkadeWeb.DashboardLive do
      |> assign(:agent_totals_by_project, state.agent_totals_by_project)
      |> assign(:projects, state.projects)
      |> assign(:workflow_error, state.workflow_error)
-     |> assign(:activity_log, state.activity_log)}
+     |> assign(:activity_log, state.activity_log)
+     |> assign(:usage_by_model, usage_summary.by_model)
+     |> assign(:usage_by_auth_mode, usage_summary.by_auth_mode)}
   end
 
   @impl true
@@ -32,6 +36,8 @@ defmodule SynkadeWeb.DashboardLive do
 
   @impl true
   def handle_info({:state_changed, snapshot}, socket) do
+    usage_summary = load_usage_summary()
+
     {:noreply,
      socket
      |> assign(:running, snapshot.running)
@@ -40,7 +46,9 @@ defmodule SynkadeWeb.DashboardLive do
      |> assign(:agent_totals_by_project, snapshot.agent_totals_by_project)
      |> assign(:projects, snapshot.projects)
      |> assign(:workflow_error, snapshot.workflow_error)
-     |> assign(:activity_log, snapshot.activity_log)}
+     |> assign(:activity_log, snapshot.activity_log)
+     |> assign(:usage_by_model, usage_summary.by_model)
+     |> assign(:usage_by_auth_mode, usage_summary.by_auth_mode)}
   end
 
   @impl true
@@ -108,7 +116,7 @@ defmodule SynkadeWeb.DashboardLive do
         <.activity_graph activity_log={@activity_log} current_project={@current_project} />
 
         <!-- Agent Totals -->
-        <div class="grid grid-cols-4 gap-4 mb-6">
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
           <div class="stats shadow">
             <div class="stat">
               <div class="stat-title">Running</div>
@@ -123,8 +131,20 @@ defmodule SynkadeWeb.DashboardLive do
           </div>
           <div class="stats shadow">
             <div class="stat">
+              <div class="stat-title">Input Tokens</div>
+              <div class="stat-value text-lg">{format_number(Map.get(@display_totals, :input_tokens, 0))}</div>
+            </div>
+          </div>
+          <div class="stats shadow">
+            <div class="stat">
+              <div class="stat-title">Output Tokens</div>
+              <div class="stat-value text-lg">{format_number(Map.get(@display_totals, :output_tokens, 0))}</div>
+            </div>
+          </div>
+          <div class="stats shadow">
+            <div class="stat">
               <div class="stat-title">Total Tokens</div>
-              <div class="stat-value text-lg">{format_number(@display_totals.total_tokens)}</div>
+              <div class="stat-value text-lg">{format_number(Map.get(@display_totals, :total_tokens, 0))}</div>
             </div>
           </div>
           <div class="stats shadow">
@@ -133,6 +153,21 @@ defmodule SynkadeWeb.DashboardLive do
               <div class="stat-value text-lg">{format_duration(@display_totals.runtime_seconds)}</div>
             </div>
           </div>
+        </div>
+
+        <!-- Token Usage by Auth Mode -->
+        <div :if={map_size(@usage_by_auth_mode) > 0} class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <%= for {mode, totals} <- @usage_by_auth_mode do %>
+            <div class="stats shadow">
+              <div class="stat">
+                <div class="stat-title">{auth_mode_label(mode)}</div>
+                <div class="stat-value text-lg">{format_number(totals.total_tokens)}</div>
+                <div class="stat-desc">
+                  {format_number(totals.input_tokens)} in / {format_number(totals.output_tokens)} out
+                </div>
+              </div>
+            </div>
+          <% end %>
         </div>
 
         <!-- Running Sessions -->
@@ -147,9 +182,11 @@ defmodule SynkadeWeb.DashboardLive do
                   <tr>
                     <th>Project</th>
                     <th>Issue</th>
-                    <th>Session</th>
+                    <th>Model</th>
+                    <th>Auth</th>
                     <th>Turns</th>
-                    <th>Tokens</th>
+                    <th>In / Out</th>
+                    <th>Total</th>
                     <th>Last Event</th>
                   </tr>
                 </thead>
@@ -158,8 +195,10 @@ defmodule SynkadeWeb.DashboardLive do
                     <tr>
                       <td>{entry.project_name}</td>
                       <td>{entry.identifier}</td>
-                      <td class="font-mono text-xs">{entry.session_id || "-"}</td>
+                      <td class="text-xs">{short_model(entry.model)}</td>
+                      <td class="text-xs">{auth_mode_label(entry.auth_mode)}</td>
                       <td>{entry.turn_count}</td>
+                      <td class="text-xs">{format_number(entry.agent_input_tokens)} / {format_number(entry.agent_output_tokens)}</td>
                       <td>{format_number(entry.agent_total_tokens)}</td>
                       <td>{entry.last_agent_event || "-"}</td>
                     </tr>
@@ -212,6 +251,8 @@ defmodule SynkadeWeb.DashboardLive do
                 <thead>
                   <tr>
                     <th>Project</th>
+                    <th>Input Tokens</th>
+                    <th>Output Tokens</th>
                     <th>Total Tokens</th>
                     <th>Runtime</th>
                   </tr>
@@ -220,6 +261,8 @@ defmodule SynkadeWeb.DashboardLive do
                   <%= for {name, totals} <- @filtered_totals_by_project do %>
                     <tr>
                       <td>{name}</td>
+                      <td>{format_number(Map.get(totals, :input_tokens, 0))}</td>
+                      <td>{format_number(Map.get(totals, :output_tokens, 0))}</td>
                       <td>{format_number(totals.total_tokens)}</td>
                       <td>{format_duration(totals.runtime_seconds)}</td>
                     </tr>
@@ -228,6 +271,37 @@ defmodule SynkadeWeb.DashboardLive do
               </table>
             </div>
           <% end %>
+        </div>
+
+        <!-- Usage by Model -->
+        <div :if={map_size(@usage_by_model) > 0} class="mb-6">
+          <h2 class="text-xl font-semibold mb-3">Usage by Model</h2>
+          <div class="overflow-x-auto">
+            <table class="table table-sm">
+              <thead>
+                <tr>
+                  <th>Model</th>
+                  <th>Input Tokens</th>
+                  <th>Output Tokens</th>
+                  <th>Total Tokens</th>
+                  <th>Sessions</th>
+                  <th>Runtime</th>
+                </tr>
+              </thead>
+              <tbody>
+                <%= for {model, totals} <- @usage_by_model do %>
+                  <tr>
+                    <td class="font-mono text-xs">{model || "unknown"}</td>
+                    <td>{format_number(totals.input_tokens)}</td>
+                    <td>{format_number(totals.output_tokens)}</td>
+                    <td>{format_number(totals.total_tokens)}</td>
+                    <td>{totals.session_count}</td>
+                    <td>{format_duration(totals.runtime_seconds)}</td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </Layouts.app>
@@ -312,4 +386,22 @@ defmodule SynkadeWeb.DashboardLive do
   end
 
   defp format_duration(_), do: "0s"
+
+  defp auth_mode_label("oauth"), do: "Subscription"
+  defp auth_mode_label("api_key"), do: "API"
+  defp auth_mode_label(nil), do: "-"
+  defp auth_mode_label(other), do: other
+
+  defp short_model(nil), do: "-"
+  defp short_model(model) do
+    model
+    |> String.replace(~r/-\d{8}$/, "")
+    |> String.replace("claude-", "")
+  end
+
+  defp load_usage_summary do
+    TokenUsage.get_usage_summary()
+  rescue
+    _ -> %{totals: nil, by_project: %{}, by_model: %{}, by_auth_mode: %{}}
+  end
 end

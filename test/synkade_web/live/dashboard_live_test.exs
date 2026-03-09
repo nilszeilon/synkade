@@ -37,7 +37,11 @@ defmodule SynkadeWeb.DashboardLiveTest do
           issue_id: "1",
           identifier: "#1",
           session_id: "sess-123",
+          model: "claude-sonnet-4-5-20250929",
+          auth_mode: "api_key",
           turn_count: 3,
+          agent_input_tokens: 2000,
+          agent_output_tokens: 3000,
           agent_total_tokens: 5000,
           last_agent_event: "tool_use"
         }

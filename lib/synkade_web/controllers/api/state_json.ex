@@ -57,7 +57,11 @@ defmodule SynkadeWeb.Api.StateJSON do
         identifier: entry.identifier,
         issue_state: entry.issue_state,
         session_id: entry.session_id,
+        model: entry.model,
+        auth_mode: entry.auth_mode,
         turn_count: entry.turn_count,
+        agent_input_tokens: entry.agent_input_tokens,
+        agent_output_tokens: entry.agent_output_tokens,
         agent_total_tokens: entry.agent_total_tokens,
         last_agent_event: entry.last_agent_event,
         last_agent_message: entry.last_agent_message

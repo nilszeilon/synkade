@@ -142,6 +142,7 @@ defmodule Synkade.Agent.ClaudeCode do
       type: data["type"] || "unknown",
       session_id: extract_session_id(data),
       message: extract_message(data),
+      model: extract_model(data),
       input_tokens: get_in(data, ["usage", "input_tokens"]) || 0,
       output_tokens: get_in(data, ["usage", "output_tokens"]) || 0,
       total_tokens: (get_in(data, ["usage", "input_tokens"]) || 0) +
@@ -149,6 +150,10 @@ defmodule Synkade.Agent.ClaudeCode do
       timestamp: DateTime.utc_now(),
       raw: data
     }
+  end
+
+  defp extract_model(data) do
+    data["model"] || get_in(data, ["metadata", "model"])
   end
 
   defp extract_session_id(data) do

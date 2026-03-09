@@ -28,6 +28,8 @@ defmodule SynkadeWeb.Router do
     get "/projects", StateController, :projects
     get "/projects/:name", StateController, :project
     post "/refresh", StateController, :refresh
+    get "/usage", UsageController, :index
+    get "/usage/:project_name", UsageController, :project
   end
 
   scope "/github", SynkadeWeb.GitHub do
