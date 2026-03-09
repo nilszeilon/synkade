@@ -21,25 +21,25 @@ defmodule Synkade.Prompt.RendererTest do
     test "interpolates issue variables" do
       template = "Work on {{ issue.identifier }}: {{ issue.title }}"
       assert {:ok, rendered} = Renderer.render(template, @project, @issue)
-      assert rendered == "Work on acme/api#123: Fix the login bug"
+      assert rendered =~ "Work on acme/api#123: Fix the login bug"
     end
 
     test "interpolates project variables" do
       template = "Project: {{ project.name }}"
       assert {:ok, rendered} = Renderer.render(template, @project, @issue)
-      assert rendered == "Project: api"
+      assert rendered =~ "Project: api"
     end
 
     test "interpolates attempt variable" do
       template = "Attempt: {{ attempt }}"
       assert {:ok, rendered} = Renderer.render(template, @project, @issue, 2)
-      assert rendered == "Attempt: 2"
+      assert rendered =~ "Attempt: 2"
     end
 
     test "nil attempt renders empty" do
       template = "Attempt: {{ attempt }}"
       assert {:ok, rendered} = Renderer.render(template, @project, @issue, nil)
-      assert rendered == "Attempt: "
+      assert rendered =~ "Attempt: "
     end
 
     test "iterates over labels" do
@@ -69,7 +69,22 @@ defmodule Synkade.Prompt.RendererTest do
     test "handles description" do
       template = "{{ issue.description }}"
       assert {:ok, rendered} = Renderer.render(template, @project, @issue)
-      assert rendered == "The login form crashes on empty email."
+      assert rendered =~ "The login form crashes on empty email."
+    end
+
+    test "appends PR creation instructions" do
+      template = "Work on {{ issue.identifier }}"
+      assert {:ok, rendered} = Renderer.render(template, @project, @issue)
+      assert rendered =~ "gh pr create"
+      assert rendered =~ "Fix #123"
+    end
+
+    test "uses default template when nil" do
+      assert {:ok, rendered} = Renderer.render(nil, @project, @issue)
+      assert rendered =~ "acme/api#123"
+      assert rendered =~ "Fix the login bug"
+      assert rendered =~ "The login form crashes on empty email."
+      assert rendered =~ "gh pr create"
     end
 
     test "returns error for invalid template syntax" do

@@ -1,9 +1,24 @@
 defmodule Synkade.Prompt.Renderer do
   @moduledoc false
 
-  @spec render(String.t(), map(), map(), integer() | nil) ::
+  @default_template """
+  You are working on issue {{ issue.identifier }}: {{ issue.title }}
+
+  {{ issue.description }}
+  """
+
+  @pr_suffix ~S"""
+
+  When you have completed the work, create a pull request using `gh pr create` and push it.
+  The PR title should reference the issue (e.g. "Fix #{{ issue.id }}: {{ issue.title }}").
+  Include a summary of changes in the PR body.
+  """
+
+  @spec render(String.t() | nil, map(), map(), integer() | nil) ::
           {:ok, String.t()} | {:error, term()}
   def render(template, project, issue, attempt \\ nil) do
+    template = (template || @default_template) <> @pr_suffix
+
     context =
       %{
         "project" => stringify_keys(project),
