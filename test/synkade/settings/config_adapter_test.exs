@@ -5,22 +5,19 @@ defmodule Synkade.Settings.ConfigAdapterTest do
   alias Synkade.Settings.{Setting, Project}
 
   describe "to_config/1 with PAT mode" do
-    test "produces tracker config with api_key and repo" do
+    test "produces tracker config with api_key" do
       setting = %Setting{
         github_auth_mode: "pat",
-        github_pat: "ghp_test123",
-        github_repo: "owner/repo",
-        github_endpoint: "https://github.example.com/api/v3",
-        tracker_labels: ["synkade"]
+        github_pat: "ghp_test123"
       }
 
       config = ConfigAdapter.to_config(setting)
 
       assert config["tracker"]["kind"] == "github"
       assert config["tracker"]["api_key"] == "ghp_test123"
-      assert config["tracker"]["repo"] == "owner/repo"
-      assert config["tracker"]["endpoint"] == "https://github.example.com/api/v3"
-      assert config["tracker"]["labels"] == ["synkade"]
+      refute Map.has_key?(config["tracker"], "repo")
+      refute Map.has_key?(config["tracker"], "endpoint")
+      refute Map.has_key?(config["tracker"], "labels")
       refute Map.has_key?(config["tracker"], "app_id")
     end
   end
@@ -31,8 +28,7 @@ defmodule Synkade.Settings.ConfigAdapterTest do
         github_auth_mode: "app",
         github_app_id: "123456",
         github_private_key: "-----BEGIN RSA PRIVATE KEY-----\ntest",
-        github_webhook_secret: "whsec_test",
-        github_installation_id: "789"
+        github_webhook_secret: "whsec_test"
       }
 
       config = ConfigAdapter.to_config(setting)
@@ -41,7 +37,9 @@ defmodule Synkade.Settings.ConfigAdapterTest do
       assert config["tracker"]["app_id"] == "123456"
       assert config["tracker"]["private_key"] == "-----BEGIN RSA PRIVATE KEY-----\ntest"
       assert config["tracker"]["webhook_secret"] == "whsec_test"
-      assert config["tracker"]["installation_id"] == "789"
+      refute Map.has_key?(config["tracker"], "installation_id")
+      refute Map.has_key?(config["tracker"], "endpoint")
+      refute Map.has_key?(config["tracker"], "labels")
       refute Map.has_key?(config["tracker"], "api_key")
     end
   end
@@ -51,7 +49,6 @@ defmodule Synkade.Settings.ConfigAdapterTest do
       setting = %Setting{
         github_auth_mode: "pat",
         github_pat: "ghp_test",
-        github_repo: "o/r",
         agent_kind: "claude",
         agent_api_key: "sk-ant-test",
         agent_model: "claude-sonnet-4-5-20250929",
@@ -73,8 +70,7 @@ defmodule Synkade.Settings.ConfigAdapterTest do
     test "omits nil agent fields" do
       setting = %Setting{
         github_auth_mode: "pat",
-        github_pat: "ghp_test",
-        github_repo: "o/r"
+        github_pat: "ghp_test"
       }
 
       config = ConfigAdapter.to_config(setting)
@@ -88,7 +84,6 @@ defmodule Synkade.Settings.ConfigAdapterTest do
       setting = %Setting{
         github_auth_mode: "pat",
         github_pat: "ghp_test",
-        github_repo: "o/r",
         agent_kind: "claude",
         agent_auth_mode: "oauth",
         agent_oauth_token: "oauth-token-abc"
@@ -105,7 +100,6 @@ defmodule Synkade.Settings.ConfigAdapterTest do
       setting = %Setting{
         github_auth_mode: "pat",
         github_pat: "ghp_test",
-        github_repo: "o/r",
         agent_auth_mode: "api_key",
         agent_api_key: "sk-ant-test"
       }
@@ -123,7 +117,6 @@ defmodule Synkade.Settings.ConfigAdapterTest do
       setting = %Setting{
         github_auth_mode: "pat",
         github_pat: "ghp_test",
-        github_repo: "o/r",
         execution_backend: "sprites",
         execution_sprites_token: "fly_token_123",
         execution_sprites_org: "my-org"
@@ -139,8 +132,7 @@ defmodule Synkade.Settings.ConfigAdapterTest do
     test "defaults to local backend" do
       setting = %Setting{
         github_auth_mode: "pat",
-        github_pat: "ghp_test",
-        github_repo: "o/r"
+        github_pat: "ghp_test"
       }
 
       config = ConfigAdapter.to_config(setting)
@@ -154,7 +146,6 @@ defmodule Synkade.Settings.ConfigAdapterTest do
       setting = %Setting{
         github_auth_mode: "pat",
         github_pat: "ghp_test",
-        github_repo: "o/r",
         prompt_template: "Fix {{ issue.title }}"
       }
 
@@ -166,7 +157,6 @@ defmodule Synkade.Settings.ConfigAdapterTest do
       setting = %Setting{
         github_auth_mode: "pat",
         github_pat: "ghp_test",
-        github_repo: "o/r",
         prompt_template: nil
       }
 
@@ -220,7 +210,6 @@ defmodule Synkade.Settings.ConfigAdapterTest do
       global = %Setting{
         github_auth_mode: "pat",
         github_pat: "ghp_global",
-        github_repo: "global/repo",
         agent_kind: "claude",
         agent_api_key: "sk-global",
         execution_backend: "local"

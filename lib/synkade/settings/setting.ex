@@ -12,11 +12,6 @@ defmodule Synkade.Settings.Setting do
     field :github_app_id, :string
     field :github_private_key, Synkade.Encrypted.Binary
     field :github_webhook_secret, Synkade.Encrypted.Binary
-    field :github_installation_id, :string
-    field :github_endpoint, :string
-    field :github_repo, :string
-    field :tracker_labels, {:array, :string}, default: []
-
     # Agent config
     field :agent_kind, :string, default: "claude"
     field :agent_auth_mode, :string, default: "api_key"
@@ -39,7 +34,7 @@ defmodule Synkade.Settings.Setting do
   end
 
   @github_fields ~w(github_auth_mode github_pat github_app_id github_private_key
-    github_webhook_secret github_installation_id github_endpoint github_repo tracker_labels)a
+    github_webhook_secret)a
 
   @agent_fields ~w(agent_kind agent_auth_mode agent_api_key agent_oauth_token
     agent_model agent_max_turns agent_allowed_tools agent_max_concurrent prompt_template)a
@@ -63,7 +58,7 @@ defmodule Synkade.Settings.Setting do
     case get_field(changeset, :github_auth_mode) do
       "pat" ->
         changeset
-        |> validate_required([:github_pat, :github_repo],
+        |> validate_required([:github_pat],
           message: "is required for PAT auth mode"
         )
 

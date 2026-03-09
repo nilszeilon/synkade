@@ -45,10 +45,7 @@ defmodule Synkade.Settings.ConfigAdapter do
   defp tracker_config(%Setting{github_auth_mode: "pat"} = s) do
     %{
       "kind" => "github",
-      "api_key" => s.github_pat,
-      "repo" => s.github_repo,
-      "endpoint" => s.github_endpoint,
-      "labels" => non_empty_list(s.tracker_labels)
+      "api_key" => s.github_pat
     }
     |> reject_nils()
   end
@@ -58,10 +55,7 @@ defmodule Synkade.Settings.ConfigAdapter do
       "kind" => "github",
       "app_id" => s.github_app_id,
       "private_key" => s.github_private_key,
-      "webhook_secret" => s.github_webhook_secret,
-      "installation_id" => s.github_installation_id,
-      "endpoint" => s.github_endpoint,
-      "labels" => non_empty_list(s.tracker_labels)
+      "webhook_secret" => s.github_webhook_secret
     }
     |> reject_nils()
   end

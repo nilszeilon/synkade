@@ -14,7 +14,6 @@ defmodule SynkadeWeb.SettingsLiveTest do
   test "shows PAT fields by default", %{conn: conn} do
     {:ok, _view, html} = live(conn, "/settings")
     assert html =~ "Personal Access Token"
-    assert html =~ "Repository"
   end
 
   test "switches to agents tab", %{conn: conn} do
@@ -29,7 +28,7 @@ defmodule SynkadeWeb.SettingsLiveTest do
 
     html =
       view
-      |> form("form", setting: %{github_auth_mode: "pat", github_pat: "", github_repo: ""})
+      |> form("form", setting: %{github_auth_mode: "pat", github_pat: ""})
       |> render_change()
 
     assert html =~ "is required for PAT auth mode"
@@ -42,8 +41,7 @@ defmodule SynkadeWeb.SettingsLiveTest do
     |> form("form",
       setting: %{
         github_auth_mode: "pat",
-        github_pat: "ghp_test123",
-        github_repo: "owner/repo"
+        github_pat: "ghp_test123"
       }
     )
     |> render_submit()
@@ -56,7 +54,7 @@ defmodule SynkadeWeb.SettingsLiveTest do
 
     html =
       view
-      |> form("form", setting: %{github_auth_mode: "pat", github_pat: "", github_repo: ""})
+      |> form("form", setting: %{github_auth_mode: "pat", github_pat: ""})
       |> render_submit()
 
     assert html =~ "is required for PAT auth mode"

@@ -67,14 +67,12 @@ defmodule SynkadeWeb.SettingsLive do
         case auth_mode do
           "pat" ->
             token = form_data["github_pat"] || ""
-            endpoint = form_data["github_endpoint"]
-            ConnTest.test_pat(token, endpoint)
+            ConnTest.test_pat(token, nil)
 
           "app" ->
             app_id = form_data["github_app_id"] || ""
             pem = form_data["github_private_key"] || ""
-            endpoint = form_data["github_endpoint"]
-            ConnTest.test_app(app_id, pem, endpoint)
+            ConnTest.test_app(app_id, pem, nil)
         end
 
       send(lv, {:connection_result, result})
@@ -184,19 +182,6 @@ defmodule SynkadeWeb.SettingsLive do
           />
           <.field_error field={@form[:github_pat]} />
         </div>
-
-        <div class="form-control">
-          <label class="label"><span class="label-text">Repository</span></label>
-          <input
-            type="text"
-            class="input input-bordered w-full"
-            name={@form[:github_repo].name}
-            id={@form[:github_repo].id}
-            value={@form[:github_repo].value}
-            placeholder="owner/repo"
-          />
-          <.field_error field={@form[:github_repo]} />
-        </div>
       <% else %>
         <div class="form-control">
           <label class="label"><span class="label-text">App ID</span></label>
@@ -234,41 +219,7 @@ defmodule SynkadeWeb.SettingsLive do
           />
         </div>
 
-        <div class="form-control">
-          <label class="label"><span class="label-text">Installation ID (optional)</span></label>
-          <input
-            type="text"
-            class="input input-bordered w-full"
-            name={@form[:github_installation_id].name}
-            id={@form[:github_installation_id].id}
-            value={@form[:github_installation_id].value}
-          />
-        </div>
       <% end %>
-
-      <div class="form-control">
-        <label class="label"><span class="label-text">API Endpoint (optional)</span></label>
-        <input
-          type="text"
-          class="input input-bordered w-full"
-          name={@form[:github_endpoint].name}
-          id={@form[:github_endpoint].id}
-          value={@form[:github_endpoint].value}
-          placeholder="https://api.github.com"
-        />
-      </div>
-
-      <div class="form-control">
-        <label class="label"><span class="label-text">Issue Labels (comma-separated, optional)</span></label>
-        <input
-          type="text"
-          class="input input-bordered w-full"
-          name={@form[:tracker_labels].name <> "[]"}
-          id={@form[:tracker_labels].id}
-          value={Enum.join(@form[:tracker_labels].value || [], ", ")}
-          placeholder="synkade, automated"
-        />
-      </div>
 
       <div class="flex items-center gap-4 mt-4">
         <button type="button" class="btn btn-outline btn-sm" phx-click="test_connection" disabled={@connection_testing}>

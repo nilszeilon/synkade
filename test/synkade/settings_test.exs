@@ -6,8 +6,7 @@ defmodule Synkade.SettingsTest do
 
   @valid_pat_attrs %{
     "github_auth_mode" => "pat",
-    "github_pat" => "ghp_test123",
-    "github_repo" => "owner/repo"
+    "github_pat" => "ghp_test123"
   }
 
   @valid_app_attrs %{
@@ -32,7 +31,6 @@ defmodule Synkade.SettingsTest do
       assert {:ok, %Setting{} = setting} = Settings.save_settings(@valid_pat_attrs)
       assert setting.github_auth_mode == "pat"
       assert setting.github_pat == "ghp_test123"
-      assert setting.github_repo == "owner/repo"
     end
 
     test "creates settings with App mode" do
@@ -43,15 +41,14 @@ defmodule Synkade.SettingsTest do
 
     test "upserts on second save" do
       {:ok, first} = Settings.save_settings(@valid_pat_attrs)
-      {:ok, second} = Settings.save_settings(Map.put(@valid_pat_attrs, "github_repo", "new/repo"))
+      {:ok, second} = Settings.save_settings(Map.put(@valid_pat_attrs, "github_pat", "ghp_updated"))
       assert first.id == second.id
-      assert second.github_repo == "new/repo"
+      assert second.github_pat == "ghp_updated"
     end
 
     test "returns error changeset for PAT mode without required fields" do
       assert {:error, changeset} = Settings.save_settings(%{"github_auth_mode" => "pat"})
       assert errors_on(changeset).github_pat
-      assert errors_on(changeset).github_repo
     end
 
     test "returns error changeset for App mode without required fields" do
@@ -115,7 +112,7 @@ defmodule Synkade.SettingsTest do
 
     test "returns changeset for existing setting" do
       {:ok, setting} = Settings.save_settings(@valid_pat_attrs)
-      changeset = Settings.change_settings(setting, %{"github_repo" => "new/repo"})
+      changeset = Settings.change_settings(setting, %{"github_pat" => "ghp_updated"})
       assert %Ecto.Changeset{} = changeset
     end
   end
