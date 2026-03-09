@@ -16,9 +16,9 @@ defmodule Synkade.TokenUsage do
   def get_totals do
     from(r in Record,
       select: %{
-        input_tokens: coalesce(sum(r.input_tokens), 0),
-        output_tokens: coalesce(sum(r.output_tokens), 0),
-        total_tokens: coalesce(sum(r.input_tokens), 0) + coalesce(sum(r.output_tokens), 0),
+        input_tokens: type(coalesce(sum(r.input_tokens), 0), :integer),
+        output_tokens: type(coalesce(sum(r.output_tokens), 0), :integer),
+        total_tokens: type(coalesce(sum(r.input_tokens), 0) + coalesce(sum(r.output_tokens), 0), :integer),
         runtime_seconds: coalesce(sum(r.runtime_seconds), 0.0),
         session_count: count(r.id)
       }
@@ -31,9 +31,9 @@ defmodule Synkade.TokenUsage do
     from(r in Record,
       group_by: r.project_name,
       select: {r.project_name, %{
-        input_tokens: coalesce(sum(r.input_tokens), 0),
-        output_tokens: coalesce(sum(r.output_tokens), 0),
-        total_tokens: coalesce(sum(r.input_tokens), 0) + coalesce(sum(r.output_tokens), 0),
+        input_tokens: type(coalesce(sum(r.input_tokens), 0), :integer),
+        output_tokens: type(coalesce(sum(r.output_tokens), 0), :integer),
+        total_tokens: type(coalesce(sum(r.input_tokens), 0) + coalesce(sum(r.output_tokens), 0), :integer),
         runtime_seconds: coalesce(sum(r.runtime_seconds), 0.0),
         session_count: count(r.id)
       }}
@@ -47,9 +47,9 @@ defmodule Synkade.TokenUsage do
     from(r in Record,
       group_by: r.model,
       select: {r.model, %{
-        input_tokens: coalesce(sum(r.input_tokens), 0),
-        output_tokens: coalesce(sum(r.output_tokens), 0),
-        total_tokens: coalesce(sum(r.input_tokens), 0) + coalesce(sum(r.output_tokens), 0),
+        input_tokens: type(coalesce(sum(r.input_tokens), 0), :integer),
+        output_tokens: type(coalesce(sum(r.output_tokens), 0), :integer),
+        total_tokens: type(coalesce(sum(r.input_tokens), 0) + coalesce(sum(r.output_tokens), 0), :integer),
         runtime_seconds: coalesce(sum(r.runtime_seconds), 0.0),
         session_count: count(r.id)
       }}
@@ -63,9 +63,9 @@ defmodule Synkade.TokenUsage do
     from(r in Record,
       group_by: r.auth_mode,
       select: {r.auth_mode, %{
-        input_tokens: coalesce(sum(r.input_tokens), 0),
-        output_tokens: coalesce(sum(r.output_tokens), 0),
-        total_tokens: coalesce(sum(r.input_tokens), 0) + coalesce(sum(r.output_tokens), 0),
+        input_tokens: type(coalesce(sum(r.input_tokens), 0), :integer),
+        output_tokens: type(coalesce(sum(r.output_tokens), 0), :integer),
+        total_tokens: type(coalesce(sum(r.input_tokens), 0) + coalesce(sum(r.output_tokens), 0), :integer),
         runtime_seconds: coalesce(sum(r.runtime_seconds), 0.0),
         session_count: count(r.id)
       }}
@@ -81,9 +81,9 @@ defmodule Synkade.TokenUsage do
       select: %{
         model: r.model,
         auth_mode: r.auth_mode,
-        input_tokens: coalesce(sum(r.input_tokens), 0),
-        output_tokens: coalesce(sum(r.output_tokens), 0),
-        total_tokens: coalesce(sum(r.input_tokens), 0) + coalesce(sum(r.output_tokens), 0),
+        input_tokens: type(coalesce(sum(r.input_tokens), 0), :integer),
+        output_tokens: type(coalesce(sum(r.output_tokens), 0), :integer),
+        total_tokens: type(coalesce(sum(r.input_tokens), 0) + coalesce(sum(r.output_tokens), 0), :integer),
         runtime_seconds: coalesce(sum(r.runtime_seconds), 0.0),
         session_count: count(r.id)
       }
@@ -99,9 +99,9 @@ defmodule Synkade.TokenUsage do
       select: %{
         model: r.model,
         auth_mode: r.auth_mode,
-        input_tokens: coalesce(sum(r.input_tokens), 0),
-        output_tokens: coalesce(sum(r.output_tokens), 0),
-        total_tokens: coalesce(sum(r.input_tokens), 0) + coalesce(sum(r.output_tokens), 0),
+        input_tokens: type(coalesce(sum(r.input_tokens), 0), :integer),
+        output_tokens: type(coalesce(sum(r.output_tokens), 0), :integer),
+        total_tokens: type(coalesce(sum(r.input_tokens), 0) + coalesce(sum(r.output_tokens), 0), :integer),
         runtime_seconds: coalesce(sum(r.runtime_seconds), 0.0),
         session_count: count(r.id)
       }

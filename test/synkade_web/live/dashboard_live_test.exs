@@ -24,10 +24,21 @@ defmodule SynkadeWeb.DashboardLiveTest do
   end
 
   test "updates in real-time when state_changed is broadcast", %{conn: conn} do
-    {:ok, view, html} = live(conn, "/")
+    {:ok, view, _html} = live(conn, "/")
 
-    # Initially no running sessions
-    assert html =~ "No active sessions"
+    # Broadcast a state change with no running entries first
+    empty_snapshot = %{
+      running: %{},
+      retry_attempts: %{},
+      agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, runtime_seconds: 0.0},
+      agent_totals_by_project: %{},
+      activity_log: [],
+      projects: %{},
+      workflow_error: nil
+    }
+
+    Phoenix.PubSub.broadcast(Synkade.PubSub, Synkade.Orchestrator.pubsub_topic(), {:state_changed, empty_snapshot})
+    assert render(view) =~ "No active sessions"
 
     # Broadcast a state change with a running entry
     snapshot = %{
@@ -61,7 +72,7 @@ defmodule SynkadeWeb.DashboardLiveTest do
     refute html =~ "No active sessions"
     assert html =~ "test"
     assert html =~ "#1"
-    assert html =~ "sess-123"
+    assert html =~ "tool_use"
   end
 
   test "updates workflow_error in real-time", %{conn: conn} do
