@@ -82,6 +82,35 @@ defmodule Synkade.Agent.ClaudeCodeTest do
 
       assert env == []
     end
+
+    test "includes GITHUB_TOKEN from tracker api_key (PAT mode)" do
+      config = %{
+        "agent" => %{"api_key" => "sk-test"},
+        "tracker" => %{"api_key" => "ghp_pat_token"}
+      }
+
+      env = ClaudeCode.build_env(config)
+      assert {~c"GITHUB_TOKEN", ~c"ghp_pat_token"} in env
+      assert {~c"ANTHROPIC_API_KEY", ~c"sk-test"} in env
+    end
+
+    test "includes GITHUB_TOKEN from GITHUB_TOKEN env var when no tracker api_key" do
+      config = %{"agent" => %{"api_key" => "sk-test"}, "tracker" => %{}}
+      System.put_env("GITHUB_TOKEN", "ghp_env_token")
+
+      env = ClaudeCode.build_env(config)
+      assert {~c"GITHUB_TOKEN", ~c"ghp_env_token"} in env
+
+      System.delete_env("GITHUB_TOKEN")
+    end
+
+    test "omits GITHUB_TOKEN when neither tracker api_key nor env var set" do
+      config = %{"agent" => %{"api_key" => "sk-test"}, "tracker" => %{}}
+      System.delete_env("GITHUB_TOKEN")
+
+      env = ClaudeCode.build_env(config)
+      refute Enum.any?(env, fn {k, _} -> k == ~c"GITHUB_TOKEN" end)
+    end
   end
 
   describe "parse_event/1" do

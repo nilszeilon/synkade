@@ -18,6 +18,7 @@ defmodule SynkadeWeb.DashboardLive do
      |> assign(:current_project, nil)
      |> assign(:running, state.running)
      |> assign(:retry_attempts, state.retry_attempts)
+     |> assign(:awaiting_review, state.awaiting_review)
      |> assign(:agent_totals, state.agent_totals)
      |> assign(:agent_totals_by_project, state.agent_totals_by_project)
      |> assign(:projects, state.projects)
@@ -36,6 +37,7 @@ defmodule SynkadeWeb.DashboardLive do
      socket
      |> assign(:running, snapshot.running)
      |> assign(:retry_attempts, snapshot.retry_attempts)
+     |> assign(:awaiting_review, snapshot.awaiting_review)
      |> assign(:agent_totals, snapshot.agent_totals)
      |> assign(:agent_totals_by_project, snapshot.agent_totals_by_project)
      |> assign(:projects, snapshot.projects)
@@ -61,6 +63,11 @@ defmodule SynkadeWeb.DashboardLive do
         do: Map.filter(assigns.retry_attempts, fn {_k, e} -> e.project_name == assigns.current_project end),
         else: assigns.retry_attempts
 
+    filtered_awaiting =
+      if assigns.current_project,
+        do: Map.filter(assigns.awaiting_review, fn {_k, e} -> e.project_name == assigns.current_project end),
+        else: assigns.awaiting_review
+
     filtered_totals_by_project =
       if assigns.current_project,
         do: Map.take(assigns.agent_totals_by_project, [assigns.current_project]),
@@ -80,6 +87,7 @@ defmodule SynkadeWeb.DashboardLive do
       assigns
       |> assign(:filtered_running, filtered_running)
       |> assign(:filtered_retries, filtered_retries)
+      |> assign(:filtered_awaiting, filtered_awaiting)
       |> assign(:filtered_totals_by_project, filtered_totals_by_project)
       |> assign(:display_totals, display_totals)
 
@@ -108,11 +116,17 @@ defmodule SynkadeWeb.DashboardLive do
         <.activity_graph activity_log={@activity_log} current_project={@current_project} />
 
         <!-- Agent Totals -->
-        <div class="grid grid-cols-4 gap-4 mb-6">
+        <div class="grid grid-cols-5 gap-4 mb-6">
           <div class="stats shadow">
             <div class="stat">
               <div class="stat-title">Running</div>
               <div class="stat-value">{map_size(@filtered_running)}</div>
+            </div>
+          </div>
+          <div class="stats shadow">
+            <div class="stat">
+              <div class="stat-title">Awaiting Review</div>
+              <div class="stat-value">{map_size(@filtered_awaiting)}</div>
             </div>
           </div>
           <div class="stats shadow">
@@ -193,6 +207,43 @@ defmodule SynkadeWeb.DashboardLive do
                       <td>{entry.identifier}</td>
                       <td>{entry.attempt}</td>
                       <td class="text-xs">{entry.error || "-"}</td>
+                    </tr>
+                  <% end %>
+                </tbody>
+              </table>
+            </div>
+          <% end %>
+        </div>
+
+        <!-- Awaiting Review -->
+        <div class="mb-6">
+          <h2 class="text-xl font-semibold mb-3">Awaiting Review</h2>
+          <%= if map_size(@filtered_awaiting) == 0 do %>
+            <p class="text-base-content/60">No PRs awaiting review.</p>
+          <% else %>
+            <div class="overflow-x-auto">
+              <table class="table table-sm">
+                <thead>
+                  <tr>
+                    <th>Project</th>
+                    <th>Issue</th>
+                    <th>PR</th>
+                    <th>Tokens</th>
+                    <th>Environment</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <%= for {_key, entry} <- @filtered_awaiting do %>
+                    <tr>
+                      <td>{entry.project_name}</td>
+                      <td>{entry.identifier}</td>
+                      <td>
+                        <a href={entry.pr_url} target="_blank" class="link link-primary">
+                          #{entry.pr_number}
+                        </a>
+                      </td>
+                      <td>{format_number(entry.agent_total_tokens)}</td>
+                      <td class="text-xs">{if entry.env_ref, do: entry.env_ref[:type] || "local", else: "-"}</td>
                     </tr>
                   <% end %>
                 </tbody>

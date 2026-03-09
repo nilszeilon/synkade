@@ -13,6 +13,7 @@ defmodule Synkade.Orchestrator.Reconciler do
     state
     |> detect_stalls()
     |> refresh_issue_states()
+    |> check_pr_statuses()
   end
 
   @doc "Detect stalled sessions based on last agent event timestamp."
@@ -100,6 +101,48 @@ defmodule Synkade.Orchestrator.Reconciler do
         true ->
           # Update the current state
           put_in(acc.running[key], Map.put(entry, :issue_state, current_state))
+      end
+    end)
+  end
+
+  @doc "Check PR statuses for awaiting_review entries."
+  @spec check_pr_statuses(State.t()) :: State.t()
+  def check_pr_statuses(state) do
+    by_project =
+      state.awaiting_review
+      |> Enum.group_by(
+        fn {_key, entry} -> entry.project_name end,
+        fn {key, entry} -> {key, entry} end
+      )
+
+    Enum.reduce(by_project, state, fn {project_name, entries}, acc ->
+      project = Map.get(acc.projects, project_name)
+
+      if project do
+        Enum.reduce(entries, acc, fn {key, entry}, inner_acc ->
+          case TrackerClient.fetch_pr_status(project.config, project_name, entry.pr_number) do
+            {:ok, %{merged: true}} ->
+              Logger.info("PR merged for #{key}")
+              put_in(inner_acc.awaiting_review[key], Map.put(entry, :should_stop, :pr_merged))
+
+            {:ok, %{state: "closed"}} ->
+              Logger.info("PR closed for #{key}")
+              put_in(inner_acc.awaiting_review[key], Map.put(entry, :should_stop, :pr_closed))
+
+            {:ok, %{state: "open"}} ->
+              inner_acc
+
+            {:error, :not_found} ->
+              Logger.warning("PR not found for #{key}, marking for cleanup")
+              put_in(inner_acc.awaiting_review[key], Map.put(entry, :should_stop, :pr_not_found))
+
+            {:error, reason} ->
+              Logger.warning("Failed to check PR status for #{key}: #{inspect(reason)}")
+              inner_acc
+          end
+        end)
+      else
+        acc
       end
     end)
   end

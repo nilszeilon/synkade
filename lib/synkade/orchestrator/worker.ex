@@ -72,10 +72,16 @@ defmodule Synkade.Orchestrator.Worker do
       {:exit, 0} ->
         Logger.info("Agent exited normally for #{project.name}:#{issue.identifier}")
 
-        if turn < max_turns do
-          check_and_continue(orchestrator, project, issue, session, config, max_turns, turn)
-        else
-          {:ok, :max_turns_reached, session}
+        case extract_pr_url(session) do
+          {:ok, pr_url} ->
+            {:ok, {:pr_created, pr_url}, session}
+
+          :none ->
+            if turn < max_turns do
+              check_and_continue(orchestrator, project, issue, session, config, max_turns, turn)
+            else
+              {:ok, :max_turns_reached, session}
+            end
         end
 
       {:exit, code} ->
@@ -128,12 +134,34 @@ defmodule Synkade.Orchestrator.Worker do
               sess
             end
 
+          sess = %{sess | events: sess.events ++ [event]}
+
           {sess, events ++ [event]}
 
         :skip ->
           {sess, events}
       end
     end)
+  end
+
+  @doc "Extract a GitHub PR URL from the session's accumulated events."
+  def extract_pr_url(session) do
+    pr_regex = ~r{https://github\.com/[^/]+/[^/]+/pull/\d+}
+
+    session.events
+    |> Enum.reverse()
+    |> Enum.find_value(fn event ->
+      if event.message do
+        case Regex.run(pr_regex, event.message) do
+          [url | _] -> url
+          _ -> nil
+        end
+      end
+    end)
+    |> case do
+      nil -> :none
+      url -> {:ok, url}
+    end
   end
 
   defp normalize_state(state), do: state |> String.trim() |> String.downcase()

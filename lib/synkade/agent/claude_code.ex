@@ -113,19 +113,50 @@ defmodule Synkade.Agent.ClaudeCode do
 
   @doc false
   def build_env(config) do
-    case Config.get(config, "agent", "auth_mode") do
-      "oauth" ->
-        case Config.get(config, "agent", "oauth_token") do
-          nil -> []
-          "" -> []
-          token -> [{~c"CLAUDE_CODE_OAUTH_TOKEN", String.to_charlist(token)}]
+    agent_env =
+      case Config.get(config, "agent", "auth_mode") do
+        "oauth" ->
+          case Config.get(config, "agent", "oauth_token") do
+            nil -> []
+            "" -> []
+            token -> [{~c"CLAUDE_CODE_OAUTH_TOKEN", String.to_charlist(token)}]
+          end
+
+        _ ->
+          case Config.get(config, "agent", "api_key") do
+            nil -> []
+            "" -> []
+            key -> [{~c"ANTHROPIC_API_KEY", String.to_charlist(key)}]
+          end
+      end
+
+    case resolve_github_token(config) do
+      nil -> agent_env
+      token -> [{~c"GITHUB_TOKEN", String.to_charlist(token)} | agent_env]
+    end
+  end
+
+  defp resolve_github_token(config) do
+    case Config.auth_mode(config) do
+      "app" ->
+        installation_id = Config.get(config, "tracker", "installation_id")
+
+        case Synkade.Tracker.GitHub.TokenServer.get_token(installation_id) do
+          {:ok, token} -> token
+          {:error, _} -> nil
         end
 
       _ ->
-        case Config.get(config, "agent", "api_key") do
-          nil -> []
-          "" -> []
-          key -> [{~c"ANTHROPIC_API_KEY", String.to_charlist(key)}]
+        case Config.get(config, "tracker", "api_key") do
+          nil ->
+            case System.get_env("GITHUB_TOKEN") do
+              nil -> nil
+              "" -> nil
+              token -> token
+            end
+
+          token ->
+            token
         end
     end
   end

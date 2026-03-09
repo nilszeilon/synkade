@@ -60,7 +60,7 @@ defmodule Synkade.Orchestrator do
       running: state.running,
       claimed: MapSet.to_list(state.claimed),
       retry_attempts: state.retry_attempts,
-      completed: MapSet.to_list(state.completed),
+      awaiting_review: state.awaiting_review,
       agent_totals: state.agent_totals,
       agent_totals_by_project: state.agent_totals_by_project,
       activity_log: state.activity_log,
@@ -137,6 +137,25 @@ defmodule Synkade.Orchestrator do
 
     state =
       case result do
+        {:ok, {:pr_created, pr_url}, _session} ->
+          pr_number = extract_pr_number(pr_url)
+
+          review_entry = %{
+            project_name: project_name,
+            issue_id: issue_id,
+            identifier: (entry && entry.identifier) || issue_id,
+            pr_url: pr_url,
+            pr_number: pr_number,
+            env_ref: entry && entry.env_ref,
+            session_id: entry && entry.session_id,
+            created_at: System.monotonic_time(:millisecond),
+            agent_total_tokens: (entry && entry.agent_total_tokens) || 0
+          }
+
+          Logger.info("PR created for #{key}: #{pr_url}")
+
+          %{state | awaiting_review: Map.put(state.awaiting_review, key, review_entry)}
+
         {:ok, _reason, _session} ->
           # Normal exit - schedule continuation retry
           retry =
@@ -276,32 +295,55 @@ defmodule Synkade.Orchestrator do
   end
 
   defp handle_stopped_sessions(state) do
+    # Handle stopped running sessions
     to_stop =
       state.running
       |> Enum.filter(fn {_key, entry} ->
         Map.get(entry, :should_stop) != nil or Map.get(entry, :stalled) == true
       end)
 
-    Enum.reduce(to_stop, state, fn {key, entry}, acc ->
-      # Stop the task if possible
-      if entry.task_ref do
-        Task.Supervisor.terminate_child(Synkade.TaskSupervisor, entry.task_pid)
-      end
-
-      reason = Map.get(entry, :should_stop) || :stalled
-
-      # Cleanup env for terminal issues
-      if reason == :terminal do
-        project = Map.get(acc.projects, entry.project_name)
-
-        if project && entry.env_ref do
-          BackendClient.destroy_env(project.config, entry.env_ref)
+    state =
+      Enum.reduce(to_stop, state, fn {key, entry}, acc ->
+        # Stop the task if possible
+        if entry.task_ref do
+          Task.Supervisor.terminate_child(Synkade.TaskSupervisor, entry.task_pid)
         end
+
+        reason = Map.get(entry, :should_stop) || :stalled
+
+        # Cleanup env for terminal issues
+        if reason == :terminal do
+          project = Map.get(acc.projects, entry.project_name)
+
+          if project && entry.env_ref do
+            BackendClient.destroy_env(project.config, entry.env_ref)
+          end
+        end
+
+        running = Map.delete(acc.running, key)
+        claimed = MapSet.delete(acc.claimed, key)
+        %{acc | running: running, claimed: claimed}
+      end)
+
+    # Handle resolved awaiting_review entries
+    resolved_reviews =
+      state.awaiting_review
+      |> Enum.filter(fn {_key, entry} -> Map.get(entry, :should_stop) != nil end)
+
+    Enum.reduce(resolved_reviews, state, fn {key, entry}, acc ->
+      project = Map.get(acc.projects, entry.project_name)
+
+      if project && entry.env_ref do
+        BackendClient.destroy_env(project.config, entry.env_ref)
       end
 
-      running = Map.delete(acc.running, key)
-      claimed = MapSet.delete(acc.claimed, key)
-      %{acc | running: running, claimed: claimed}
+      Logger.info("PR #{entry.should_stop} for #{key}, cleaning up")
+
+      %{
+        acc
+        | awaiting_review: Map.delete(acc.awaiting_review, key),
+          claimed: MapSet.delete(acc.claimed, key)
+      }
     end)
   end
 
@@ -558,6 +600,7 @@ defmodule Synkade.Orchestrator do
     snapshot = %{
       running: state.running,
       retry_attempts: state.retry_attempts,
+      awaiting_review: state.awaiting_review,
       agent_totals: state.agent_totals,
       agent_totals_by_project: state.agent_totals_by_project,
       activity_log: state.activity_log,
@@ -577,5 +620,12 @@ defmodule Synkade.Orchestrator do
 
   defp find_task_entry(state, ref) do
     Enum.find(state.running, fn {_key, entry} -> entry.task_ref == ref end)
+  end
+
+  defp extract_pr_number(pr_url) do
+    case Regex.run(~r{/pull/(\d+)$}, pr_url) do
+      [_, number] -> number
+      _ -> nil
+    end
   end
 end

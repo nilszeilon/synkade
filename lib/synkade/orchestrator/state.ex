@@ -8,7 +8,7 @@ defmodule Synkade.Orchestrator.State do
           running: %{String.t() => map()},
           claimed: MapSet.t(String.t()),
           retry_attempts: %{String.t() => map()},
-          completed: MapSet.t(String.t()),
+          awaiting_review: %{String.t() => map()},
           agent_totals: %{
             input_tokens: non_neg_integer(),
             output_tokens: non_neg_integer(),
@@ -28,7 +28,7 @@ defmodule Synkade.Orchestrator.State do
             running: %{},
             claimed: MapSet.new(),
             retry_attempts: %{},
-            completed: MapSet.new(),
+            awaiting_review: %{},
             agent_totals: %{
               input_tokens: 0,
               output_tokens: 0,

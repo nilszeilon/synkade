@@ -143,6 +143,58 @@ defmodule Synkade.Tracker.GitHubTest do
     end
   end
 
+  describe "fetch_pr_status" do
+    test "returns merged status" do
+      name = :github_pr_merged
+      config = make_config(name)
+
+      Req.Test.stub(name, fn conn ->
+        Req.Test.json(conn, %{"state" => "closed", "merged" => true})
+      end)
+
+      assert {:ok, %{state: "closed", merged: true}} =
+               GitHub.fetch_pr_status(config, "api", "10")
+    end
+
+    test "returns open status" do
+      name = :github_pr_open
+      config = make_config(name)
+
+      Req.Test.stub(name, fn conn ->
+        Req.Test.json(conn, %{"state" => "open", "merged" => false})
+      end)
+
+      assert {:ok, %{state: "open", merged: false}} =
+               GitHub.fetch_pr_status(config, "api", "10")
+    end
+
+    test "returns error for not found" do
+      name = :github_pr_404
+      config = make_config(name)
+
+      Req.Test.stub(name, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(404, Jason.encode!(%{"message" => "Not Found"}))
+      end)
+
+      assert {:error, :not_found} = GitHub.fetch_pr_status(config, "api", "999")
+    end
+
+    test "handles API error" do
+      name = :github_pr_error
+      config = make_config(name)
+
+      Req.Test.stub(name, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(500, Jason.encode!(%{"message" => "Server Error"}))
+      end)
+
+      assert {:error, _} = GitHub.fetch_pr_status(config, "api", "10")
+    end
+  end
+
   describe "fetch_issue_states_by_ids" do
     test "fetches individual issue states" do
       name = :github_states

@@ -43,6 +43,7 @@ defmodule SynkadeWeb.DashboardLiveTest do
         }
       },
       retry_attempts: %{},
+      awaiting_review: %{},
       agent_totals: %{input_tokens: 2000, output_tokens: 3000, total_tokens: 5000, runtime_seconds: 42.0},
       agent_totals_by_project: %{},
       activity_log: [],
@@ -66,6 +67,7 @@ defmodule SynkadeWeb.DashboardLiveTest do
     snapshot = %{
       running: %{},
       retry_attempts: %{},
+      awaiting_review: %{},
       agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, runtime_seconds: 0.0},
       agent_totals_by_project: %{},
       activity_log: [],

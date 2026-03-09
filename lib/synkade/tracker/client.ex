@@ -22,6 +22,11 @@ defmodule Synkade.Tracker.Client do
     adapter.fetch_issue_states_by_ids(config, project_name, ids)
   end
 
+  def fetch_pr_status(config, project_name, pr_number) do
+    adapter = adapter_for(config)
+    adapter.fetch_pr_status(config, project_name, pr_number)
+  end
+
   defp adapter_for(config) do
     kind = Config.tracker_kind(config)
     Map.get(@adapters, kind) || raise "Unsupported tracker kind: #{kind}"

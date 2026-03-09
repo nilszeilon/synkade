@@ -19,4 +19,11 @@ defmodule Synkade.Tracker.Behaviour do
               ids :: [String.t()]
             ) ::
               {:ok, %{String.t() => String.t()}} | {:error, term()}
+
+  @callback fetch_pr_status(
+              config :: map(),
+              project_name :: String.t(),
+              pr_number :: String.t()
+            ) ::
+              {:ok, %{state: String.t(), merged: boolean()}} | {:error, term()}
 end

@@ -74,6 +74,27 @@ defmodule Synkade.Tracker.GitHub do
     results
   end
 
+  @impl true
+  def fetch_pr_status(config, _project_name, pr_number) do
+    repo = Config.get(config, "tracker", "repo")
+    endpoint = Config.get(config, "tracker", "endpoint") || "https://api.github.com"
+    url = "#{endpoint}/repos/#{repo}/pulls/#{pr_number}"
+
+    case req_get(url, [], config) do
+      {:ok, %{status: 200, body: body}} ->
+        {:ok, %{state: body["state"], merged: body["merged"] || false}}
+
+      {:ok, %{status: 404}} ->
+        {:error, :not_found}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, "GitHub API error #{status}: #{inspect(body)}"}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   # --- Private ---
 
   defp fetch_all_pages(url, params, config, acc \\ []) do
