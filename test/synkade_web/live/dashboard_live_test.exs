@@ -3,19 +3,17 @@ defmodule SynkadeWeb.DashboardLiveTest do
 
   import Phoenix.LiveViewTest
 
-  test "renders dashboard page", %{conn: conn} do
+  test "renders board page", %{conn: conn} do
     {:ok, _view, html} = live(conn, "/")
-    assert html =~ "Overview"
-    assert html =~ "Running"
-    assert html =~ "Retry Queue"
-    assert html =~ "Total Tokens"
+    assert html =~ "Board"
+    assert html =~ "running"
+    assert html =~ "review"
+    assert html =~ "Refresh"
   end
 
   test "shows workflow error when present", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/")
-    # The workflow error should show since there's no WORKFLOW.md in test
-    # The dashboard still renders
-    assert render(view) =~ "Overview"
+    assert render(view) =~ "Board"
   end
 
   test "refresh button exists", %{conn: conn} do
@@ -24,12 +22,8 @@ defmodule SynkadeWeb.DashboardLiveTest do
   end
 
   test "updates in real-time when state_changed is broadcast", %{conn: conn} do
-    {:ok, view, html} = live(conn, "/")
+    {:ok, view, _html} = live(conn, "/")
 
-    # Initially no running sessions
-    assert html =~ "No active sessions"
-
-    # Broadcast a state change with a running entry
     snapshot = %{
       running: %{
         "test:1" => %{
@@ -51,14 +45,14 @@ defmodule SynkadeWeb.DashboardLiveTest do
       workflow_error: nil
     }
 
-    Phoenix.PubSub.broadcast(Synkade.PubSub, Synkade.Orchestrator.pubsub_topic(), {:state_changed, snapshot})
+    Phoenix.PubSub.broadcast(
+      Synkade.PubSub,
+      Synkade.Orchestrator.pubsub_topic(),
+      {:state_changed, snapshot}
+    )
 
-    # Dashboard should update without manual refresh
     html = render(view)
-    refute html =~ "No active sessions"
-    assert html =~ "test"
-    assert html =~ "#1"
-    assert html =~ "sess-123"
+    assert html =~ "1 running"
   end
 
   test "updates workflow_error in real-time", %{conn: conn} do
@@ -75,7 +69,11 @@ defmodule SynkadeWeb.DashboardLiveTest do
       workflow_error: "Config file missing"
     }
 
-    Phoenix.PubSub.broadcast(Synkade.PubSub, Synkade.Orchestrator.pubsub_topic(), {:state_changed, snapshot})
+    Phoenix.PubSub.broadcast(
+      Synkade.PubSub,
+      Synkade.Orchestrator.pubsub_topic(),
+      {:state_changed, snapshot}
+    )
 
     html = render(view)
     assert html =~ "Config file missing"

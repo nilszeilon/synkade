@@ -195,6 +195,108 @@ defmodule Synkade.Tracker.GitHubTest do
     end
   end
 
+  describe "fetch_all_issues" do
+    test "returns all issues without label filtering" do
+      name = :github_all_issues
+      config = make_config(name)
+
+      Req.Test.stub(name, fn conn ->
+        # Verify no labels param is set
+        query = Plug.Conn.fetch_query_params(conn).query_params
+        refute Map.has_key?(query, "labels")
+
+        Req.Test.json(conn, [
+          %{
+            "number" => 1,
+            "title" => "Backlog item",
+            "body" => nil,
+            "state" => "open",
+            "html_url" => "https://github.com/acme/api/issues/1",
+            "labels" => [%{"name" => "backlog"}],
+            "created_at" => "2024-01-15T10:00:00Z",
+            "updated_at" => "2024-01-15T10:00:00Z"
+          },
+          %{
+            "number" => 2,
+            "title" => "Agent task",
+            "body" => nil,
+            "state" => "open",
+            "html_url" => "https://github.com/acme/api/issues/2",
+            "labels" => [%{"name" => "agent"}, %{"name" => "in-progress"}],
+            "created_at" => "2024-01-15T10:00:00Z",
+            "updated_at" => "2024-01-15T10:00:00Z"
+          }
+        ])
+      end)
+
+      assert {:ok, issues} = GitHub.fetch_all_issues(config, "api", states: ["open"])
+      assert length(issues) == 2
+      assert Enum.map(issues, & &1.id) == ["1", "2"]
+    end
+  end
+
+  describe "add_issue_label" do
+    test "adds a label to an issue" do
+      name = :github_add_label
+      config = make_config(name)
+
+      Req.Test.stub(name, fn conn ->
+        assert conn.method == "POST"
+        assert conn.request_path == "/repos/acme/api/issues/42/labels"
+
+        {:ok, body, _} = Plug.Conn.read_body(conn)
+        decoded = Jason.decode!(body)
+        assert decoded["labels"] == ["in-progress"]
+
+        Req.Test.json(conn, [%{"name" => "in-progress"}])
+      end)
+
+      assert :ok = GitHub.add_issue_label(config, "api", "42", "in-progress")
+    end
+
+    test "returns error on failure" do
+      name = :github_add_label_error
+      config = make_config(name)
+
+      Req.Test.stub(name, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(422, Jason.encode!(%{"message" => "Validation Failed"}))
+      end)
+
+      assert {:error, _} = GitHub.add_issue_label(config, "api", "42", "bad-label")
+    end
+  end
+
+  describe "remove_issue_label" do
+    test "removes a label from an issue" do
+      name = :github_remove_label
+      config = make_config(name)
+
+      Req.Test.stub(name, fn conn ->
+        assert conn.method == "DELETE"
+        assert conn.request_path == "/repos/acme/api/issues/42/labels/in-progress"
+
+        Req.Test.json(conn, [])
+      end)
+
+      assert :ok = GitHub.remove_issue_label(config, "api", "42", "in-progress")
+    end
+
+    test "treats 404 as success (idempotent)" do
+      name = :github_remove_label_404
+      config = make_config(name)
+
+      Req.Test.stub(name, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(404, Jason.encode!(%{"message" => "Label does not exist"}))
+      end)
+
+      assert :ok = GitHub.remove_issue_label(config, "api", "42", "nonexistent")
+    end
+  end
+
   describe "fetch_issue_states_by_ids" do
     test "fetches individual issue states" do
       name = :github_states

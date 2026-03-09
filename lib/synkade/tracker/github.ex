@@ -76,6 +76,67 @@ defmodule Synkade.Tracker.GitHub do
   end
 
   @impl true
+  def fetch_all_issues(config, project_name, opts \\ []) do
+    repo = Config.get(config, "tracker", "repo")
+    endpoint = Config.get(config, "tracker", "endpoint") || "https://api.github.com"
+
+    states = Keyword.get(opts, :states, ["open"])
+
+    gh_state =
+      cond do
+        Enum.all?(states, &(normalize_state(&1) == "open")) -> "open"
+        Enum.all?(states, &(normalize_state(&1) == "closed")) -> "closed"
+        true -> "all"
+      end
+
+    params = [state: gh_state, per_page: 100, sort: "created", direction: "asc"]
+    url = "#{endpoint}/repos/#{repo}/issues"
+
+    case fetch_all_pages(url, params, config) do
+      {:ok, raw_issues} ->
+        issues =
+          raw_issues
+          |> Enum.reject(&Map.has_key?(&1, "pull_request"))
+          |> Enum.filter(fn issue ->
+            state = normalize_state(issue["state"])
+            state in Enum.map(states, &normalize_state/1)
+          end)
+          |> Enum.map(&normalize_issue(&1, project_name, config))
+
+        {:ok, issues}
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  @impl true
+  def add_issue_label(config, _project_name, issue_id, label) do
+    repo = Config.get(config, "tracker", "repo")
+    endpoint = Config.get(config, "tracker", "endpoint") || "https://api.github.com"
+    url = "#{endpoint}/repos/#{repo}/issues/#{issue_id}/labels"
+
+    case req_post(url, %{"labels" => [label]}, config) do
+      {:ok, %{status: status}} when status in 200..299 -> :ok
+      {:ok, %{status: status, body: body}} -> {:error, "GitHub API error #{status}: #{inspect(body)}"}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @impl true
+  def remove_issue_label(config, _project_name, issue_id, label) do
+    repo = Config.get(config, "tracker", "repo")
+    endpoint = Config.get(config, "tracker", "endpoint") || "https://api.github.com"
+    url = "#{endpoint}/repos/#{repo}/issues/#{issue_id}/labels/#{URI.encode(label)}"
+
+    case req_delete(url, config) do
+      {:ok, %{status: status}} when status in [200, 204, 404] -> :ok
+      {:ok, %{status: status, body: body}} -> {:error, "GitHub API error #{status}: #{inspect(body)}"}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @impl true
   def fetch_pr_status(config, _project_name, pr_number) do
     repo = Config.get(config, "tracker", "repo")
     endpoint = Config.get(config, "tracker", "endpoint") || "https://api.github.com"
@@ -133,6 +194,42 @@ defmodule Synkade.Tracker.GitHub do
       end
 
     Req.get(url, opts)
+  end
+
+  defp req_post(url, body, config) do
+    token = resolve_token(config)
+
+    headers =
+      [{"accept", "application/vnd.github+json"}] ++
+        if(token, do: [{"authorization", "Bearer #{token}"}], else: [])
+
+    opts = [headers: headers, json: body, receive_timeout: 30_000]
+
+    opts =
+      case Map.get(config, "__req_options__") do
+        nil -> opts
+        extra -> Keyword.merge(opts, extra)
+      end
+
+    Req.post(url, opts)
+  end
+
+  defp req_delete(url, config) do
+    token = resolve_token(config)
+
+    headers =
+      [{"accept", "application/vnd.github+json"}] ++
+        if(token, do: [{"authorization", "Bearer #{token}"}], else: [])
+
+    opts = [headers: headers, receive_timeout: 30_000]
+
+    opts =
+      case Map.get(config, "__req_options__") do
+        nil -> opts
+        extra -> Keyword.merge(opts, extra)
+      end
+
+    Req.delete(url, opts)
   end
 
   defp resolve_token(config) do

@@ -25,11 +25,73 @@ import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/synkade"
 import topbar from "../vendor/topbar"
 
+const KanbanDrag = {
+  mounted() {
+    this.el.addEventListener("dragstart", (e) => {
+      const card = e.target.closest(".kanban-card")
+      if (!card) return
+      e.dataTransfer.setData("issue_id", card.dataset.issueId)
+      e.dataTransfer.setData("from_column", card.dataset.column)
+      e.dataTransfer.effectAllowed = "move"
+      card.classList.add("opacity-50")
+    })
+
+    this.el.addEventListener("dragend", (e) => {
+      const card = e.target.closest(".kanban-card")
+      if (card) card.classList.remove("opacity-50")
+      // Remove all drag-over highlights
+      this.el.querySelectorAll(".kanban-column").forEach((col) => {
+        col.classList.remove("bg-base-300")
+      })
+    })
+
+    this.el.addEventListener("dragover", (e) => {
+      e.preventDefault()
+      e.dataTransfer.dropEffect = "move"
+      const column = e.target.closest(".kanban-column")
+      if (column) {
+        // Remove highlight from all columns
+        this.el.querySelectorAll(".kanban-column").forEach((col) => {
+          col.classList.remove("bg-base-300")
+        })
+        column.classList.add("bg-base-300")
+      }
+    })
+
+    this.el.addEventListener("dragleave", (e) => {
+      const column = e.target.closest(".kanban-column")
+      if (column && !column.contains(e.relatedTarget)) {
+        column.classList.remove("bg-base-300")
+      }
+    })
+
+    this.el.addEventListener("drop", (e) => {
+      e.preventDefault()
+      const column = e.target.closest(".kanban-column")
+      if (!column) return
+
+      column.classList.remove("bg-base-300")
+
+      const issueId = e.dataTransfer.getData("issue_id")
+      const fromColumn = e.dataTransfer.getData("from_column")
+      const toColumn = column.dataset.column
+
+      if (issueId && fromColumn && toColumn && fromColumn !== toColumn) {
+        this.pushEvent("move_card", {
+          issue_id: issueId,
+          from_column: fromColumn,
+          to_column: toColumn,
+        })
+      }
+    })
+  },
+}
+
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks},
+  hooks: {...colocatedHooks, KanbanDrag},
 })
 
 // Show progress bar on live navigation and form submits

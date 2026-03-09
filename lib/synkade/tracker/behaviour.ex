@@ -26,4 +26,21 @@ defmodule Synkade.Tracker.Behaviour do
               pr_number :: String.t()
             ) ::
               {:ok, %{state: String.t(), merged: boolean()}} | {:error, term()}
+
+  @callback fetch_all_issues(config :: map(), project_name :: String.t(), opts :: keyword()) ::
+              {:ok, [Issue.t()]} | {:error, term()}
+
+  @callback add_issue_label(
+              config :: map(),
+              project_name :: String.t(),
+              issue_id :: String.t(),
+              label :: String.t()
+            ) :: :ok | {:error, term()}
+
+  @callback remove_issue_label(
+              config :: map(),
+              project_name :: String.t(),
+              issue_id :: String.t(),
+              label :: String.t()
+            ) :: :ok | {:error, term()}
 end
