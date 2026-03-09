@@ -8,6 +8,7 @@ defmodule SynkadeWeb.SettingsLiveTest do
     assert html =~ "Settings"
     assert html =~ "GitHub"
     assert html =~ "Agents"
+    assert html =~ "Execution"
   end
 
   test "shows PAT fields by default", %{conn: conn} do
@@ -85,5 +86,11 @@ defmodule SynkadeWeb.SettingsLiveTest do
 
     # Default is api_key mode
     assert html =~ ~s(placeholder="sk-ant-...")
+  end
+
+  test "switches to execution tab", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/settings")
+    html = view |> element(~s{button[phx-value-tab="execution"]}) |> render_click()
+    assert html =~ "Execution Backend"
   end
 end

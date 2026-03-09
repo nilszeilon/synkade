@@ -90,6 +90,12 @@ defmodule SynkadeWeb.Layouts do
         <div class="mt-auto border-t border-base-300 p-2">
           <ul class="menu menu-sm">
             <li>
+              <.link navigate="/projects" class={[@active_tab == :projects && "active"]}>
+                <.icon name="hero-folder" class="size-4" />
+                Projects
+              </.link>
+            </li>
+            <li>
               <.link navigate="/settings" class={[@active_tab == :settings && "active"]}>
                 <.icon name="hero-cog-6-tooth" class="size-4" />
                 Settings

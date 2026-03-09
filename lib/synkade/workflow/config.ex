@@ -207,7 +207,6 @@ defmodule Synkade.Workflow.Config do
       |> validate_tracker(config)
       |> validate_agent(config)
       |> validate_execution(config)
-      |> validate_projects(config)
 
     case errors do
       [] -> :ok
@@ -356,32 +355,4 @@ defmodule Synkade.Workflow.Config do
     end
   end
 
-  defp validate_projects(errors, config) do
-    case Map.get(config, "projects") do
-      nil ->
-        errors
-
-      projects when is_list(projects) ->
-        names = Enum.map(projects, &Map.get(&1, "name"))
-        dupes = names -- Enum.uniq(names)
-
-        errors =
-          if dupes != [] do
-            ["duplicate project names: #{Enum.join(Enum.uniq(dupes), ", ")}" | errors]
-          else
-            errors
-          end
-
-        enabled = Enum.filter(projects, &(Map.get(&1, "enabled", true) != false))
-
-        if enabled == [] do
-          ["at least one enabled project is required when projects is set" | errors]
-        else
-          errors
-        end
-
-      _ ->
-        ["projects must be a list" | errors]
-    end
-  end
 end

@@ -18,8 +18,7 @@ defmodule Synkade.Orchestrator.State do
           agent_totals_by_project: %{String.t() => map()},
           agent_rate_limits: map() | nil,
           activity_log: list(%{project_name: String.t(), timestamp: DateTime.t()}),
-          workflow: map() | nil,
-          workflow_error: String.t() | nil
+          config_error: String.t() | nil
         }
 
   defstruct projects: %{},
@@ -38,8 +37,7 @@ defmodule Synkade.Orchestrator.State do
             agent_totals_by_project: %{},
             agent_rate_limits: nil,
             activity_log: [],
-            workflow: nil,
-            workflow_error: nil
+            config_error: nil
 
   @doc "Build a composite key for an issue."
   @spec composite_key(String.t(), String.t()) :: String.t()

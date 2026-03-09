@@ -7,9 +7,6 @@ defmodule Synkade.Application do
 
   @impl true
   def start(_type, _args) do
-    workflow_path =
-      Application.get_env(:synkade, :workflow_path) || "WORKFLOW.md"
-
     children = [
       SynkadeWeb.Telemetry,
       Synkade.Vault,
@@ -18,7 +15,6 @@ defmodule Synkade.Application do
       {Phoenix.PubSub, name: Synkade.PubSub},
       {Registry, keys: :unique, name: Synkade.TokenServerRegistry},
       {DynamicSupervisor, name: Synkade.GitHubAppSupervisor, strategy: :one_for_one},
-      {Synkade.Workflow.Watcher, path: workflow_path},
       {Task.Supervisor, name: Synkade.TaskSupervisor},
       Synkade.Orchestrator,
       # Start to serve requests, typically the last entry

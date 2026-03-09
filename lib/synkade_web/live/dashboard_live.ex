@@ -31,7 +31,7 @@ defmodule SynkadeWeb.DashboardLive do
       |> assign(:agent_totals, state.agent_totals)
       |> assign(:agent_totals_by_project, state.agent_totals_by_project)
       |> assign(:projects, state.projects)
-      |> assign(:workflow_error, state.workflow_error)
+      |> assign(:config_error, state.config_error)
       |> assign(:board_columns, @board_columns)
       |> assign(:board_issues, %{"backlog" => [], "queue" => [], "in_progress" => [], "human_review" => []})
       |> assign(:board_loading, true)
@@ -65,7 +65,7 @@ defmodule SynkadeWeb.DashboardLive do
       |> assign(:agent_totals, snapshot.agent_totals)
       |> assign(:agent_totals_by_project, snapshot.agent_totals_by_project)
       |> assign(:projects, snapshot.projects)
-      |> assign(:workflow_error, snapshot.workflow_error)
+      |> assign(:config_error, snapshot.config_error)
 
     # Re-categorize issues with updated orchestrator state
     project = resolve_project(socket)
@@ -375,9 +375,9 @@ defmodule SynkadeWeb.DashboardLive do
           </div>
         </div>
 
-        <%= if @workflow_error do %>
+        <%= if @config_error do %>
           <div class="alert alert-error mb-4">
-            <span>Workflow Error: {@workflow_error}</span>
+            <span>Config Error: {@config_error}</span>
           </div>
         <% end %>
 

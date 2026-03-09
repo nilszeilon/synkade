@@ -46,7 +46,7 @@ defmodule SynkadeWeb.DashboardLiveTest do
       agent_totals_by_project: %{},
       activity_log: [],
       projects: %{},
-      workflow_error: nil
+      config_error: nil
     }
 
     Phoenix.PubSub.broadcast(
@@ -59,7 +59,7 @@ defmodule SynkadeWeb.DashboardLiveTest do
     assert html =~ "1 running"
   end
 
-  test "updates workflow_error in real-time", %{conn: conn} do
+  test "updates config_error in real-time", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/")
 
     snapshot = %{
@@ -70,7 +70,7 @@ defmodule SynkadeWeb.DashboardLiveTest do
       agent_totals_by_project: %{},
       activity_log: [],
       projects: %{},
-      workflow_error: "Config file missing"
+      config_error: "Config file missing"
     }
 
     Phoenix.PubSub.broadcast(

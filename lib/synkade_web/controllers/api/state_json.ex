@@ -10,7 +10,7 @@ defmodule SynkadeWeb.Api.StateJSON do
       agent_totals_by_project: state.agent_totals_by_project,
       poll_interval_ms: state.poll_interval_ms,
       max_concurrent_agents: state.max_concurrent_agents,
-      workflow_error: state.workflow_error
+      config_error: state.config_error
     }
   end
 

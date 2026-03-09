@@ -1,25 +1,19 @@
 defmodule SynkadeWeb.GitHub.WebhookControllerTest do
   use SynkadeWeb.ConnCase, async: false
 
+  alias Synkade.Settings
+
   @webhook_secret "test_webhook_secret_123"
 
   setup do
-    # Set up a workflow config with webhook_secret via the watcher
-    # We'll need to ensure the Watcher has a workflow loaded
-    config = %{
-      "tracker" => %{
-        "kind" => "github",
-        "repo" => "acme/api",
-        "webhook_secret" => @webhook_secret
-      }
-    }
-
-    workflow = %{config: config, prompt_template: "test"}
-
-    # Override the Watcher state to have our config
-    :sys.replace_state(Synkade.Workflow.Watcher, fn state ->
-      Map.put(state, :workflow, workflow)
-    end)
+    # Create settings in the DB with webhook_secret
+    {:ok, _setting} =
+      Settings.save_settings(%{
+        github_auth_mode: "app",
+        github_app_id: "123",
+        github_private_key: "-----BEGIN RSA PRIVATE KEY-----\ntest",
+        github_webhook_secret: @webhook_secret
+      })
 
     :ok
   end

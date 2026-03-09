@@ -19,6 +19,7 @@ defmodule SynkadeWeb.Router do
 
     live "/", DashboardLive
     live "/settings", SettingsLive
+    live "/projects", ProjectsLive
   end
 
   scope "/api/v1", SynkadeWeb.Api do

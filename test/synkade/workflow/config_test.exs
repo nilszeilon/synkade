@@ -144,19 +144,6 @@ defmodule Synkade.Workflow.ConfigTest do
       assert Enum.any?(errors, &String.contains?(&1, "agent.kind"))
     end
 
-    test "duplicate project names fail" do
-      config = %{
-        "tracker" => %{"kind" => "github", "repo" => "x"},
-        "projects" => [
-          %{"name" => "api", "tracker" => %{"kind" => "github", "repo" => "a/b"}},
-          %{"name" => "api", "tracker" => %{"kind" => "github", "repo" => "c/d"}}
-        ]
-      }
-
-      assert {:error, errors} = Config.validate(config)
-      assert Enum.any?(errors, &String.contains?(&1, "duplicate"))
-    end
-
     test "sprites backend requires sprites_token" do
       config = %{
         "tracker" => %{"kind" => "github", "repo" => "acme/api"},
@@ -186,16 +173,5 @@ defmodule Synkade.Workflow.ConfigTest do
       assert Enum.any?(errors, &String.contains?(&1, "execution.backend"))
     end
 
-    test "all disabled projects fail" do
-      config = %{
-        "tracker" => %{"kind" => "github", "repo" => "x"},
-        "projects" => [
-          %{"name" => "api", "tracker" => %{"kind" => "github", "repo" => "a/b"}, "enabled" => false}
-        ]
-      }
-
-      assert {:error, errors} = Config.validate(config)
-      assert Enum.any?(errors, &String.contains?(&1, "enabled"))
-    end
   end
 end

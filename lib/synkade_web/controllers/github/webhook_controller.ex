@@ -4,11 +4,13 @@ defmodule SynkadeWeb.GitHub.WebhookController do
   require Logger
 
   alias Synkade.Tracker.GitHub.InstallationRegistry
-  alias Synkade.Workflow.{Config, Watcher}
+  alias Synkade.Workflow.Config
+  alias Synkade.Settings
+  alias Synkade.Settings.ConfigAdapter
 
   def handle(conn, _params) do
     with {:ok, raw_body} <- get_raw_body(conn),
-         {:ok, config} <- get_workflow_config(),
+         {:ok, config} <- get_config(),
          :ok <- verify_signature(conn, raw_body, config) do
       event = get_req_header(conn, "x-github-event") |> List.first()
       handle_event(event, conn.body_params)
@@ -26,8 +28,8 @@ defmodule SynkadeWeb.GitHub.WebhookController do
       {:error, :invalid_signature} ->
         conn |> put_status(401) |> json(%{error: "invalid signature"})
 
-      {:error, :no_workflow} ->
-        conn |> put_status(500) |> json(%{error: "no workflow loaded"})
+      {:error, :no_config} ->
+        conn |> put_status(500) |> json(%{error: "no settings configured"})
     end
   end
 
@@ -38,11 +40,10 @@ defmodule SynkadeWeb.GitHub.WebhookController do
     end
   end
 
-  defp get_workflow_config do
-    case Watcher.get_workflow() do
-      {:ok, nil} -> {:error, :no_workflow}
-      {:ok, workflow} -> {:ok, workflow.config}
-      _ -> {:error, :no_workflow}
+  defp get_config do
+    case Settings.get_settings() do
+      nil -> {:error, :no_config}
+      setting -> {:ok, ConfigAdapter.to_config(setting)}
     end
   end
 

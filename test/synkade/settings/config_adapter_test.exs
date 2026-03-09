@@ -2,7 +2,7 @@ defmodule Synkade.Settings.ConfigAdapterTest do
   use ExUnit.Case, async: true
 
   alias Synkade.Settings.ConfigAdapter
-  alias Synkade.Settings.Setting
+  alias Synkade.Settings.{Setting, Project}
 
   describe "to_config/1 with PAT mode" do
     test "produces tracker config with api_key and repo" do
@@ -118,6 +118,37 @@ defmodule Synkade.Settings.ConfigAdapterTest do
     end
   end
 
+  describe "to_config/1 execution section" do
+    test "produces execution config" do
+      setting = %Setting{
+        github_auth_mode: "pat",
+        github_pat: "ghp_test",
+        github_repo: "o/r",
+        execution_backend: "sprites",
+        execution_sprites_token: "fly_token_123",
+        execution_sprites_org: "my-org"
+      }
+
+      config = ConfigAdapter.to_config(setting)
+
+      assert config["execution"]["backend"] == "sprites"
+      assert config["execution"]["sprites_token"] == "fly_token_123"
+      assert config["execution"]["sprites_org"] == "my-org"
+    end
+
+    test "defaults to local backend" do
+      setting = %Setting{
+        github_auth_mode: "pat",
+        github_pat: "ghp_test",
+        github_repo: "o/r"
+      }
+
+      config = ConfigAdapter.to_config(setting)
+
+      assert config["execution"]["backend"] == "local"
+    end
+  end
+
   describe "to_config/1 prompt template" do
     test "includes prompt_template when set" do
       setting = %Setting{
@@ -144,55 +175,74 @@ defmodule Synkade.Settings.ConfigAdapterTest do
     end
   end
 
-  describe "merge_into/2" do
-    test "DB settings override file config" do
-      file_config = %{
-        "tracker" => %{
-          "kind" => "github",
-          "api_key" => "old_key",
-          "repo" => "old/repo"
-        },
-        "agent" => %{
-          "kind" => "claude",
-          "model" => "old-model"
-        },
-        "polling" => %{
-          "interval_ms" => 60_000
-        }
+  describe "project_to_config/1" do
+    test "produces config from project overrides" do
+      project = %Project{
+        name: "my-project",
+        tracker_repo: "acme/api",
+        agent_kind: "codex",
+        agent_max_concurrent: 3
       }
 
-      setting = %Setting{
-        github_auth_mode: "pat",
-        github_pat: "new_key",
-        github_repo: "new/repo",
-        agent_model: "new-model"
-      }
+      config = ConfigAdapter.project_to_config(project)
 
-      merged = ConfigAdapter.merge_into(file_config, setting)
-
-      # DB wins
-      assert merged["tracker"]["api_key"] == "new_key"
-      assert merged["tracker"]["repo"] == "new/repo"
-      assert merged["agent"]["model"] == "new-model"
-
-      # File-only keys preserved
-      assert merged["polling"]["interval_ms"] == 60_000
+      assert config["tracker"]["repo"] == "acme/api"
+      assert config["agent"]["kind"] == "codex"
+      assert config["agent"]["max_concurrent_agents"] == 3
     end
 
-    test "preserves file config sections not in DB" do
-      file_config = %{
-        "tracker" => %{"kind" => "github"},
-        "workspace" => %{"root" => "/tmp/workspaces"}
+    test "omits empty sections" do
+      project = %Project{
+        name: "minimal",
+        tracker_repo: "acme/api"
       }
 
-      setting = %Setting{
+      config = ConfigAdapter.project_to_config(project)
+
+      assert Map.has_key?(config, "tracker")
+      refute Map.has_key?(config, "agent")
+      refute Map.has_key?(config, "execution")
+    end
+
+    test "includes prompt_template when set" do
+      project = %Project{
+        name: "my-project",
+        prompt_template: "Custom prompt"
+      }
+
+      config = ConfigAdapter.project_to_config(project)
+      assert config["prompt_template"] == "Custom prompt"
+    end
+  end
+
+  describe "resolve_project_config/2" do
+    test "merges global and project configs" do
+      global = %Setting{
         github_auth_mode: "pat",
-        github_pat: "test",
-        github_repo: "o/r"
+        github_pat: "ghp_global",
+        github_repo: "global/repo",
+        agent_kind: "claude",
+        agent_api_key: "sk-global",
+        execution_backend: "local"
       }
 
-      merged = ConfigAdapter.merge_into(file_config, setting)
-      assert merged["workspace"]["root"] == "/tmp/workspaces"
+      project = %Project{
+        name: "api",
+        tracker_repo: "acme/api",
+        agent_max_concurrent: 3
+      }
+
+      config = ConfigAdapter.resolve_project_config(global, project)
+
+      # Project overrides
+      assert config["tracker"]["repo"] == "acme/api"
+      assert config["agent"]["max_concurrent_agents"] == 3
+
+      # Global preserved
+      assert config["tracker"]["api_key"] == "ghp_global"
+      assert config["agent"]["kind"] == "claude"
+      assert config["agent"]["api_key"] == "sk-global"
+      assert config["execution"]["backend"] == "local"
     end
   end
 end

@@ -5,7 +5,7 @@ defmodule Synkade.Orchestrator do
   require Logger
 
   alias Synkade.Orchestrator.{State, Dispatch, Retry, Reconciler, Worker}
-  alias Synkade.Workflow.{Config, Watcher, ProjectRegistry}
+  alias Synkade.Workflow.{Config, ProjectRegistry}
   alias Synkade.Tracker.Client, as: TrackerClient
   alias Synkade.Execution.BackendClient
   alias Synkade.Settings
@@ -33,17 +33,15 @@ defmodule Synkade.Orchestrator do
 
   @impl true
   def init(opts) do
-    watcher = opts[:watcher] || Watcher
     pubsub = opts[:pubsub] || Synkade.PubSub
 
-    # Subscribe to workflow and settings updates
-    Phoenix.PubSub.subscribe(pubsub, Watcher.pubsub_topic())
+    # Subscribe to settings/project updates
     Phoenix.PubSub.subscribe(pubsub, Settings.pubsub_topic())
 
-    state = %State{} |> Map.put(:__watcher__, watcher) |> Map.put(:__pubsub__, pubsub)
+    state = %State{} |> Map.put(:__pubsub__, pubsub)
 
-    # Load initial workflow
-    state = load_workflow(state)
+    # Load initial config
+    state = load_config(state)
 
     # Schedule immediate first tick
     send(self(), :poll_tick)
@@ -64,7 +62,7 @@ defmodule Synkade.Orchestrator do
       agent_totals: state.agent_totals,
       agent_totals_by_project: state.agent_totals_by_project,
       activity_log: state.activity_log,
-      workflow_error: state.workflow_error
+      config_error: state.config_error
     }
 
     {:reply, snapshot, state}
@@ -163,7 +161,7 @@ defmodule Synkade.Orchestrator do
               self(),
               project_name,
               issue_id,
-              entry && entry.identifier || issue_id
+              (entry && entry.identifier) || issue_id
             )
 
           %{state | retry_attempts: Map.put(state.retry_attempts, key, retry)}
@@ -178,7 +176,7 @@ defmodule Synkade.Orchestrator do
               self(),
               project_name,
               issue_id,
-              entry && entry.identifier || issue_id,
+              (entry && entry.identifier) || issue_id,
               attempt,
               max_backoff,
               inspect(result)
@@ -195,7 +193,7 @@ defmodule Synkade.Orchestrator do
               self(),
               project_name,
               issue_id,
-              entry && entry.identifier || issue_id,
+              (entry && entry.identifier) || issue_id,
               attempt,
               max_backoff,
               inspect(reason)
@@ -216,17 +214,17 @@ defmodule Synkade.Orchestrator do
   end
 
   @impl true
-  def handle_info({:workflow_reloaded, workflow}, state) do
-    Logger.info("Orchestrator: applying reloaded workflow")
-    state = apply_workflow(state, workflow)
+  def handle_info({:settings_updated, _settings}, state) do
+    Logger.info("Orchestrator: applying updated DB settings")
+    state = load_config(state)
     broadcast_state(state)
     {:noreply, state}
   end
 
   @impl true
-  def handle_info({:settings_updated, _settings}, state) do
-    Logger.info("Orchestrator: applying updated DB settings")
-    state = load_workflow(state)
+  def handle_info({:projects_updated}, state) do
+    Logger.info("Orchestrator: applying updated project config")
+    state = load_config(state)
     broadcast_state(state)
     {:noreply, state}
   end
@@ -279,15 +277,13 @@ defmodule Synkade.Orchestrator do
     # 2. Handle stopped sessions
     state = handle_stopped_sessions(state)
 
-    # 3. Validate workflow
+    # 3. Validate config
     state =
-      case state.workflow do
-        nil ->
-          load_workflow(state)
-
-        _workflow ->
-          # 4. Fetch candidates and dispatch
-          dispatch_all_projects(state)
+      if map_size(state.projects) == 0 do
+        load_config(state)
+      else
+        # 4. Fetch candidates and dispatch
+        dispatch_all_projects(state)
       end
 
     broadcast_state(state)
@@ -404,7 +400,9 @@ defmodule Synkade.Orchestrator do
     # Remove from retry if present
     state =
       case Map.get(state.retry_attempts, key) do
-        nil -> state
+        nil ->
+          state
+
         retry ->
           Retry.cancel_retry(retry)
           %{state | retry_attempts: Map.delete(state.retry_attempts, key)}
@@ -452,9 +450,7 @@ defmodule Synkade.Orchestrator do
     state
   end
 
-  defp load_workflow(state) do
-    watcher = state.__watcher__
-
+  defp load_config(state) do
     db_settings =
       try do
         Settings.get_settings()
@@ -462,50 +458,72 @@ defmodule Synkade.Orchestrator do
         _ -> nil
       end
 
-    case {Watcher.get_workflow(watcher), db_settings} do
-      {{:ok, workflow}, %Settings.Setting{} = setting} when not is_nil(workflow) ->
-        # Both exist — merge DB over file (DB wins)
-        merged_config = ConfigAdapter.merge_into(workflow.config, setting)
-        merged_workflow = %{workflow | config: merged_config}
-        apply_workflow(state, merged_workflow)
+    db_projects =
+      try do
+        Settings.list_enabled_projects()
+      rescue
+        _ -> []
+      end
 
-      {{:ok, nil}, %Settings.Setting{} = setting} ->
-        # Only DB settings — build config from DB
-        config = ConfigAdapter.to_config(setting)
+    case {db_settings, db_projects} do
+      {nil, _} ->
+        %{state | config_error: "No settings configured"}
 
-        workflow = %{
-          config: config,
-          prompt_template: setting.prompt_template,
-          raw: nil,
-          path: nil
+      {%Settings.Setting{} = setting, []} ->
+        # No per-project rows — fallback to global config + discovery
+        global_config = ConfigAdapter.to_config(setting)
+        apply_config(state, global_config, setting.prompt_template)
+
+      {%Settings.Setting{} = setting, projects} ->
+        # Build per-project configs via ConfigAdapter.resolve_project_config
+        project_entries =
+          Enum.map(projects, fn project ->
+            config = ConfigAdapter.resolve_project_config(setting, project)
+            prompt = project.prompt_template || setting.prompt_template
+
+            %{
+              name: project.name,
+              config: config,
+              prompt_template: prompt,
+              max_concurrent_agents:
+                project.agent_max_concurrent || Config.max_concurrent_agents(config),
+              enabled: project.enabled
+            }
+          end)
+
+        projects_map = Map.new(project_entries, fn p -> {p.name, p} end)
+
+        # Use the first project's config for global settings (poll interval, etc.)
+        first_config =
+          case project_entries do
+            [first | _] -> first.config
+            [] -> ConfigAdapter.to_config(setting)
+          end
+
+        maybe_start_app_services(first_config)
+
+        %{
+          state
+          | config_error: nil,
+            projects: projects_map,
+            poll_interval_ms: Config.poll_interval_ms(first_config),
+            max_concurrent_agents: Config.max_concurrent_agents(first_config)
         }
-
-        apply_workflow(state, workflow)
-
-      {{:ok, workflow}, nil} when not is_nil(workflow) ->
-        # Only WORKFLOW.md — use as-is
-        apply_workflow(state, workflow)
-
-      _ ->
-        %{state | workflow: nil, workflow_error: "No workflow loaded"}
     end
   end
 
-  defp apply_workflow(state, workflow) do
-    config = workflow.config
-
+  defp apply_config(state, config, prompt_template) do
     # Start GitHub App services if needed
     maybe_start_app_services(config)
 
-    projects = ProjectRegistry.resolve_projects(config, workflow.prompt_template)
+    projects = ProjectRegistry.resolve_projects(config, prompt_template)
 
     projects_map =
       Map.new(projects, fn p -> {p.name, p} end)
 
     %{
       state
-      | workflow: workflow,
-        workflow_error: nil,
+      | config_error: nil,
         projects: projects_map,
         poll_interval_ms: Config.poll_interval_ms(config),
         max_concurrent_agents: Config.max_concurrent_agents(config)
@@ -567,12 +585,13 @@ defmodule Synkade.Orchestrator do
         runtime_seconds: totals.runtime_seconds + runtime_seconds
     }
 
-    project_totals = Map.get(state.agent_totals_by_project, entry.project_name, %{
-      input_tokens: 0,
-      output_tokens: 0,
-      total_tokens: 0,
-      runtime_seconds: 0.0
-    })
+    project_totals =
+      Map.get(state.agent_totals_by_project, entry.project_name, %{
+        input_tokens: 0,
+        output_tokens: 0,
+        total_tokens: 0,
+        runtime_seconds: 0.0
+      })
 
     project_totals = %{
       project_totals
@@ -605,7 +624,7 @@ defmodule Synkade.Orchestrator do
       agent_totals_by_project: state.agent_totals_by_project,
       activity_log: state.activity_log,
       projects: state.projects,
-      workflow_error: state.workflow_error
+      config_error: state.config_error
     }
 
     Phoenix.PubSub.broadcast(pubsub, @pubsub_topic, {:state_changed, snapshot})

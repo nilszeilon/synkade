@@ -124,6 +124,14 @@ defmodule SynkadeWeb.SettingsLive do
           >
             Agents
           </button>
+          <button
+            role="tab"
+            class={"tab #{if @active_tab == "execution", do: "tab-active"}"}
+            phx-click="switch_tab"
+            phx-value-tab="execution"
+          >
+            Execution
+          </button>
         </div>
 
         <.form for={@form} phx-change="validate" phx-submit="save">
@@ -133,6 +141,10 @@ defmodule SynkadeWeb.SettingsLive do
 
           <div class={if @active_tab != "agents", do: "hidden"}>
             <.agents_tab form={@form} />
+          </div>
+
+          <div class={if @active_tab != "execution", do: "hidden"}>
+            <.execution_tab form={@form} />
           </div>
 
           <div class="mt-6">
@@ -391,6 +403,46 @@ defmodule SynkadeWeb.SettingsLive do
           id={@form[:prompt_template].id}
         >{@form[:prompt_template].value}</textarea>
       </div>
+    </div>
+    """
+  end
+
+  attr :form, :any, required: true
+
+  defp execution_tab(assigns) do
+    ~H"""
+    <div class="space-y-4">
+      <div class="form-control">
+        <label class="label"><span class="label-text">Execution Backend</span></label>
+        <select class="select select-bordered w-full" name={@form[:execution_backend].name} id={@form[:execution_backend].id}>
+          <option value="local" selected={(@form[:execution_backend].value || "local") == "local"}>Local</option>
+          <option value="sprites" selected={@form[:execution_backend].value == "sprites"}>Sprites</option>
+        </select>
+      </div>
+
+      <%= if @form[:execution_backend].value == "sprites" do %>
+        <div class="form-control">
+          <label class="label"><span class="label-text">Sprites Token</span></label>
+          <input
+            type="password"
+            class="input input-bordered w-full"
+            name={@form[:execution_sprites_token].name}
+            id={@form[:execution_sprites_token].id}
+            value={@form[:execution_sprites_token].value}
+          />
+        </div>
+
+        <div class="form-control">
+          <label class="label"><span class="label-text">Sprites Organization (optional)</span></label>
+          <input
+            type="text"
+            class="input input-bordered w-full"
+            name={@form[:execution_sprites_org].name}
+            id={@form[:execution_sprites_org].id}
+            value={@form[:execution_sprites_org].value}
+          />
+        </div>
+      <% end %>
     </div>
     """
   end
