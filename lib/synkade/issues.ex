@@ -152,6 +152,19 @@ defmodule Synkade.Issues do
     |> Repo.all()
   end
 
+  # --- Labels ---
+
+  def list_all_labels(project_id) do
+    from(i in Issue,
+      where: i.project_id == ^project_id,
+      select: i.labels
+    )
+    |> Repo.all()
+    |> List.flatten()
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
   # --- Agent Child Creation ---
 
   def create_children_from_agent(%Issue{} = parent, children_attrs_list) when is_list(children_attrs_list) do

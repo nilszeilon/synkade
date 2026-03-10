@@ -17,6 +17,7 @@ defmodule Synkade.Issues.Issue do
     field :kind, :string, default: "task"
     field :state, :string, default: "backlog"
     field :priority, :integer, default: 0
+    field :labels, {:array, :string}, default: []
     field :depth, :integer, default: 0
     field :position, :integer, default: 0
     field :agent_output, :string
@@ -35,7 +36,7 @@ defmodule Synkade.Issues.Issue do
   def states, do: @states
 
   @required_fields ~w(title project_id)a
-  @optional_fields ~w(description kind state priority depth position parent_id
+  @optional_fields ~w(description kind state priority labels depth position parent_id
                       agent_output github_issue_url github_pr_url metadata)a
 
   def changeset(issue, attrs) do
