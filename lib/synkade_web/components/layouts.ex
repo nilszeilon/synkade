@@ -58,6 +58,15 @@ defmodule SynkadeWeb.Layouts do
                 Overview
               </.link>
             </li>
+            <li>
+              <.link
+                navigate="/issues"
+                class={[@active_tab == :issues && "active"]}
+              >
+                <.icon name="hero-clipboard-document-list" class="size-4" />
+                Issues
+              </.link>
+            </li>
           </ul>
 
           <div class="divider my-1 px-2"></div>

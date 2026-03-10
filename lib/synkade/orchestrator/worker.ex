@@ -7,6 +7,7 @@ defmodule Synkade.Orchestrator.Worker do
   alias Synkade.Execution.BackendClient
   alias Synkade.Tracker.Client, as: TrackerClient
   alias Synkade.Workflow.Config
+  alias Synkade.Issues.ChildParser
 
   @doc "Run a worker for an issue. Called within a Task."
   def run(orchestrator, project, issue, attempt) do
@@ -41,7 +42,33 @@ defmodule Synkade.Orchestrator.Worker do
   defp render_prompt(prompt_template, project, issue, attempt) do
     project_map = %{name: project.name, config: project.config}
     issue_map = Map.from_struct(issue)
-    Renderer.render(prompt_template, project_map, issue_map, attempt)
+
+    # Load DB issue for ancestor chain and kind
+    {ancestors, issue_map} =
+      try do
+        case Synkade.Issues.get_issue(issue.id) do
+          nil ->
+            {[], issue_map}
+
+          db_issue ->
+            ancestor_maps =
+              Synkade.Issues.ancestor_chain(db_issue)
+              |> Enum.map(fn a ->
+                %{
+                  title: a.title,
+                  description: a.description,
+                  kind: a.kind,
+                  agent_output: a.agent_output
+                }
+              end)
+
+            {ancestor_maps, Map.put(issue_map, :kind, db_issue.kind)}
+        end
+      catch
+        _, _ -> {[], issue_map}
+      end
+
+    Renderer.render(prompt_template, project_map, issue_map, attempt, ancestors)
   end
 
   defp start_or_continue(config, nil, prompt, env_ref, _session_id) do
@@ -77,10 +104,18 @@ defmodule Synkade.Orchestrator.Worker do
             {:ok, {:pr_created, pr_url}, session}
 
           :none ->
-            if turn < max_turns do
-              check_and_continue(orchestrator, project, issue, session, config, max_turns, turn)
+            # Capture agent output and check for child declarations
+            agent_output = collect_agent_output(session)
+            children = ChildParser.parse(agent_output)
+
+            if agent_output != "" or children != [] do
+              {:ok, {:completed_with_output, agent_output, children}, session}
             else
-              {:ok, :max_turns_reached, session}
+              if turn < max_turns do
+                check_and_continue(orchestrator, project, issue, session, config, max_turns, turn)
+              else
+                {:ok, :max_turns_reached, session}
+              end
             end
         end
 
@@ -162,6 +197,13 @@ defmodule Synkade.Orchestrator.Worker do
       nil -> :none
       url -> {:ok, url}
     end
+  end
+
+  defp collect_agent_output(session) do
+    session.events
+    |> Enum.filter(& &1.message)
+    |> Enum.map(& &1.message)
+    |> Enum.join("\n")
   end
 
   defp normalize_state(state), do: state |> String.trim() |> String.downcase()

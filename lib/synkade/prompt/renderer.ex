@@ -14,16 +14,62 @@ defmodule Synkade.Prompt.Renderer do
   Include a summary of changes in the PR body.
   """
 
-  @spec render(String.t() | nil, map(), map(), integer() | nil) ::
+  @ancestor_template """
+  {% if has_parent %}
+
+  ## Context from parent issues
+  {% for ancestor in ancestors %}
+  ### {{ ancestor.title }} ({{ ancestor.kind }})
+  {{ ancestor.description }}
+  {% if ancestor.agent_output %}
+  #### Findings:
+  {{ ancestor.agent_output }}
+  {% endif %}
+  {% endfor %}
+  {% endif %}
+  """
+
+  @children_suffix """
+
+  If your work produces actionable sub-tasks, output them in this format:
+  <!-- SYNKADE:CHILDREN
+  - title: "Sub-task title"
+    kind: task
+    description: "What needs to be done"
+    priority: 1
+  SYNKADE:CHILDREN -->
+  """
+
+  @spec render(String.t() | nil, map(), map(), integer() | nil, list()) ::
           {:ok, String.t()} | {:error, term()}
-  def render(template, project, issue, attempt \\ nil) do
+  def render(template, project, issue, attempt \\ nil, ancestors \\ []) do
     template = (template || @default_template) <> @pr_suffix
+
+    # Add ancestor context if there are ancestors
+    template =
+      if ancestors != [] do
+        @ancestor_template <> template
+      else
+        template
+      end
+
+    # Add children instruction for research/epic issues
+    issue_kind = issue[:kind] || issue["kind"]
+
+    template =
+      if issue_kind in ["research", "epic"] do
+        template <> @children_suffix
+      else
+        template
+      end
 
     context =
       %{
         "project" => stringify_keys(project),
         "issue" => stringify_keys(issue),
-        "attempt" => attempt
+        "attempt" => attempt,
+        "ancestors" => Enum.map(ancestors, &stringify_keys/1),
+        "has_parent" => ancestors != []
       }
 
     with {:ok, parsed} <- parse_template(template),

@@ -6,10 +6,10 @@ defmodule Synkade.Orchestrator do
 
   alias Synkade.Orchestrator.{State, Dispatch, Retry, Reconciler, Worker}
   alias Synkade.Workflow.Config
-  alias Synkade.Tracker.Client, as: TrackerClient
   alias Synkade.Execution.BackendClient
   alias Synkade.Settings
   alias Synkade.Settings.ConfigAdapter
+  alias Synkade.Issues
 
   @pubsub_topic "orchestrator:updates"
 
@@ -35,8 +35,9 @@ defmodule Synkade.Orchestrator do
   def init(opts) do
     pubsub = opts[:pubsub] || Synkade.PubSub
 
-    # Subscribe to settings/project updates
+    # Subscribe to settings/project updates and issues
     Phoenix.PubSub.subscribe(pubsub, Settings.pubsub_topic())
+    Phoenix.PubSub.subscribe(pubsub, Issues.pubsub_topic())
 
     state = %State{} |> Map.put(:__pubsub__, pubsub)
 
@@ -138,6 +139,9 @@ defmodule Synkade.Orchestrator do
         {:ok, {:pr_created, pr_url}, _session} ->
           pr_number = extract_pr_number(pr_url)
 
+          # Transition DB issue to awaiting_review and store PR URL
+          update_db_issue_on_pr(entry, pr_url)
+
           review_entry = %{
             project_name: project_name,
             issue_id: issue_id,
@@ -153,6 +157,11 @@ defmodule Synkade.Orchestrator do
           Logger.info("PR created for #{key}: #{pr_url}")
 
           %{state | awaiting_review: Map.put(state.awaiting_review, key, review_entry)}
+
+        {:ok, {:completed_with_output, agent_output, children}, _session} ->
+          # Research/task completed — store output, create children, mark done
+          complete_db_issue_with_output(entry, agent_output, children)
+          state
 
         {:ok, _reason, _session} ->
           # Normal exit - schedule continuation retry
@@ -234,6 +243,13 @@ defmodule Synkade.Orchestrator do
     Logger.info("Orchestrator: applying updated agent config")
     state = load_config(state)
     broadcast_state(state)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:issues_updated}, state) do
+    # Issues changed in DB — trigger a dispatch cycle
+    send(self(), :poll_tick)
     {:noreply, state}
   end
 
@@ -363,36 +379,47 @@ defmodule Synkade.Orchestrator do
   end
 
   defp dispatch_project(state, project) do
-    case TrackerClient.fetch_candidate_issues(project.config, project.name) do
-      {:ok, issues} ->
-        candidates =
-          issues
-          |> Dispatch.filter_candidates(state, project)
-          |> Dispatch.sort_candidates()
+    db_project_id = project[:db_id]
 
-        dispatch_candidates(state, project, candidates)
+    if db_project_id do
+      db_issues =
+        try do
+          Issues.list_queued_issues(db_project_id)
+        catch
+          _, _ -> []
+        end
 
-      {:error, reason} ->
-        Logger.warning("Failed to fetch issues for #{project.name}: #{inspect(reason)}")
-        state
-    end
-  end
+      tracker_issues =
+        Enum.map(db_issues, fn db_issue ->
+          db_issue_to_tracker_issue(db_issue, project)
+        end)
 
-  defp dispatch_candidates(state, _project, []), do: state
+      candidates =
+        tracker_issues
+        |> Dispatch.filter_candidates(state, project)
+        |> Dispatch.sort_candidates()
 
-  defp dispatch_candidates(state, project, [issue | rest]) do
-    slots = Dispatch.available_slots(state, project)
-    state_slots = Dispatch.available_state_slots(state, project, issue.state)
-
-    if slots > 0 and state_slots > 0 do
-      state = dispatch_issue(state, project, issue)
-      dispatch_candidates(state, project, rest)
+      dispatch_candidates(state, project, candidates, db_issues)
     else
       state
     end
   end
 
-  defp dispatch_issue(state, project, issue) do
+  defp dispatch_candidates(state, _project, [], _db_issues), do: state
+
+  defp dispatch_candidates(state, project, [issue | rest], db_issues) do
+    slots = Dispatch.available_slots(state, project)
+    state_slots = Dispatch.available_state_slots(state, project, issue.state)
+
+    if slots > 0 and state_slots > 0 do
+      state = dispatch_issue(state, project, issue, db_issues)
+      dispatch_candidates(state, project, rest, db_issues)
+    else
+      state
+    end
+  end
+
+  defp dispatch_issue(state, project, issue, db_issues) do
     key = State.composite_key(project.name, issue.id)
 
     # Check retry to get attempt number
@@ -416,6 +443,17 @@ defmodule Synkade.Orchestrator do
           %{state | retry_attempts: Map.delete(state.retry_attempts, key)}
       end
 
+    # Transition DB issue to in_progress
+    db_issue = Enum.find(db_issues, fn di -> di.id == issue.id end)
+
+    if db_issue do
+      try do
+        Issues.transition_state(db_issue, "in_progress")
+      catch
+        _, _ -> :ok
+      end
+    end
+
     # Launch worker task
     orchestrator = self()
 
@@ -429,6 +467,7 @@ defmodule Synkade.Orchestrator do
       issue_id: issue.id,
       identifier: issue.identifier,
       issue_state: issue.state,
+      db_issue_id: issue.id,
       attempt: attempt,
       env_ref: nil,
       session_id: nil,
@@ -501,6 +540,7 @@ defmodule Synkade.Orchestrator do
 
                 %{
                   name: project.name,
+                  db_id: project.id,
                   config: config,
                   prompt_template: project.prompt_template,
                   max_concurrent_agents: Config.max_concurrent_agents(config),
@@ -512,6 +552,7 @@ defmodule Synkade.Orchestrator do
 
                 %{
                   name: project.name,
+                  db_id: project.id,
                   config: config,
                   prompt_template: project.prompt_template || a.system_prompt,
                   max_concurrent_agents: Config.max_concurrent_agents(config),
@@ -616,6 +657,56 @@ defmodule Synkade.Orchestrator do
     case Regex.run(~r{/pull/(\d+)$}, pr_url) do
       [_, number] -> number
       _ -> nil
+    end
+  end
+
+  defp db_issue_to_tracker_issue(db_issue, project) do
+    %Synkade.Tracker.Issue{
+      project_name: project.name,
+      id: db_issue.id,
+      identifier: "#{project.name}##{db_issue.id |> String.slice(0..7)}",
+      title: db_issue.title,
+      description: db_issue.description,
+      state: db_issue.state,
+      priority: db_issue.priority,
+      labels: [],
+      blocked_by: [],
+      created_at: db_issue.inserted_at,
+      updated_at: db_issue.updated_at
+    }
+  end
+
+  defp update_db_issue_on_pr(nil, _pr_url), do: :ok
+
+  defp update_db_issue_on_pr(entry, pr_url) do
+    try do
+      db_issue = Issues.get_issue(entry.db_issue_id)
+
+      if db_issue do
+        Issues.update_issue(db_issue, %{github_pr_url: pr_url})
+        Issues.transition_state(db_issue, "awaiting_review")
+      end
+    catch
+      _, _ -> :ok
+    end
+  end
+
+  defp complete_db_issue_with_output(nil, _output, _children), do: :ok
+
+  defp complete_db_issue_with_output(entry, agent_output, children) do
+    try do
+      db_issue = Issues.get_issue(entry.db_issue_id)
+
+      if db_issue do
+        Issues.update_issue(db_issue, %{agent_output: agent_output})
+        Issues.transition_state(db_issue, "done")
+
+        if children != [] do
+          Issues.create_children_from_agent(db_issue, children)
+        end
+      end
+    catch
+      _, _ -> :ok
     end
   end
 end

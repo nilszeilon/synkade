@@ -18,6 +18,7 @@ defmodule SynkadeWeb.Router do
     pipe_through :browser
 
     live "/", DashboardLive
+    live "/issues", IssuesLive
     live "/settings", SettingsLive
     live "/projects", ProjectsLive
   end

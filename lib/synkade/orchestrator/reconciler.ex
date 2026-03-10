@@ -6,6 +6,7 @@ defmodule Synkade.Orchestrator.Reconciler do
   alias Synkade.Orchestrator.State
   alias Synkade.Workflow.Config
   alias Synkade.Tracker.Client, as: TrackerClient
+  alias Synkade.Issues
 
   @doc "Reconcile running sessions: check for stalls and state changes."
   @spec reconcile(State.t()) :: State.t()
@@ -41,66 +42,32 @@ defmodule Synkade.Orchestrator.Reconciler do
     end)
   end
 
-  @doc "Refresh issue states from tracker for running sessions."
+  @doc "Refresh issue states from DB for running sessions."
   @spec refresh_issue_states(State.t()) :: State.t()
   def refresh_issue_states(state) do
-    # Group running issues by project
-    by_project =
-      state.running
-      |> Enum.group_by(
-        fn {_key, entry} -> entry.project_name end,
-        fn {key, entry} -> {key, entry} end
-      )
+    Enum.reduce(state.running, state, fn {key, entry}, acc ->
+      db_issue_id = Map.get(entry, :db_issue_id)
 
-    Enum.reduce(by_project, state, fn {project_name, entries}, acc ->
-      project = Map.get(acc.projects, project_name)
+      if db_issue_id do
+        try do
+          case Issues.get_issue(db_issue_id) do
+            nil ->
+              Logger.info("Issue #{key} not found in DB, marking for stop")
+              put_in(acc.running[key], Map.put(entry, :should_stop, :missing))
 
-      if project do
-        ids = Enum.map(entries, fn {_key, entry} -> entry.issue_id end)
-
-        case TrackerClient.fetch_issue_states_by_ids(project.config, project_name, ids) do
-          {:ok, current_states} ->
-            check_state_changes(acc, project, entries, current_states)
-
-          {:error, reason} ->
-            Logger.warning("Reconciler: failed to fetch states for #{project_name}: #{inspect(reason)}")
-            acc
+            db_issue ->
+              if db_issue.state in ["done", "cancelled"] do
+                Logger.info("Issue #{key} is now in terminal state: #{db_issue.state}")
+                put_in(acc.running[key], Map.put(entry, :should_stop, :terminal))
+              else
+                put_in(acc.running[key], Map.put(entry, :issue_state, db_issue.state))
+              end
+          end
+        catch
+          _, _ -> acc
         end
       else
         acc
-      end
-    end)
-  end
-
-  defp check_state_changes(state, project, entries, current_states) do
-    terminal_states =
-      Config.terminal_states(project.config)
-      |> MapSet.new(&normalize_state/1)
-
-    active_states =
-      Config.active_states(project.config)
-      |> MapSet.new(&normalize_state/1)
-
-    Enum.reduce(entries, state, fn {key, entry}, acc ->
-      current_state = Map.get(current_states, entry.issue_id)
-
-      cond do
-        current_state == nil ->
-          # Issue not found, mark for stop
-          Logger.info("Issue #{key} not found in tracker, marking for stop")
-          put_in(acc.running[key], Map.put(entry, :should_stop, :missing))
-
-        MapSet.member?(terminal_states, normalize_state(current_state)) ->
-          Logger.info("Issue #{key} is now in terminal state: #{current_state}")
-          put_in(acc.running[key], Map.put(entry, :should_stop, :terminal))
-
-        not MapSet.member?(active_states, normalize_state(current_state)) ->
-          Logger.info("Issue #{key} is no longer active: #{current_state}")
-          put_in(acc.running[key], Map.put(entry, :should_stop, :inactive))
-
-        true ->
-          # Update the current state
-          put_in(acc.running[key], Map.put(entry, :issue_state, current_state))
       end
     end)
   end
@@ -123,6 +90,16 @@ defmodule Synkade.Orchestrator.Reconciler do
           case TrackerClient.fetch_pr_status(project.config, project_name, entry.pr_number) do
             {:ok, %{merged: true}} ->
               Logger.info("PR merged for #{key}")
+
+              # Transition DB issue to done
+              try do
+                db_issue_id = Map.get(entry, :db_issue_id) || entry.issue_id
+                db_issue = Issues.get_issue(db_issue_id)
+                if db_issue, do: Issues.transition_state(db_issue, "done")
+              catch
+                _, _ -> :ok
+              end
+
               put_in(inner_acc.awaiting_review[key], Map.put(entry, :should_stop, :pr_merged))
 
             {:ok, %{state: "closed"}} ->
@@ -153,6 +130,4 @@ defmodule Synkade.Orchestrator.Reconciler do
       project -> Config.get(project.config, "agent", "stall_timeout_ms") || 300_000
     end
   end
-
-  defp normalize_state(state), do: state |> String.trim() |> String.downcase()
 end

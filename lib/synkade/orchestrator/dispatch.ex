@@ -6,23 +6,10 @@ defmodule Synkade.Orchestrator.Dispatch do
 
   @doc "Filter candidates that are eligible for dispatch."
   @spec filter_candidates([map()], State.t(), map()) :: [map()]
-  def filter_candidates(issues, state, project) do
-    config = project.config
-    active_states = Config.active_states(config)
-    terminal_states = Config.terminal_states(config)
-    labels_filter = Config.tracker_labels(config)
-
-    active_set = MapSet.new(active_states, &normalize_state/1)
-    terminal_set = MapSet.new(terminal_states, &normalize_state/1)
-
+  def filter_candidates(issues, state, _project) do
     issues
     |> Enum.filter(fn issue ->
-      normalized_state = normalize_state(issue.state)
-
       has_required_fields?(issue) and
-        MapSet.member?(active_set, normalized_state) and
-        not MapSet.member?(terminal_set, normalized_state) and
-        matches_labels?(issue, labels_filter) and
         not running?(issue, state) and
         not claimed?(issue, state) and
         not blocked?(issue)
@@ -84,14 +71,6 @@ defmodule Synkade.Orchestrator.Dispatch do
   defp has_required_fields?(issue) do
     issue.id != nil and issue.identifier != nil and
       issue.title != nil and issue.state != nil
-  end
-
-  defp matches_labels?(_issue, nil), do: true
-  defp matches_labels?(_issue, []), do: true
-
-  defp matches_labels?(issue, labels) do
-    normalized_labels = Enum.map(labels, &String.downcase/1)
-    Enum.any?(issue.labels, &(&1 in normalized_labels))
   end
 
   defp running?(issue, state) do

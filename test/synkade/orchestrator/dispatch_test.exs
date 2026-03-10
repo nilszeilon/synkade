@@ -76,32 +76,20 @@ defmodule Synkade.Orchestrator.DispatchTest do
       assert length(filtered) == 1
     end
 
-    test "filters by labels when configured" do
-      matching = make_issue(%{id: "1", labels: ["agent-ready", "bug"]})
-      non_matching = make_issue(%{id: "2", labels: ["docs"]})
+    test "passes through all issues regardless of labels (DB handles filtering)" do
+      a = make_issue(%{id: "1", labels: ["agent-ready", "bug"]})
+      b = make_issue(%{id: "2", labels: ["docs"]})
 
-      project = make_project(%{
-        config: %{
-          "tracker" => %{
-            "kind" => "github",
-            "repo" => "acme/api",
-            "labels" => ["agent-ready"]
-          }
-        }
-      })
-
-      filtered = Dispatch.filter_candidates([matching, non_matching], %State{}, project)
-      assert length(filtered) == 1
-      assert hd(filtered).id == "1"
+      filtered = Dispatch.filter_candidates([a, b], %State{}, make_project())
+      assert length(filtered) == 2
     end
 
-    test "filters out terminal state issues" do
+    test "passes through all states (DB handles state filtering)" do
       open = make_issue(%{id: "1", state: "open"})
       closed = make_issue(%{id: "2", state: "closed"})
 
       filtered = Dispatch.filter_candidates([open, closed], %State{}, make_project())
-      assert length(filtered) == 1
-      assert hd(filtered).id == "1"
+      assert length(filtered) == 2
     end
   end
 
