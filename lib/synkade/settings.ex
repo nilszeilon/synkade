@@ -3,7 +3,7 @@ defmodule Synkade.Settings do
 
   import Ecto.Query
   alias Synkade.Repo
-  alias Synkade.Settings.{Setting, Project}
+  alias Synkade.Settings.{Setting, Project, Agent}
 
   @pubsub_topic "settings:updates"
 
@@ -120,6 +120,76 @@ defmodule Synkade.Settings do
     Project.changeset(project, attrs)
   end
 
+  # --- Agents ---
+
+  @doc "Lists all agents."
+  def list_agents do
+    Repo.all(from(a in Agent, order_by: [asc: a.name]))
+  end
+
+  @doc "Gets a single agent by ID. Raises if not found."
+  def get_agent!(id) do
+    Repo.get!(Agent, id)
+  end
+
+  @doc "Gets a single agent by name."
+  def get_agent_by_name(name) do
+    Repo.get_by(Agent, name: name)
+  end
+
+  @doc "Creates an agent."
+  def create_agent(attrs) do
+    result =
+      %Agent{}
+      |> Agent.changeset(attrs)
+      |> Repo.insert()
+
+    case result do
+      {:ok, agent} ->
+        broadcast_agents_updated()
+        {:ok, agent}
+
+      error ->
+        error
+    end
+  end
+
+  @doc "Updates an agent."
+  def update_agent(%Agent{} = agent, attrs) do
+    result =
+      agent
+      |> Agent.changeset(attrs)
+      |> Repo.update()
+
+    case result do
+      {:ok, agent} ->
+        broadcast_agents_updated()
+        {:ok, agent}
+
+      error ->
+        error
+    end
+  end
+
+  @doc "Deletes an agent."
+  def delete_agent(%Agent{} = agent) do
+    result = Repo.delete(agent)
+
+    case result do
+      {:ok, agent} ->
+        broadcast_agents_updated()
+        {:ok, agent}
+
+      error ->
+        error
+    end
+  end
+
+  @doc "Returns a changeset for the agent form."
+  def change_agent(%Agent{} = agent, attrs \\ %{}) do
+    Agent.changeset(agent, attrs)
+  end
+
   defp broadcast_update(settings) do
     Phoenix.PubSub.broadcast(
       Synkade.PubSub,
@@ -133,6 +203,14 @@ defmodule Synkade.Settings do
       Synkade.PubSub,
       @pubsub_topic,
       {:projects_updated}
+    )
+  end
+
+  defp broadcast_agents_updated do
+    Phoenix.PubSub.broadcast(
+      Synkade.PubSub,
+      @pubsub_topic,
+      {:agents_updated}
     )
   end
 end

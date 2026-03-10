@@ -2,7 +2,7 @@ defmodule Synkade.SettingsTest do
   use Synkade.DataCase, async: true
 
   alias Synkade.Settings
-  alias Synkade.Settings.Setting
+  alias Synkade.Settings.{Setting, Agent}
 
   @valid_attrs %{
     "github_pat" => "ghp_test123"
@@ -36,46 +36,6 @@ defmodule Synkade.SettingsTest do
       assert {:error, changeset} = Settings.save_settings(%{})
       assert errors_on(changeset).github_pat
     end
-
-    test "validates agent_max_turns must be positive" do
-      attrs = Map.put(@valid_attrs, "agent_max_turns", -1)
-      assert {:error, changeset} = Settings.save_settings(attrs)
-      assert errors_on(changeset).agent_max_turns
-    end
-
-    test "validates agent_max_concurrent must be positive" do
-      attrs = Map.put(@valid_attrs, "agent_max_concurrent", 0)
-      assert {:error, changeset} = Settings.save_settings(attrs)
-      assert errors_on(changeset).agent_max_concurrent
-    end
-
-    test "validates agent_auth_mode inclusion" do
-      attrs = Map.put(@valid_attrs, "agent_auth_mode", "invalid")
-      assert {:error, changeset} = Settings.save_settings(attrs)
-      assert errors_on(changeset).agent_auth_mode
-    end
-
-    test "saves settings with OAuth agent auth mode" do
-      attrs = Map.merge(@valid_attrs, %{
-        "agent_auth_mode" => "oauth",
-        "agent_oauth_token" => "oauth-token-123"
-      })
-
-      assert {:ok, %Setting{} = setting} = Settings.save_settings(attrs)
-      assert setting.agent_auth_mode == "oauth"
-      assert setting.agent_oauth_token == "oauth-token-123"
-    end
-
-    test "requires agent_oauth_token when agent_auth_mode is oauth" do
-      attrs = Map.put(@valid_attrs, "agent_auth_mode", "oauth")
-      assert {:error, changeset} = Settings.save_settings(attrs)
-      assert errors_on(changeset).agent_oauth_token
-    end
-
-    test "does not require agent_oauth_token when agent_auth_mode is api_key" do
-      attrs = Map.put(@valid_attrs, "agent_auth_mode", "api_key")
-      assert {:ok, %Setting{}} = Settings.save_settings(attrs)
-    end
   end
 
   describe "change_settings/2" do
@@ -96,6 +56,111 @@ defmodule Synkade.SettingsTest do
       Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic())
       {:ok, setting} = Settings.save_settings(@valid_attrs)
       assert_receive {:settings_updated, ^setting}
+    end
+  end
+
+  # --- Agent CRUD ---
+
+  describe "list_agents/0" do
+    test "returns empty list when no agents" do
+      assert Settings.list_agents() == []
+    end
+
+    test "returns agents sorted by name" do
+      {:ok, _} = Settings.create_agent(%{name: "beta"})
+      {:ok, _} = Settings.create_agent(%{name: "alpha"})
+      agents = Settings.list_agents()
+      assert [%Agent{name: "alpha"}, %Agent{name: "beta"}] = agents
+    end
+  end
+
+  describe "get_agent!/1" do
+    test "returns agent by ID" do
+      {:ok, agent} = Settings.create_agent(%{name: "test-agent"})
+      fetched = Settings.get_agent!(agent.id)
+      assert fetched.id == agent.id
+      assert fetched.name == "test-agent"
+    end
+
+    test "raises for missing ID" do
+      assert_raise Ecto.NoResultsError, fn ->
+        Settings.get_agent!(Ecto.UUID.generate())
+      end
+    end
+  end
+
+  describe "get_agent_by_name/1" do
+    test "returns agent by name" do
+      {:ok, _} = Settings.create_agent(%{name: "named-agent"})
+      assert %Agent{name: "named-agent"} = Settings.get_agent_by_name("named-agent")
+    end
+
+    test "returns nil for missing name" do
+      assert Settings.get_agent_by_name("nonexistent") == nil
+    end
+  end
+
+  describe "create_agent/1" do
+    test "creates agent with valid attrs" do
+      assert {:ok, %Agent{} = agent} =
+               Settings.create_agent(%{
+                 name: "my-agent",
+                 kind: "claude",
+                 api_key: "sk-ant-test",
+                 model: "claude-sonnet-4-5-20250929"
+               })
+
+      assert agent.name == "my-agent"
+      assert agent.kind == "claude"
+      assert agent.api_key == "sk-ant-test"
+    end
+
+    test "returns error for duplicate name" do
+      {:ok, _} = Settings.create_agent(%{name: "duplicate"})
+      assert {:error, changeset} = Settings.create_agent(%{name: "duplicate"})
+      assert errors_on(changeset).name
+    end
+
+    test "broadcasts agents_updated" do
+      Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic())
+      {:ok, _} = Settings.create_agent(%{name: "broadcast-test"})
+      assert_receive {:agents_updated}
+    end
+  end
+
+  describe "update_agent/2" do
+    test "updates agent fields" do
+      {:ok, agent} = Settings.create_agent(%{name: "original"})
+      {:ok, updated} = Settings.update_agent(agent, %{name: "renamed", model: "new-model"})
+      assert updated.name == "renamed"
+      assert updated.model == "new-model"
+    end
+
+    test "broadcasts agents_updated" do
+      Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic())
+      {:ok, agent} = Settings.create_agent(%{name: "update-broadcast"})
+      # Drain the create broadcast
+      assert_receive {:agents_updated}
+
+      {:ok, _} = Settings.update_agent(agent, %{model: "x"})
+      assert_receive {:agents_updated}
+    end
+  end
+
+  describe "delete_agent/1" do
+    test "deletes agent" do
+      {:ok, agent} = Settings.create_agent(%{name: "to-delete"})
+      {:ok, _} = Settings.delete_agent(agent)
+      assert Settings.get_agent_by_name("to-delete") == nil
+    end
+
+    test "broadcasts agents_updated" do
+      Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic())
+      {:ok, agent} = Settings.create_agent(%{name: "delete-broadcast"})
+      assert_receive {:agents_updated}
+
+      {:ok, _} = Settings.delete_agent(agent)
+      assert_receive {:agents_updated}
     end
   end
 end

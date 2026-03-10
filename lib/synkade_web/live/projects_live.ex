@@ -17,6 +17,7 @@ defmodule SynkadeWeb.ProjectsLive do
      |> assign(:projects, orc_state.projects)
      |> assign(:running, orc_state.running)
      |> assign(:db_projects, Settings.list_projects())
+     |> assign(:agents, Settings.list_agents())
      |> assign(:editing, nil)
      |> assign(:form, nil)}
   end
@@ -134,7 +135,7 @@ defmodule SynkadeWeb.ProjectsLive do
         </div>
 
         <%= if @editing do %>
-          <.project_form form={@form} editing={@editing} />
+          <.project_form form={@form} editing={@editing} agents={@agents} />
         <% else %>
           <.project_list projects={@db_projects} />
         <% end %>
@@ -201,6 +202,7 @@ defmodule SynkadeWeb.ProjectsLive do
 
   attr :form, :any, required: true
   attr :editing, :any, required: true
+  attr :agents, :list, required: true
 
   defp project_form(assigns) do
     ~H"""
@@ -235,6 +237,18 @@ defmodule SynkadeWeb.ProjectsLive do
                 value={@form[:tracker_repo].value}
                 placeholder="owner/repo"
               />
+            </div>
+
+            <div class="form-control">
+              <label class="label"><span class="label-text">Default Agent</span></label>
+              <select class="select select-bordered w-full" name={@form[:default_agent_id].name} id={@form[:default_agent_id].id}>
+                <option value="" selected={is_nil(@form[:default_agent_id].value)}>Use first agent</option>
+                <%= for agent <- @agents do %>
+                  <option value={agent.id} selected={@form[:default_agent_id].value == agent.id}>
+                    {agent.name}
+                  </option>
+                <% end %>
+              </select>
             </div>
 
             <div class="form-control">

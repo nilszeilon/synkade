@@ -11,11 +11,13 @@ defmodule Synkade.Settings.Project do
     field :tracker_repo, :string
     field :prompt_template, :string
 
+    belongs_to :default_agent, Synkade.Settings.Agent, type: :binary_id
+
     timestamps()
   end
 
   @required_fields ~w(name)a
-  @optional_fields ~w(enabled tracker_repo prompt_template)a
+  @optional_fields ~w(enabled tracker_repo prompt_template default_agent_id)a
 
   def changeset(project, attrs) do
     project

@@ -3,7 +3,7 @@ defmodule SynkadeWeb.SettingsLive do
 
   alias Synkade.Orchestrator
   alias Synkade.Settings
-  alias Synkade.Settings.ConnectionTest, as: ConnTest
+  alias Synkade.Settings.{Agent, ConnectionTest}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -22,6 +22,9 @@ defmodule SynkadeWeb.SettingsLive do
      |> assign(:active_tab, "github")
      |> assign(:connection_status, nil)
      |> assign(:connection_testing, false)
+     |> assign(:agents, Settings.list_agents())
+     |> assign(:agent_editing, nil)
+     |> assign(:agent_form, nil)
      |> assign_form(changeset)}
   end
 
@@ -63,11 +66,94 @@ defmodule SynkadeWeb.SettingsLive do
 
     Task.start(fn ->
       token = form_data["github_pat"] || ""
-      result = ConnTest.test_pat(token, nil)
+      result = ConnectionTest.test_pat(token, nil)
       send(lv, {:connection_result, result})
     end)
 
     {:noreply, socket}
+  end
+
+  # --- Agent events ---
+
+  @impl true
+  def handle_event("new_agent", _params, socket) do
+    changeset = Settings.change_agent(%Agent{})
+
+    {:noreply,
+     socket
+     |> assign(:agent_editing, :new)
+     |> assign(:agent_form, to_form(changeset))}
+  end
+
+  @impl true
+  def handle_event("edit_agent", %{"id" => id}, socket) do
+    agent = Settings.get_agent!(id)
+    changeset = Settings.change_agent(agent)
+
+    {:noreply,
+     socket
+     |> assign(:agent_editing, agent)
+     |> assign(:agent_form, to_form(changeset))}
+  end
+
+  @impl true
+  def handle_event("cancel_agent", _params, socket) do
+    {:noreply, assign(socket, agent_editing: nil, agent_form: nil)}
+  end
+
+  @impl true
+  def handle_event("validate_agent", %{"agent" => params}, socket) do
+    agent =
+      case socket.assigns.agent_editing do
+        :new -> %Agent{}
+        %Agent{} = a -> a
+      end
+
+    changeset =
+      Settings.change_agent(agent, params)
+      |> Map.put(:action, :validate)
+
+    {:noreply, assign(socket, :agent_form, to_form(changeset))}
+  end
+
+  @impl true
+  def handle_event("save_agent", %{"agent" => params}, socket) do
+    result =
+      case socket.assigns.agent_editing do
+        :new -> Settings.create_agent(params)
+        %Agent{} = agent -> Settings.update_agent(agent, params)
+      end
+
+    case result do
+      {:ok, _agent} ->
+        {:noreply,
+         socket
+         |> assign(:agents, Settings.list_agents())
+         |> assign(:agent_editing, nil)
+         |> assign(:agent_form, nil)
+         |> put_flash(:info, "Agent saved.")}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, :agent_form, to_form(changeset))}
+    end
+  end
+
+  @impl true
+  def handle_event("delete_agent", %{"id" => id}, socket) do
+    agent = Settings.get_agent!(id)
+
+    case Settings.delete_agent(agent) do
+      {:ok, _} ->
+        {:noreply,
+         socket
+         |> assign(:agents, Settings.list_agents())
+         |> assign(:agent_editing, nil)
+         |> assign(:agent_form, nil)
+         |> put_flash(:info, "Agent deleted.")}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Failed to delete agent.")}
+    end
   end
 
   @impl true
@@ -126,18 +212,18 @@ defmodule SynkadeWeb.SettingsLive do
             <.github_tab form={@form} connection_status={@connection_status} connection_testing={@connection_testing} />
           </div>
 
-          <div class={if @active_tab != "agents", do: "hidden"}>
-            <.agents_tab form={@form} />
-          </div>
-
           <div class={if @active_tab != "execution", do: "hidden"}>
             <.execution_tab form={@form} />
           </div>
 
-          <div class="mt-6">
+          <div :if={@active_tab in ["github", "execution"]} class="mt-6">
             <button type="submit" class="btn btn-primary">Save Settings</button>
           </div>
         </.form>
+
+        <div class={if @active_tab != "agents", do: "hidden"}>
+          <.agents_tab agents={@agents} agent_editing={@agent_editing} agent_form={@agent_form} />
+        </div>
       </div>
     </Layouts.app>
     """
@@ -196,116 +282,189 @@ defmodule SynkadeWeb.SettingsLive do
     """
   end
 
-  attr :form, :any, required: true
+  attr :agents, :list, required: true
+  attr :agent_editing, :any, required: true
+  attr :agent_form, :any, required: true
 
   defp agents_tab(assigns) do
     ~H"""
-    <div class="space-y-4">
-      <div class="form-control">
-        <label class="label"><span class="label-text">Agent Kind</span></label>
-        <select class="select select-bordered w-full" name={@form[:agent_kind].name} id={@form[:agent_kind].id}>
-          <option value="claude" selected={@form[:agent_kind].value == "claude"}>Claude</option>
-          <option value="codex" selected={@form[:agent_kind].value == "codex"}>Codex</option>
-        </select>
-      </div>
-
-      <div class="form-control">
-        <label class="label"><span class="label-text">Auth Mode</span></label>
-        <select class="select select-bordered w-full" name={@form[:agent_auth_mode].name} id={@form[:agent_auth_mode].id}>
-          <option value="api_key" selected={(@form[:agent_auth_mode].value || "api_key") == "api_key"}>API Key</option>
-          <option value="oauth" selected={@form[:agent_auth_mode].value == "oauth"}>OAuth Token</option>
-        </select>
-      </div>
-
-      <%= if (@form[:agent_auth_mode].value || "api_key") == "api_key" do %>
-        <div class="form-control">
-          <label class="label"><span class="label-text">API Key</span></label>
-          <input
-            type="password"
-            class="input input-bordered w-full"
-            name={@form[:agent_api_key].name}
-            id={@form[:agent_api_key].id}
-            value={@form[:agent_api_key].value}
-            placeholder="sk-ant-..."
-          />
-        </div>
+    <div>
+      <%= if @agent_editing do %>
+        <.agent_form form={@agent_form} editing={@agent_editing} />
       <% else %>
-        <div class="form-control">
-          <label class="label"><span class="label-text">OAuth Token</span></label>
-          <input
-            type="password"
-            class="input input-bordered w-full"
-            name={@form[:agent_oauth_token].name}
-            id={@form[:agent_oauth_token].id}
-            value={@form[:agent_oauth_token].value}
-            placeholder="oauth-token-..."
-          />
-          <.field_error field={@form[:agent_oauth_token]} />
+        <div class="flex items-center justify-between mb-4">
+          <p class="text-sm text-base-content/60">Manage agent configurations for your projects.</p>
+          <button type="button" phx-click="new_agent" class="btn btn-primary btn-sm">New Agent</button>
         </div>
+
+        <%= if @agents == [] do %>
+          <div class="text-center py-12 text-base-content/50">
+            <p>No agents configured yet.</p>
+          </div>
+        <% else %>
+          <div class="overflow-x-auto">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Kind</th>
+                  <th>Model</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <%= for agent <- @agents do %>
+                  <tr>
+                    <td class="font-medium">{agent.name}</td>
+                    <td class="text-sm text-base-content/60">{agent.kind}</td>
+                    <td class="text-sm text-base-content/60">{agent.model || "-"}</td>
+                    <td class="text-right">
+                      <button type="button" phx-click="edit_agent" phx-value-id={agent.id} class="btn btn-ghost btn-xs">
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        phx-click="delete_agent"
+                        phx-value-id={agent.id}
+                        class="btn btn-ghost btn-xs text-error"
+                        data-confirm="Delete this agent?"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+        <% end %>
       <% end %>
+    </div>
+    """
+  end
 
-      <div class="form-control">
-        <label class="label"><span class="label-text">Model (optional)</span></label>
-        <input
-          type="text"
-          class="input input-bordered w-full"
-          name={@form[:agent_model].name}
-          id={@form[:agent_model].id}
-          value={@form[:agent_model].value}
-          placeholder="claude-sonnet-4-5-20250929"
-        />
-      </div>
+  attr :form, :any, required: true
+  attr :editing, :any, required: true
 
-      <div class="grid grid-cols-2 gap-4">
-        <div class="form-control">
-          <label class="label"><span class="label-text">Max Turns</span></label>
-          <input
-            type="number"
-            class="input input-bordered w-full"
-            name={@form[:agent_max_turns].name}
-            id={@form[:agent_max_turns].id}
-            value={@form[:agent_max_turns].value}
-            placeholder="20"
-            min="1"
-          />
-          <.field_error field={@form[:agent_max_turns]} />
-        </div>
+  defp agent_form(assigns) do
+    ~H"""
+    <div class="card bg-base-200">
+      <div class="card-body">
+        <h2 class="card-title text-lg">
+          {if @editing == :new, do: "New Agent", else: "Edit Agent"}
+        </h2>
 
-        <div class="form-control">
-          <label class="label"><span class="label-text">Max Concurrent Agents</span></label>
-          <input
-            type="number"
-            class="input input-bordered w-full"
-            name={@form[:agent_max_concurrent].name}
-            id={@form[:agent_max_concurrent].id}
-            value={@form[:agent_max_concurrent].value}
-            placeholder="10"
-            min="1"
-          />
-          <.field_error field={@form[:agent_max_concurrent]} />
-        </div>
-      </div>
+        <.form for={@form} phx-change="validate_agent" phx-submit="save_agent">
+          <div class="space-y-4">
+            <div class="form-control">
+              <label class="label"><span class="label-text">Name</span></label>
+              <input
+                type="text"
+                class="input input-bordered w-full"
+                name={@form[:name].name}
+                id={@form[:name].id}
+                value={@form[:name].value}
+                placeholder="my-agent"
+              />
+              <.field_error field={@form[:name]} />
+            </div>
 
-      <div class="form-control">
-        <label class="label"><span class="label-text">Allowed Tools (comma-separated)</span></label>
-        <input
-          type="text"
-          class="input input-bordered w-full"
-          name={@form[:agent_allowed_tools].name <> "[]"}
-          id={@form[:agent_allowed_tools].id}
-          value={Enum.join(@form[:agent_allowed_tools].value || [], ", ")}
-          placeholder="Read, Edit, Write, Bash, Glob, Grep"
-        />
-      </div>
+            <div class="form-control">
+              <label class="label"><span class="label-text">Kind</span></label>
+              <select class="select select-bordered w-full" name={@form[:kind].name} id={@form[:kind].id}>
+                <option value="claude" selected={(@form[:kind].value || "claude") == "claude"}>Claude</option>
+                <option value="codex" selected={@form[:kind].value == "codex"}>Codex</option>
+              </select>
+            </div>
 
-      <div class="form-control">
-        <label class="label"><span class="label-text">Prompt Template (Liquid, optional)</span></label>
-        <textarea
-          class="textarea textarea-bordered w-full font-mono text-sm"
-          rows="8"
-          name={@form[:prompt_template].name}
-          id={@form[:prompt_template].id}
-        >{@form[:prompt_template].value}</textarea>
+            <div class="form-control">
+              <label class="label"><span class="label-text">Auth Mode</span></label>
+              <select class="select select-bordered w-full" name={@form[:auth_mode].name} id={@form[:auth_mode].id}>
+                <option value="api_key" selected={(@form[:auth_mode].value || "api_key") == "api_key"}>API Key</option>
+                <option value="oauth" selected={@form[:auth_mode].value == "oauth"}>OAuth Token</option>
+              </select>
+            </div>
+
+            <%= if (@form[:auth_mode].value || "api_key") == "api_key" do %>
+              <div class="form-control">
+                <label class="label"><span class="label-text">API Key</span></label>
+                <input
+                  type="password"
+                  class="input input-bordered w-full"
+                  name={@form[:api_key].name}
+                  id={@form[:api_key].id}
+                  value={@form[:api_key].value}
+                  placeholder="sk-ant-..."
+                />
+              </div>
+            <% else %>
+              <div class="form-control">
+                <label class="label"><span class="label-text">OAuth Token</span></label>
+                <input
+                  type="password"
+                  class="input input-bordered w-full"
+                  name={@form[:oauth_token].name}
+                  id={@form[:oauth_token].id}
+                  value={@form[:oauth_token].value}
+                  placeholder="oauth-token-..."
+                />
+              </div>
+            <% end %>
+
+            <div class="form-control">
+              <label class="label"><span class="label-text">Model (optional)</span></label>
+              <input
+                type="text"
+                class="input input-bordered w-full"
+                name={@form[:model].name}
+                id={@form[:model].id}
+                value={@form[:model].value}
+                placeholder="claude-sonnet-4-5-20250929"
+              />
+            </div>
+
+            <div class="form-control">
+              <label class="label"><span class="label-text">Max Turns</span></label>
+              <input
+                type="number"
+                class="input input-bordered w-full"
+                name={@form[:max_turns].name}
+                id={@form[:max_turns].id}
+                value={@form[:max_turns].value}
+                placeholder="20"
+                min="1"
+              />
+              <.field_error field={@form[:max_turns]} />
+            </div>
+
+            <div class="form-control">
+              <label class="label"><span class="label-text">Allowed Tools (comma-separated)</span></label>
+              <input
+                type="text"
+                class="input input-bordered w-full"
+                name={@form[:allowed_tools].name <> "[]"}
+                id={@form[:allowed_tools].id}
+                value={Enum.join(@form[:allowed_tools].value || [], ", ")}
+                placeholder="Read, Edit, Write, Bash, Glob, Grep"
+              />
+            </div>
+
+            <div class="form-control">
+              <label class="label"><span class="label-text">System Prompt (optional)</span></label>
+              <textarea
+                class="textarea textarea-bordered w-full font-mono text-sm"
+                rows="6"
+                name={@form[:system_prompt].name}
+                id={@form[:system_prompt].id}
+              >{@form[:system_prompt].value}</textarea>
+            </div>
+          </div>
+
+          <div class="flex gap-2 mt-6">
+            <button type="submit" class="btn btn-primary">Save Agent</button>
+            <button type="button" phx-click="cancel_agent" class="btn btn-ghost">Cancel</button>
+          </div>
+        </.form>
       </div>
     </div>
     """

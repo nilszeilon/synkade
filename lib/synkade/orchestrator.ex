@@ -230,6 +230,14 @@ defmodule Synkade.Orchestrator do
   end
 
   @impl true
+  def handle_info({:agents_updated}, state) do
+    Logger.info("Orchestrator: applying updated agent config")
+    state = load_config(state)
+    broadcast_state(state)
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info({:retry_timer, project_name, issue_id}, state) do
     key = State.composite_key(project_name, issue_id)
 
@@ -454,15 +462,22 @@ defmodule Synkade.Orchestrator do
     db_settings =
       try do
         Settings.get_settings()
-      rescue
-        _ -> nil
+      catch
+        _, _ -> nil
       end
 
     db_projects =
       try do
         Settings.list_enabled_projects()
-      rescue
-        _ -> []
+      catch
+        _, _ -> []
+      end
+
+    db_agents =
+      try do
+        Settings.list_agents()
+      catch
+        _, _ -> []
       end
 
     case {db_settings, db_projects} do
@@ -473,24 +488,40 @@ defmodule Synkade.Orchestrator do
         %{state | config_error: "No projects configured", projects: %{}}
 
       {%Settings.Setting{} = setting, projects} ->
-        # Build per-project configs via ConfigAdapter.resolve_project_config
+        agents_by_id = Map.new(db_agents, fn a -> {a.id, a} end)
+        first_agent = List.first(db_agents)
+
         project_entries =
           Enum.map(projects, fn project ->
-            config = ConfigAdapter.resolve_project_config(setting, project)
-            prompt = project.prompt_template || setting.prompt_template
+            agent = agents_by_id[project.default_agent_id] || first_agent
 
-            %{
-              name: project.name,
-              config: config,
-              prompt_template: prompt,
-              max_concurrent_agents: Config.max_concurrent_agents(config),
-              enabled: project.enabled
-            }
+            case agent do
+              nil ->
+                config = ConfigAdapter.to_config(setting)
+
+                %{
+                  name: project.name,
+                  config: config,
+                  prompt_template: project.prompt_template,
+                  max_concurrent_agents: Config.max_concurrent_agents(config),
+                  enabled: project.enabled
+                }
+
+              %Settings.Agent{} = a ->
+                config = ConfigAdapter.resolve_project_config(setting, project, a)
+
+                %{
+                  name: project.name,
+                  config: config,
+                  prompt_template: project.prompt_template || a.system_prompt,
+                  max_concurrent_agents: Config.max_concurrent_agents(config),
+                  enabled: project.enabled
+                }
+            end
           end)
 
         projects_map = Map.new(project_entries, fn p -> {p.name, p} end)
 
-        # Use the first project's config for global settings (poll interval, etc.)
         first_config =
           case project_entries do
             [first | _] -> first.config

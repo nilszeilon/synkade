@@ -1,19 +1,36 @@
 defmodule Synkade.Settings.ConfigAdapter do
   @moduledoc false
 
-  alias Synkade.Settings.{Setting, Project}
+  alias Synkade.Settings.{Setting, Project, Agent}
 
   @doc """
   Converts a Setting struct into the config map format consumed by
   Synkade.Workflow.Config and downstream modules.
+
+  No longer includes an "agent" section — agent config comes from Agent structs.
   """
   def to_config(%Setting{} = s) do
     %{
       "tracker" => tracker_config(s),
-      "agent" => agent_config(s),
       "execution" => execution_config(s)
     }
-    |> maybe_put_prompt_template(s)
+  end
+
+  @doc """
+  Converts an Agent struct into the agent config map.
+  """
+  def agent_to_config(%Agent{} = a) do
+    %{
+      "kind" => a.kind,
+      "auth_mode" => a.auth_mode,
+      "api_key" => a.api_key,
+      "oauth_token" => a.oauth_token,
+      "model" => a.model,
+      "max_turns" => a.max_turns,
+      "allowed_tools" => non_empty_list(a.allowed_tools),
+      "system_prompt" => a.system_prompt
+    }
+    |> reject_nils()
   end
 
   @doc """
@@ -30,12 +47,13 @@ defmodule Synkade.Settings.ConfigAdapter do
 
   @doc """
   Resolves the effective config for a project by deep-merging global settings
-  with per-project overrides. Project values win when present.
+  with per-project overrides and agent config. Project values win when present.
   """
-  def resolve_project_config(%Setting{} = global, %Project{} = project) do
+  def resolve_project_config(%Setting{} = global, %Project{} = project, %Agent{} = agent) do
     global_config = to_config(global)
     project_config = project_to_config(project)
-    deep_merge(global_config, project_config)
+    agent_config = agent_to_config(agent)
+    deep_merge(global_config, project_config) |> Map.put("agent", agent_config)
   end
 
   # --- Setting → config ---
@@ -45,20 +63,6 @@ defmodule Synkade.Settings.ConfigAdapter do
       "kind" => "github",
       "api_key" => s.github_pat,
       "webhook_secret" => s.github_webhook_secret
-    }
-    |> reject_nils()
-  end
-
-  defp agent_config(%Setting{} = s) do
-    %{
-      "kind" => s.agent_kind,
-      "auth_mode" => s.agent_auth_mode,
-      "api_key" => s.agent_api_key,
-      "oauth_token" => s.agent_oauth_token,
-      "model" => s.agent_model,
-      "max_turns" => s.agent_max_turns,
-      "allowed_tools" => non_empty_list(s.agent_allowed_tools),
-      "max_concurrent_agents" => s.agent_max_concurrent
     }
     |> reject_nils()
   end
@@ -79,13 +83,6 @@ defmodule Synkade.Settings.ConfigAdapter do
       "repo" => p.tracker_repo
     }
     |> reject_nils()
-  end
-
-  defp maybe_put_prompt_template(config, %Setting{prompt_template: nil}), do: config
-  defp maybe_put_prompt_template(config, %Setting{prompt_template: ""}), do: config
-
-  defp maybe_put_prompt_template(config, %Setting{prompt_template: template}) do
-    Map.put(config, "prompt_template", template)
   end
 
   defp maybe_put_project_prompt(config, %Project{prompt_template: nil}), do: config

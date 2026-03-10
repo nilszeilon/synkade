@@ -2,7 +2,7 @@ defmodule Synkade.Settings.ConfigAdapterTest do
   use ExUnit.Case, async: true
 
   alias Synkade.Settings.ConfigAdapter
-  alias Synkade.Settings.{Setting, Project}
+  alias Synkade.Settings.{Setting, Project, Agent}
 
   describe "to_config/1 tracker section" do
     test "produces tracker config with api_key" do
@@ -28,67 +28,11 @@ defmodule Synkade.Settings.ConfigAdapterTest do
     end
   end
 
-  describe "to_config/1 agent section" do
-    test "produces agent config" do
-      setting = %Setting{
-        github_pat: "ghp_test",
-        agent_kind: "claude",
-        agent_api_key: "sk-ant-test",
-        agent_model: "claude-sonnet-4-5-20250929",
-        agent_max_turns: 30,
-        agent_allowed_tools: ["Read", "Write"],
-        agent_max_concurrent: 5
-      }
-
+  describe "to_config/1 no agent section" do
+    test "does not include agent section" do
+      setting = %Setting{github_pat: "ghp_test"}
       config = ConfigAdapter.to_config(setting)
-
-      assert config["agent"]["kind"] == "claude"
-      assert config["agent"]["api_key"] == "sk-ant-test"
-      assert config["agent"]["model"] == "claude-sonnet-4-5-20250929"
-      assert config["agent"]["max_turns"] == 30
-      assert config["agent"]["allowed_tools"] == ["Read", "Write"]
-      assert config["agent"]["max_concurrent_agents"] == 5
-    end
-
-    test "omits nil agent fields" do
-      setting = %Setting{
-        github_pat: "ghp_test"
-      }
-
-      config = ConfigAdapter.to_config(setting)
-
-      refute Map.has_key?(config["agent"], "api_key")
-      refute Map.has_key?(config["agent"], "model")
-      refute Map.has_key?(config["agent"], "max_turns")
-    end
-
-    test "includes auth_mode and oauth_token for OAuth mode" do
-      setting = %Setting{
-        github_pat: "ghp_test",
-        agent_kind: "claude",
-        agent_auth_mode: "oauth",
-        agent_oauth_token: "oauth-token-abc"
-      }
-
-      config = ConfigAdapter.to_config(setting)
-
-      assert config["agent"]["auth_mode"] == "oauth"
-      assert config["agent"]["oauth_token"] == "oauth-token-abc"
-      refute Map.has_key?(config["agent"], "api_key")
-    end
-
-    test "includes auth_mode for api_key mode" do
-      setting = %Setting{
-        github_pat: "ghp_test",
-        agent_auth_mode: "api_key",
-        agent_api_key: "sk-ant-test"
-      }
-
-      config = ConfigAdapter.to_config(setting)
-
-      assert config["agent"]["auth_mode"] == "api_key"
-      assert config["agent"]["api_key"] == "sk-ant-test"
-      refute Map.has_key?(config["agent"], "oauth_token")
+      refute Map.has_key?(config, "agent")
     end
   end
 
@@ -119,25 +63,59 @@ defmodule Synkade.Settings.ConfigAdapterTest do
     end
   end
 
-  describe "to_config/1 prompt template" do
-    test "includes prompt_template when set" do
-      setting = %Setting{
-        github_pat: "ghp_test",
-        prompt_template: "Fix {{ issue.title }}"
+  describe "agent_to_config/1" do
+    test "produces agent config from Agent struct" do
+      agent = %Agent{
+        kind: "claude",
+        auth_mode: "api_key",
+        api_key: "sk-ant-test",
+        model: "claude-sonnet-4-5-20250929",
+        max_turns: 30,
+        allowed_tools: ["Read", "Write"],
+        system_prompt: "Be helpful."
       }
 
-      config = ConfigAdapter.to_config(setting)
-      assert config["prompt_template"] == "Fix {{ issue.title }}"
+      config = ConfigAdapter.agent_to_config(agent)
+
+      assert config["kind"] == "claude"
+      assert config["auth_mode"] == "api_key"
+      assert config["api_key"] == "sk-ant-test"
+      assert config["model"] == "claude-sonnet-4-5-20250929"
+      assert config["max_turns"] == 30
+      assert config["allowed_tools"] == ["Read", "Write"]
+      assert config["system_prompt"] == "Be helpful."
     end
 
-    test "omits prompt_template when nil" do
-      setting = %Setting{
-        github_pat: "ghp_test",
-        prompt_template: nil
+    test "omits nil agent fields" do
+      agent = %Agent{kind: "claude", auth_mode: "api_key"}
+
+      config = ConfigAdapter.agent_to_config(agent)
+
+      refute Map.has_key?(config, "api_key")
+      refute Map.has_key?(config, "model")
+      refute Map.has_key?(config, "max_turns")
+      refute Map.has_key?(config, "system_prompt")
+    end
+
+    test "omits empty allowed_tools" do
+      agent = %Agent{kind: "claude", auth_mode: "api_key", allowed_tools: []}
+
+      config = ConfigAdapter.agent_to_config(agent)
+      refute Map.has_key?(config, "allowed_tools")
+    end
+
+    test "includes oauth_token for OAuth mode" do
+      agent = %Agent{
+        kind: "claude",
+        auth_mode: "oauth",
+        oauth_token: "oauth-token-abc"
       }
 
-      config = ConfigAdapter.to_config(setting)
-      refute Map.has_key?(config, "prompt_template")
+      config = ConfigAdapter.agent_to_config(agent)
+
+      assert config["auth_mode"] == "oauth"
+      assert config["oauth_token"] == "oauth-token-abc"
+      refute Map.has_key?(config, "api_key")
     end
   end
 
@@ -174,12 +152,10 @@ defmodule Synkade.Settings.ConfigAdapterTest do
     end
   end
 
-  describe "resolve_project_config/2" do
-    test "merges global and project configs" do
+  describe "resolve_project_config/3" do
+    test "merges global, project, and agent configs" do
       global = %Setting{
         github_pat: "ghp_global",
-        agent_kind: "claude",
-        agent_api_key: "sk-global",
         execution_backend: "local"
       }
 
@@ -188,16 +164,37 @@ defmodule Synkade.Settings.ConfigAdapterTest do
         tracker_repo: "acme/api"
       }
 
-      config = ConfigAdapter.resolve_project_config(global, project)
+      agent = %Agent{
+        kind: "claude",
+        auth_mode: "api_key",
+        api_key: "sk-global",
+        model: "claude-sonnet-4-5-20250929"
+      }
+
+      config = ConfigAdapter.resolve_project_config(global, project, agent)
 
       # Project overrides
       assert config["tracker"]["repo"] == "acme/api"
 
       # Global preserved
       assert config["tracker"]["api_key"] == "ghp_global"
+      assert config["execution"]["backend"] == "local"
+
+      # Agent config
       assert config["agent"]["kind"] == "claude"
       assert config["agent"]["api_key"] == "sk-global"
-      assert config["execution"]["backend"] == "local"
+      assert config["agent"]["model"] == "claude-sonnet-4-5-20250929"
+    end
+
+    test "agent config is placed under 'agent' key" do
+      global = %Setting{github_pat: "ghp_test"}
+      project = %Project{name: "test"}
+      agent = %Agent{kind: "codex", auth_mode: "api_key", api_key: "sk-codex"}
+
+      config = ConfigAdapter.resolve_project_config(global, project, agent)
+
+      assert config["agent"]["kind"] == "codex"
+      assert config["agent"]["api_key"] == "sk-codex"
     end
   end
 end

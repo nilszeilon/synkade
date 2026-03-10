@@ -3,6 +3,8 @@ defmodule SynkadeWeb.SettingsLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias Synkade.Settings
+
   test "renders settings page with tabs", %{conn: conn} do
     {:ok, _view, html} = live(conn, "/settings")
     assert html =~ "Settings"
@@ -16,11 +18,44 @@ defmodule SynkadeWeb.SettingsLiveTest do
     assert html =~ "Personal Access Token"
   end
 
-  test "switches to agents tab", %{conn: conn} do
+  test "switches to agents tab and shows agent list", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/settings")
     html = view |> element(~s{button[phx-value-tab="agents"]}) |> render_click()
-    assert html =~ "API Key"
-    assert html =~ "Max Turns"
+    assert html =~ "New Agent"
+    assert html =~ "No agents configured yet"
+  end
+
+  test "agents tab shows existing agents", %{conn: conn} do
+    {:ok, _} = Settings.create_agent(%{name: "test-agent", kind: "claude", model: "sonnet"})
+
+    {:ok, view, _html} = live(conn, "/settings")
+    html = view |> element(~s{button[phx-value-tab="agents"]}) |> render_click()
+    assert html =~ "test-agent"
+    assert html =~ "claude"
+    assert html =~ "sonnet"
+  end
+
+  test "opens new agent form", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/settings")
+    view |> element(~s{button[phx-value-tab="agents"]}) |> render_click()
+    html = view |> element(~s{button[phx-click="new_agent"]}) |> render_click()
+    assert html =~ "New Agent"
+    assert html =~ "Name"
+    assert html =~ "Kind"
+  end
+
+  test "creates an agent", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/settings")
+    view |> element(~s{button[phx-value-tab="agents"]}) |> render_click()
+    view |> element(~s{button[phx-click="new_agent"]}) |> render_click()
+
+    view
+    |> form(~s{form[phx-submit="save_agent"]}, agent: %{name: "new-agent", kind: "claude"})
+    |> render_submit()
+
+    html = render(view)
+    assert html =~ "Agent saved"
+    assert html =~ "new-agent"
   end
 
   test "validates on change", %{conn: conn} do
@@ -28,7 +63,7 @@ defmodule SynkadeWeb.SettingsLiveTest do
 
     html =
       view
-      |> form("form", setting: %{github_pat: ""})
+      |> form(~s{form[phx-submit="save"]}, setting: %{github_pat: ""})
       |> render_change()
 
     assert html =~ "can&#39;t be blank"
@@ -38,7 +73,7 @@ defmodule SynkadeWeb.SettingsLiveTest do
     {:ok, view, _html} = live(conn, "/settings")
 
     view
-    |> form("form",
+    |> form(~s{form[phx-submit="save"]},
       setting: %{
         github_pat: "ghp_test123"
       }
@@ -53,36 +88,10 @@ defmodule SynkadeWeb.SettingsLiveTest do
 
     html =
       view
-      |> form("form", setting: %{github_pat: ""})
+      |> form(~s{form[phx-submit="save"]}, setting: %{github_pat: ""})
       |> render_submit()
 
     assert html =~ "can&#39;t be blank"
-  end
-
-  test "shows OAuth Token field when auth mode is oauth", %{conn: conn} do
-    {:ok, view, _html} = live(conn, "/settings")
-
-    # Switch to agents tab
-    view |> element(~s{button[phx-value-tab="agents"]}) |> render_click()
-
-    # Change auth mode to oauth
-    html =
-      view
-      |> form("form", setting: %{agent_auth_mode: "oauth"})
-      |> render_change()
-
-    assert html =~ "OAuth Token"
-    refute html =~ ~s(placeholder="sk-ant-...")
-  end
-
-  test "shows API Key field when auth mode is api_key", %{conn: conn} do
-    {:ok, view, _html} = live(conn, "/settings")
-
-    # Switch to agents tab
-    html = view |> element(~s{button[phx-value-tab="agents"]}) |> render_click()
-
-    # Default is api_key mode
-    assert html =~ ~s(placeholder="sk-ant-...")
   end
 
   test "switches to execution tab", %{conn: conn} do
