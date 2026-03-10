@@ -27,12 +27,10 @@ defmodule Synkade.Issues.ChildParserTest do
 
       [first, second] = children
       assert first.title == "Implement auth module"
-      assert first.kind == "task"
       assert first.description == "Create the authentication module"
       assert first.priority == 1
 
       assert second.title == "Fix login bug"
-      assert second.kind == "bug"
       assert second.description == "Login fails on mobile"
       assert second.priority == 2
     end
@@ -47,18 +45,6 @@ defmodule Synkade.Issues.ChildParserTest do
 
     test "returns empty list for empty string" do
       assert ChildParser.parse("") == []
-    end
-
-    test "defaults kind to task" do
-      output = """
-      <!-- SYNKADE:CHILDREN
-      - title: "Do the thing"
-        description: "Details"
-      SYNKADE:CHILDREN -->
-      """
-
-      [child] = ChildParser.parse(output)
-      assert child.kind == "task"
     end
 
     test "defaults priority to 0" do

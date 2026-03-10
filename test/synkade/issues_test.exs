@@ -18,7 +18,6 @@ defmodule Synkade.IssuesTest do
 
       assert issue.title == "Fix bug"
       assert issue.state == "backlog"
-      assert issue.kind == "task"
       assert issue.depth == 0
     end
 
@@ -53,12 +52,6 @@ defmodule Synkade.IssuesTest do
       {:ok, _} = Issues.create_issue(%{title: "Backlog", project_id: project.id})
       {:ok, _} = Issues.create_issue(%{title: "Queued", project_id: project.id, state: "queued"})
       assert [%{title: "Queued"}] = Issues.list_issues(project.id, state: "queued")
-    end
-
-    test "filters by kind", %{project: project} do
-      {:ok, _} = Issues.create_issue(%{title: "Task", project_id: project.id, kind: "task"})
-      {:ok, _} = Issues.create_issue(%{title: "Bug", project_id: project.id, kind: "bug"})
-      assert [%{title: "Bug"}] = Issues.list_issues(project.id, kind: "bug")
     end
 
     test "filters by parent_id", %{project: project} do
@@ -107,9 +100,8 @@ defmodule Synkade.IssuesTest do
   describe "update_issue/2" do
     test "updates issue fields", %{project: project} do
       {:ok, issue} = Issues.create_issue(%{title: "Original", project_id: project.id})
-      {:ok, updated} = Issues.update_issue(issue, %{title: "Updated", kind: "bug"})
+      {:ok, updated} = Issues.update_issue(issue, %{title: "Updated"})
       assert updated.title == "Updated"
-      assert updated.kind == "bug"
     end
   end
 
@@ -227,8 +219,8 @@ defmodule Synkade.IssuesTest do
       {:ok, parent} = Issues.create_issue(%{title: "Parent", project_id: project.id})
 
       children_attrs = [
-        %{title: "Sub-task 1", kind: "task", description: "Do thing 1"},
-        %{title: "Sub-task 2", kind: "bug", description: "Fix thing 2", priority: 2}
+        %{title: "Sub-task 1", description: "Do thing 1"},
+        %{title: "Sub-task 2", description: "Fix thing 2", priority: 2}
       ]
 
       results = Issues.create_children_from_agent(parent, children_attrs)

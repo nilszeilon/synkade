@@ -19,7 +19,7 @@ defmodule Synkade.Prompt.Renderer do
 
   ## Context from parent issues
   {% for ancestor in ancestors %}
-  ### {{ ancestor.title }} ({{ ancestor.kind }})
+  ### {{ ancestor.title }}
   {{ ancestor.description }}
   {% if ancestor.agent_output %}
   #### Findings:
@@ -34,7 +34,6 @@ defmodule Synkade.Prompt.Renderer do
   If your work produces actionable sub-tasks, output them in this format:
   <!-- SYNKADE:CHILDREN
   - title: "Sub-task title"
-    kind: task
     description: "What needs to be done"
     priority: 1
   SYNKADE:CHILDREN -->
@@ -53,15 +52,8 @@ defmodule Synkade.Prompt.Renderer do
         template
       end
 
-    # Add children instruction for research/epic issues
-    issue_kind = issue[:kind] || issue["kind"]
-
-    template =
-      if issue_kind in ["research", "epic"] do
-        template <> @children_suffix
-      else
-        template
-      end
+    # Always include children instruction — agents infer when to create sub-tasks
+    template = template <> @children_suffix
 
     context =
       %{

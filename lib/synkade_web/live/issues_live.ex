@@ -28,9 +28,6 @@ defmodule SynkadeWeb.IssuesLive do
       |> assign(:show_form, false)
       |> assign(:form, nil)
       |> assign(:collapsed, MapSet.new())
-      |> assign(:label_suggestions, [])
-      |> assign(:label_input, "")
-      |> assign(:form_labels, [])
 
     {:ok, socket}
   end
@@ -44,14 +41,12 @@ defmodule SynkadeWeb.IssuesLive do
         socket
         |> assign(:selected_project_id, project_id)
         |> load_issues(project_id)
-        |> load_label_suggestions(project_id)
       else
         case socket.assigns.db_projects do
           [first | _] ->
             socket
             |> assign(:selected_project_id, first.id)
             |> load_issues(first.id)
-            |> load_label_suggestions(first.id)
 
           [] ->
             socket
@@ -65,9 +60,7 @@ defmodule SynkadeWeb.IssuesLive do
   def handle_info({:issues_updated}, socket) do
     socket =
       if socket.assigns.selected_project_id do
-        socket
-        |> load_issues(socket.assigns.selected_project_id)
-        |> load_label_suggestions(socket.assigns.selected_project_id)
+        load_issues(socket, socket.assigns.selected_project_id)
       else
         socket
       end
@@ -87,7 +80,6 @@ defmodule SynkadeWeb.IssuesLive do
       |> assign(:selected_project_id, project_id)
       |> assign(:selected_issue, nil)
       |> load_issues(project_id)
-      |> load_label_suggestions(project_id)
 
     {:noreply, socket}
   end
@@ -128,8 +120,6 @@ defmodule SynkadeWeb.IssuesLive do
       |> assign(:show_form, true)
       |> assign(:form, to_form(changeset))
       |> assign(:form_parent_id, parent_id)
-      |> assign(:form_labels, [])
-      |> assign(:label_input, "")
 
     {:noreply, socket}
   end
@@ -150,49 +140,10 @@ defmodule SynkadeWeb.IssuesLive do
   end
 
   @impl true
-  def handle_event("label_input", %{"value" => value}, socket) do
-    {:noreply, assign(socket, :label_input, value)}
-  end
-
-  @impl true
-  def handle_event("add_label", %{"label" => label}, socket) do
-    label = String.trim(label)
-
-    if label != "" and label not in socket.assigns.form_labels do
-      {:noreply,
-       socket
-       |> assign(:form_labels, socket.assigns.form_labels ++ [label])
-       |> assign(:label_input, "")}
-    else
-      {:noreply, assign(socket, :label_input, "")}
-    end
-  end
-
-  @impl true
-  def handle_event("add_label_from_input", _params, socket) do
-    label = String.trim(socket.assigns.label_input)
-
-    if label != "" and label not in socket.assigns.form_labels do
-      {:noreply,
-       socket
-       |> assign(:form_labels, socket.assigns.form_labels ++ [label])
-       |> assign(:label_input, "")}
-    else
-      {:noreply, assign(socket, :label_input, "")}
-    end
-  end
-
-  @impl true
-  def handle_event("remove_label", %{"label" => label}, socket) do
-    {:noreply, assign(socket, :form_labels, List.delete(socket.assigns.form_labels, label))}
-  end
-
-  @impl true
   def handle_event("save_issue", %{"issue" => params}, socket) do
     params =
       params
       |> Map.put("project_id", socket.assigns.selected_project_id)
-      |> Map.put("labels", socket.assigns.form_labels)
       |> maybe_put_parent(socket.assigns[:form_parent_id])
 
     case Issues.create_issue(params) do
@@ -201,9 +152,7 @@ defmodule SynkadeWeb.IssuesLive do
           socket
           |> assign(:show_form, false)
           |> assign(:form, nil)
-          |> assign(:form_labels, [])
           |> load_issues(socket.assigns.selected_project_id)
-          |> load_label_suggestions(socket.assigns.selected_project_id)
           |> put_flash(:info, "Issue created")
 
         {:noreply, socket}
@@ -265,11 +214,6 @@ defmodule SynkadeWeb.IssuesLive do
     assign(socket, :issues, issues)
   end
 
-  defp load_label_suggestions(socket, project_id) do
-    labels = Issues.list_all_labels(project_id)
-    assign(socket, :label_suggestions, labels)
-  end
-
   defp maybe_put_parent(params, nil), do: params
   defp maybe_put_parent(params, parent_id), do: Map.put(params, "parent_id", parent_id)
 
@@ -280,21 +224,6 @@ defmodule SynkadeWeb.IssuesLive do
   defp state_badge_class("done"), do: "badge-success"
   defp state_badge_class("cancelled"), do: "badge-error"
   defp state_badge_class(_), do: "badge-ghost"
-
-  defp kind_badge_class("epic"), do: "badge-primary"
-  defp kind_badge_class("research"), do: "badge-accent"
-  defp kind_badge_class("task"), do: "badge-ghost"
-  defp kind_badge_class("bug"), do: "badge-error"
-  defp kind_badge_class(_), do: "badge-ghost"
-
-  defp filtered_suggestions(suggestions, input, current_labels) do
-    input = String.downcase(input)
-
-    suggestions
-    |> Enum.reject(&(&1 in current_labels))
-    |> Enum.filter(&String.contains?(String.downcase(&1), input))
-    |> Enum.take(8)
-  end
 
   # --- Render ---
 
@@ -356,58 +285,6 @@ defmodule SynkadeWeb.IssuesLive do
                   phx-debounce="300"
                 >{@form[:description].value}</textarea>
               </div>
-              <div class="flex gap-3 items-end">
-                <select name="issue[kind]" class="select select-sm select-bordered">
-                  <option :for={k <- ~w(task bug research epic)} value={k} selected={@form[:kind].value == k}>
-                    {k}
-                  </option>
-                </select>
-              </div>
-
-              <!-- Labels -->
-              <div class="form-control">
-                <label class="text-xs text-base-content/50 mb-1">Labels</label>
-                <div class="flex flex-wrap gap-1 mb-2">
-                  <span
-                    :for={label <- @form_labels}
-                    class="badge badge-sm gap-1"
-                  >
-                    {label}
-                    <button type="button" phx-click="remove_label" phx-value-label={label} class="text-xs hover:text-error">x</button>
-                  </span>
-                </div>
-                <div class="relative">
-                  <input
-                    type="text"
-                    value={@label_input}
-                    placeholder="Add label..."
-                    class="input input-bordered input-sm w-full"
-                    phx-keyup="label_input"
-                    phx-key="Enter"
-                    phx-value-value={@label_input}
-                    name="label_input_field"
-                    autocomplete="off"
-                    phx-keydown="add_label_from_input"
-                    phx-debounce="100"
-                  />
-                  <!-- Suggestions dropdown -->
-                  <div
-                    :if={@label_input != "" and filtered_suggestions(@label_suggestions, @label_input, @form_labels) != []}
-                    class="absolute z-10 mt-1 w-full bg-base-100 border border-base-300 rounded shadow-lg max-h-32 overflow-y-auto"
-                  >
-                    <button
-                      :for={suggestion <- filtered_suggestions(@label_suggestions, @label_input, @form_labels)}
-                      type="button"
-                      class="block w-full text-left px-3 py-1.5 text-sm hover:bg-base-200"
-                      phx-click="add_label"
-                      phx-value-label={suggestion}
-                    >
-                      {suggestion}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
               <div class="flex gap-2">
                 <button type="submit" class="btn btn-sm btn-primary">Create</button>
                 <button type="button" phx-click="cancel_form" class="btn btn-sm btn-ghost">Cancel</button>
@@ -481,14 +358,7 @@ defmodule SynkadeWeb.IssuesLive do
         <span :if={!@has_children} class="w-6"></span>
 
         <div class="flex-1 min-w-0 flex items-center gap-2" phx-click="select_issue" phx-value-id={@issue.id}>
-          <span class={"badge badge-xs #{kind_badge_class(@issue.kind)}"}>{@issue.kind}</span>
           <span class="text-sm truncate">{@issue.title}</span>
-          <span
-            :for={label <- @issue.labels}
-            class="badge badge-xs badge-outline flex-shrink-0"
-          >
-            {label}
-          </span>
           <span class={"badge badge-xs #{state_badge_class(@issue.state)} ml-auto flex-shrink-0"}>
             {@issue.state}
           </span>
@@ -537,17 +407,11 @@ defmodule SynkadeWeb.IssuesLive do
       <div class="flex items-start justify-between mb-3">
         <div>
           <div class="flex items-center gap-2 mb-1">
-            <span class={"badge badge-sm #{kind_badge_class(@issue.kind)}"}>{@issue.kind}</span>
             <span class={"badge badge-sm #{state_badge_class(@issue.state)}"}>{@issue.state}</span>
           </div>
           <h2 class="text-lg font-bold">{@issue.title}</h2>
         </div>
         <button phx-click="close_detail" class="btn btn-ghost btn-sm btn-circle">x</button>
-      </div>
-
-      <!-- Labels -->
-      <div :if={@issue.labels != []} class="mb-3 flex flex-wrap gap-1">
-        <span :for={label <- @issue.labels} class="badge badge-sm badge-outline">{label}</span>
       </div>
 
       <!-- Ancestor chain -->
@@ -590,7 +454,6 @@ defmodule SynkadeWeb.IssuesLive do
       <div :if={@issue.children != [] and is_list(@issue.children)} class="mb-3">
         <p class="text-xs text-base-content/50 mb-1">Children ({length(@issue.children)})</p>
         <div :for={child <- @issue.children} class="flex items-center gap-2 py-1">
-          <span class={"badge badge-xs #{kind_badge_class(child.kind)}"}>{child.kind}</span>
           <span
             class="text-sm cursor-pointer hover:underline"
             phx-click="select_issue"

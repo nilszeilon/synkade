@@ -57,12 +57,11 @@ defmodule Synkade.Orchestrator.Worker do
                 %{
                   title: a.title,
                   description: a.description,
-                  kind: a.kind,
                   agent_output: a.agent_output
                 }
               end)
 
-            {ancestor_maps, Map.put(issue_map, :kind, db_issue.kind)}
+            {ancestor_maps, issue_map}
         end
       catch
         _, _ -> {[], issue_map}

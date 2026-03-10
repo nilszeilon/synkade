@@ -5,7 +5,7 @@ defmodule Synkade.Issues.ChildParser do
   Parse structured child issue declarations from agent output.
 
   Looks for content between `<!-- SYNKADE:CHILDREN` and `SYNKADE:CHILDREN -->` markers.
-  Content is a simple YAML-like list of maps with keys: title, kind, description, priority.
+  Content is a simple YAML-like list of maps with keys: title, description, priority.
 
   Returns a list of maps with atom keys.
   """
@@ -56,7 +56,6 @@ defmodule Synkade.Issues.ChildParser do
 
     %{
       title: fields["title"],
-      kind: fields["kind"] || "task",
       description: fields["description"],
       priority: parse_priority(fields["priority"])
     }

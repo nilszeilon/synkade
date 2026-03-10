@@ -28,23 +28,10 @@ defmodule Synkade.Issues.IssueTest do
       assert errors_on(changeset).project_id
     end
 
-    test "validates kind inclusion" do
-      changeset = Issue.changeset(%Issue{}, %{title: "X", project_id: Ecto.UUID.generate(), kind: "invalid"})
-      refute changeset.valid?
-      assert errors_on(changeset).kind
-    end
-
     test "validates state inclusion" do
       changeset = Issue.changeset(%Issue{}, %{title: "X", project_id: Ecto.UUID.generate(), state: "invalid"})
       refute changeset.valid?
       assert errors_on(changeset).state
-    end
-
-    test "accepts all valid kinds" do
-      for kind <- ~w(epic research task bug) do
-        changeset = Issue.changeset(%Issue{}, %{title: "X", project_id: Ecto.UUID.generate(), kind: kind})
-        assert changeset.valid?, "Expected kind #{kind} to be valid"
-      end
     end
 
     test "accepts all valid states" do
@@ -56,7 +43,6 @@ defmodule Synkade.Issues.IssueTest do
 
     test "defaults", %{project: project} do
       changeset = Issue.changeset(%Issue{}, %{title: "Test", project_id: project.id})
-      assert get_field(changeset, :kind) == "task"
       assert get_field(changeset, :state) == "backlog"
       assert get_field(changeset, :depth) == 0
       assert get_field(changeset, :position) == 0

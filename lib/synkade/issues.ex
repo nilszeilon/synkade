@@ -28,7 +28,6 @@ defmodule Synkade.Issues do
     query =
       Enum.reduce(opts, query, fn
         {:state, state}, q -> where(q, [i], i.state == ^state)
-        {:kind, kind}, q -> where(q, [i], i.kind == ^kind)
         {:parent_id, nil}, q -> where(q, [i], is_nil(i.parent_id))
         {:parent_id, pid}, q -> where(q, [i], i.parent_id == ^pid)
         _, q -> q
@@ -150,19 +149,6 @@ defmodule Synkade.Issues do
       order_by: [asc: i.priority, asc: i.inserted_at]
     )
     |> Repo.all()
-  end
-
-  # --- Labels ---
-
-  def list_all_labels(project_id) do
-    from(i in Issue,
-      where: i.project_id == ^project_id,
-      select: i.labels
-    )
-    |> Repo.all()
-    |> List.flatten()
-    |> Enum.uniq()
-    |> Enum.sort()
   end
 
   # --- Agent Child Creation ---
