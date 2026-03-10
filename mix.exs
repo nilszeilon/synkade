@@ -61,7 +61,6 @@ defmodule Synkade.MixProject do
       {:swoosh, "~> 1.16"},
       {:req, "~> 0.5"},
       {:solid, "~> 0.15"},
-      {:joken, "~> 2.6"},
       {:cloak_ecto, "~> 1.3"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},

@@ -58,23 +58,12 @@ defmodule SynkadeWeb.SettingsLive do
   def handle_event("test_connection", _params, socket) do
     socket = assign(socket, connection_testing: true, connection_status: nil)
     form_data = socket.assigns.form.params || %{}
-    auth_mode = form_data["github_auth_mode"] || "pat"
 
     lv = self()
 
     Task.start(fn ->
-      result =
-        case auth_mode do
-          "pat" ->
-            token = form_data["github_pat"] || ""
-            ConnTest.test_pat(token, nil)
-
-          "app" ->
-            app_id = form_data["github_app_id"] || ""
-            pem = form_data["github_private_key"] || ""
-            ConnTest.test_app(app_id, pem, nil)
-        end
-
+      token = form_data["github_pat"] || ""
+      result = ConnTest.test_pat(token, nil)
       send(lv, {:connection_result, result})
     end)
 
@@ -162,64 +151,28 @@ defmodule SynkadeWeb.SettingsLive do
     ~H"""
     <div class="space-y-4">
       <div class="form-control">
-        <label class="label"><span class="label-text">Auth Mode</span></label>
-        <select class="select select-bordered w-full" name={@form[:github_auth_mode].name} id={@form[:github_auth_mode].id}>
-          <option value="pat" selected={@form[:github_auth_mode].value == "pat"}>Personal Access Token</option>
-          <option value="app" selected={@form[:github_auth_mode].value == "app"}>GitHub App</option>
-        </select>
+        <label class="label"><span class="label-text">Personal Access Token</span></label>
+        <input
+          type="password"
+          class="input input-bordered w-full"
+          name={@form[:github_pat].name}
+          id={@form[:github_pat].id}
+          value={@form[:github_pat].value}
+          placeholder="ghp_..."
+        />
+        <.field_error field={@form[:github_pat]} />
       </div>
 
-      <%= if (@form[:github_auth_mode].value || "pat") == "pat" do %>
-        <div class="form-control">
-          <label class="label"><span class="label-text">Personal Access Token</span></label>
-          <input
-            type="password"
-            class="input input-bordered w-full"
-            name={@form[:github_pat].name}
-            id={@form[:github_pat].id}
-            value={@form[:github_pat].value}
-            placeholder="ghp_..."
-          />
-          <.field_error field={@form[:github_pat]} />
-        </div>
-      <% else %>
-        <div class="form-control">
-          <label class="label"><span class="label-text">App ID</span></label>
-          <input
-            type="text"
-            class="input input-bordered w-full"
-            name={@form[:github_app_id].name}
-            id={@form[:github_app_id].id}
-            value={@form[:github_app_id].value}
-            placeholder="123456"
-          />
-          <.field_error field={@form[:github_app_id]} />
-        </div>
-
-        <div class="form-control">
-          <label class="label"><span class="label-text">Private Key (PEM)</span></label>
-          <textarea
-            class="textarea textarea-bordered w-full font-mono text-xs"
-            rows="6"
-            name={@form[:github_private_key].name}
-            id={@form[:github_private_key].id}
-            placeholder="-----BEGIN RSA PRIVATE KEY-----"
-          >{@form[:github_private_key].value}</textarea>
-          <.field_error field={@form[:github_private_key]} />
-        </div>
-
-        <div class="form-control">
-          <label class="label"><span class="label-text">Webhook Secret</span></label>
-          <input
-            type="password"
-            class="input input-bordered w-full"
-            name={@form[:github_webhook_secret].name}
-            id={@form[:github_webhook_secret].id}
-            value={@form[:github_webhook_secret].value}
-          />
-        </div>
-
-      <% end %>
+      <div class="form-control">
+        <label class="label"><span class="label-text">Webhook Secret (optional)</span></label>
+        <input
+          type="password"
+          class="input input-bordered w-full"
+          name={@form[:github_webhook_secret].name}
+          id={@form[:github_webhook_secret].id}
+          value={@form[:github_webhook_secret].value}
+        />
+      </div>
 
       <div class="flex items-center gap-4 mt-4">
         <button type="button" class="btn btn-outline btn-sm" phx-click="test_connection" disabled={@connection_testing}>

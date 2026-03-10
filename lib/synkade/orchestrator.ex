@@ -469,9 +469,7 @@ defmodule Synkade.Orchestrator do
       {nil, _} ->
         %{state | config_error: "No settings configured"}
 
-      {%Settings.Setting{} = setting, []} ->
-        global_config = ConfigAdapter.to_config(setting)
-        maybe_start_app_services(global_config)
+      {%Settings.Setting{}, []} ->
         %{state | config_error: "No projects configured", projects: %{}}
 
       {%Settings.Setting{} = setting, projects} ->
@@ -485,8 +483,7 @@ defmodule Synkade.Orchestrator do
               name: project.name,
               config: config,
               prompt_template: prompt,
-              max_concurrent_agents:
-                project.agent_max_concurrent || Config.max_concurrent_agents(config),
+              max_concurrent_agents: Config.max_concurrent_agents(config),
               enabled: project.enabled
             }
           end)
@@ -500,8 +497,6 @@ defmodule Synkade.Orchestrator do
             [] -> ConfigAdapter.to_config(setting)
           end
 
-        maybe_start_app_services(first_config)
-
         %{
           state
           | config_error: nil,
@@ -509,43 +504,6 @@ defmodule Synkade.Orchestrator do
             poll_interval_ms: Config.poll_interval_ms(first_config),
             max_concurrent_agents: Config.max_concurrent_agents(first_config)
         }
-    end
-  end
-
-  defp maybe_start_app_services(config) do
-    if Config.auth_mode(config) == "app" do
-      app_id = Config.get(config, "tracker", "app_id")
-      pem = Config.private_key_pem(config)
-
-      if app_id && pem do
-        # Start InstallationRegistry if not already running
-        case DynamicSupervisor.start_child(
-               Synkade.GitHubAppSupervisor,
-               {Synkade.Tracker.GitHub.InstallationRegistry,
-                app_id: app_id, private_key_pem: pem}
-             ) do
-          {:ok, _pid} -> :ok
-          {:error, {:already_started, _pid}} -> :ok
-          {:error, reason} -> Logger.warning("Failed to start InstallationRegistry: #{inspect(reason)}")
-        end
-
-        # Start TokenServers for any explicit installation_id
-        case Config.get(config, "tracker", "installation_id") do
-          nil ->
-            :ok
-
-          installation_id ->
-            case DynamicSupervisor.start_child(
-                   Synkade.GitHubAppSupervisor,
-                   {Synkade.Tracker.GitHub.TokenServer,
-                    installation_id: installation_id, app_id: app_id, private_key_pem: pem}
-                 ) do
-              {:ok, _pid} -> :ok
-              {:error, {:already_started, _pid}} -> :ok
-              {:error, reason} -> Logger.warning("Failed to start TokenServer: #{inspect(reason)}")
-            end
-        end
-      end
     end
   end
 

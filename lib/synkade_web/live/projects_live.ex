@@ -151,7 +151,6 @@ defmodule SynkadeWeb.ProjectsLive do
       <div class="text-center py-12 text-base-content/50">
         <p>No projects configured yet.</p>
         <p class="text-sm mt-1">Projects let you manage multiple repos with per-project settings.</p>
-        <p class="text-sm mt-1">Without projects, global settings are used for a single repo.</p>
       </div>
     <% else %>
       <div class="overflow-x-auto">
@@ -160,7 +159,6 @@ defmodule SynkadeWeb.ProjectsLive do
             <tr>
               <th>Name</th>
               <th>Repo</th>
-              <th>Agent</th>
               <th>Enabled</th>
               <th></th>
             </tr>
@@ -169,8 +167,7 @@ defmodule SynkadeWeb.ProjectsLive do
             <%= for project <- @projects do %>
               <tr>
                 <td class="font-medium">{project.name}</td>
-                <td class="text-sm text-base-content/60">{project.tracker_repo || "inherited"}</td>
-                <td class="text-sm text-base-content/60">{project.agent_kind || "inherited"}</td>
+                <td class="text-sm text-base-content/60">{project.tracker_repo || "-"}</td>
                 <td>
                   <input
                     type="checkbox"
@@ -228,108 +225,17 @@ defmodule SynkadeWeb.ProjectsLive do
               <.field_error field={@form[:name]} />
             </div>
 
-            <div class="divider text-sm">Tracker</div>
-            <p class="text-xs text-base-content/50">Leave blank to inherit from global settings.</p>
-
-            <div class="grid grid-cols-2 gap-4">
-              <div class="form-control">
-                <label class="label"><span class="label-text">Tracker Kind</span></label>
-                <select class="select select-bordered w-full" name={@form[:tracker_kind].name} id={@form[:tracker_kind].id}>
-                  <option value="">Inherited</option>
-                  <option value="github" selected={@form[:tracker_kind].value == "github"}>GitHub</option>
-                  <option value="linear" selected={@form[:tracker_kind].value == "linear"}>Linear</option>
-                </select>
-              </div>
-
-              <div class="form-control">
-                <label class="label"><span class="label-text">Repository</span></label>
-                <input
-                  type="text"
-                  class="input input-bordered w-full"
-                  name={@form[:tracker_repo].name}
-                  id={@form[:tracker_repo].id}
-                  value={@form[:tracker_repo].value}
-                  placeholder="Inherited from global"
-                />
-              </div>
-            </div>
-
             <div class="form-control">
-              <label class="label"><span class="label-text">Tracker API Key</span></label>
-              <input
-                type="password"
-                class="input input-bordered w-full"
-                name={@form[:tracker_api_key].name}
-                id={@form[:tracker_api_key].id}
-                value={@form[:tracker_api_key].value}
-                placeholder="Inherited from global"
-              />
-            </div>
-
-            <div class="form-control">
-              <label class="label"><span class="label-text">Labels (comma-separated)</span></label>
+              <label class="label"><span class="label-text">Repository</span></label>
               <input
                 type="text"
                 class="input input-bordered w-full"
-                name={@form[:tracker_labels].name <> "[]"}
-                id={@form[:tracker_labels].id}
-                value={Enum.join(@form[:tracker_labels].value || [], ", ")}
-                placeholder="Inherited from global"
+                name={@form[:tracker_repo].name}
+                id={@form[:tracker_repo].id}
+                value={@form[:tracker_repo].value}
+                placeholder="owner/repo"
               />
             </div>
-
-            <div class="divider text-sm">Agent</div>
-
-            <div class="grid grid-cols-2 gap-4">
-              <div class="form-control">
-                <label class="label"><span class="label-text">Agent Kind</span></label>
-                <select class="select select-bordered w-full" name={@form[:agent_kind].name} id={@form[:agent_kind].id}>
-                  <option value="">Inherited</option>
-                  <option value="claude" selected={@form[:agent_kind].value == "claude"}>Claude</option>
-                  <option value="codex" selected={@form[:agent_kind].value == "codex"}>Codex</option>
-                </select>
-              </div>
-
-              <div class="form-control">
-                <label class="label"><span class="label-text">Max Concurrent</span></label>
-                <input
-                  type="number"
-                  class="input input-bordered w-full"
-                  name={@form[:agent_max_concurrent].name}
-                  id={@form[:agent_max_concurrent].id}
-                  value={@form[:agent_max_concurrent].value}
-                  placeholder="Inherited"
-                  min="1"
-                />
-              </div>
-            </div>
-
-            <div class="form-control">
-              <label class="label"><span class="label-text">Agent API Key</span></label>
-              <input
-                type="password"
-                class="input input-bordered w-full"
-                name={@form[:agent_api_key].name}
-                id={@form[:agent_api_key].id}
-                value={@form[:agent_api_key].value}
-                placeholder="Inherited from global"
-              />
-            </div>
-
-            <div class="divider text-sm">Execution</div>
-
-            <div class="grid grid-cols-2 gap-4">
-              <div class="form-control">
-                <label class="label"><span class="label-text">Backend</span></label>
-                <select class="select select-bordered w-full" name={@form[:execution_backend].name} id={@form[:execution_backend].id}>
-                  <option value="">Inherited</option>
-                  <option value="local" selected={@form[:execution_backend].value == "local"}>Local</option>
-                  <option value="sprites" selected={@form[:execution_backend].value == "sprites"}>Sprites</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="divider text-sm">Prompt</div>
 
             <div class="form-control">
               <label class="label"><span class="label-text">Prompt Template (Liquid, optional)</span></label>
@@ -338,7 +244,6 @@ defmodule SynkadeWeb.ProjectsLive do
                 rows="6"
                 name={@form[:prompt_template].name}
                 id={@form[:prompt_template].id}
-                placeholder="Inherited from global"
               >{@form[:prompt_template].value}</textarea>
             </div>
           </div>

@@ -12,11 +12,7 @@ defmodule Synkade.Workflow.Config do
       "terminal_states" => nil,
       "labels" => ["agent"],
       "assignee" => nil,
-      "app_id" => nil,
-      "private_key" => nil,
-      "private_key_path" => nil,
-      "webhook_secret" => nil,
-      "installation_id" => nil
+      "webhook_secret" => nil
     },
     "polling" => %{
       "interval_ms" => 30_000
@@ -60,11 +56,6 @@ defmodule Synkade.Workflow.Config do
       "endpoint" => "https://api.github.com",
       "active_states" => ["open"],
       "terminal_states" => ["closed"]
-    },
-    "linear" => %{
-      "endpoint" => "https://api.linear.app/graphql",
-      "active_states" => ["Todo", "In Progress"],
-      "terminal_states" => ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
     }
   }
 
@@ -172,34 +163,6 @@ defmodule Synkade.Workflow.Config do
     normalize_string_list(raw)
   end
 
-  @spec auth_mode(map()) :: String.t()
-  def auth_mode(config) do
-    if get(config, "tracker", "app_id") do
-      "app"
-    else
-      "pat"
-    end
-  end
-
-  @spec private_key_pem(map()) :: String.t() | nil
-  def private_key_pem(config) do
-    case get(config, "tracker", "private_key") do
-      nil ->
-        case get(config, "tracker", "private_key_path") do
-          nil -> nil
-          path ->
-            expanded = expand_path(path)
-            case File.read(expanded) do
-              {:ok, content} -> String.trim(content)
-              {:error, _} -> nil
-            end
-        end
-
-      pem ->
-        pem
-    end
-  end
-
   @spec validate(map()) :: :ok | {:error, [String.t()]}
   def validate(config) do
     errors =
@@ -277,46 +240,16 @@ defmodule Synkade.Workflow.Config do
     kind = tracker_kind(config)
 
     errors =
-      if kind not in ["github", "linear"] do
-        ["tracker.kind must be 'github' or 'linear', got: #{kind}" | errors]
+      if kind != "github" do
+        ["tracker.kind must be 'github', got: #{kind}" | errors]
       else
         errors
       end
 
-    if kind == "github" do
-      mode = auth_mode(config)
+    repo = get(config, "tracker", "repo")
 
-      if mode == "app" do
-        errors = validate_app_auth(errors, config)
-        errors
-      else
-        repo = get(config, "tracker", "repo")
-
-        if is_nil(repo) or repo == "" do
-          ["tracker.repo is required when tracker.kind is 'github' (PAT mode)" | errors]
-        else
-          errors
-        end
-      end
-    else
-      errors
-    end
-  end
-
-  defp validate_app_auth(errors, config) do
-    app_id = get(config, "tracker", "app_id")
-
-    errors =
-      if is_nil(app_id) or app_id == "" do
-        ["tracker.app_id is required for GitHub App auth" | errors]
-      else
-        errors
-      end
-
-    pem = private_key_pem(config)
-
-    if is_nil(pem) or pem == "" do
-      ["tracker.private_key or tracker.private_key_path is required for GitHub App auth" | errors]
+    if is_nil(repo) or repo == "" do
+      ["tracker.repo is required" | errors]
     else
       errors
     end

@@ -6,13 +6,10 @@ defmodule SynkadeWeb.GitHub.WebhookControllerTest do
   @webhook_secret "test_webhook_secret_123"
 
   setup do
-    # Create settings in the DB with webhook_secret
     {:ok, _setting} =
       Settings.save_settings(%{
-        github_auth_mode: "app",
-        github_app_id: "123",
-        github_private_key: "-----BEGIN RSA PRIVATE KEY-----\ntest",
-        github_webhook_secret: @webhook_secret
+        "github_pat" => "ghp_test123",
+        "github_webhook_secret" => @webhook_secret
       })
 
     :ok

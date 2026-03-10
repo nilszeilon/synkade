@@ -3,7 +3,6 @@ defmodule SynkadeWeb.GitHub.WebhookController do
 
   require Logger
 
-  alias Synkade.Tracker.GitHub.InstallationRegistry
   alias Synkade.Workflow.Config
   alias Synkade.Settings
   alias Synkade.Settings.ConfigAdapter
@@ -67,7 +66,6 @@ defmodule SynkadeWeb.GitHub.WebhookController do
   defp handle_event(event, payload) when event in ["installation", "installation_repositories"] do
     action = payload["action"]
     Logger.info("GitHub webhook: #{event}/#{action}")
-    InstallationRegistry.refresh()
   end
 
   defp handle_event(event, _payload) do

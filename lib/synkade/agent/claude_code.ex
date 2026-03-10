@@ -137,27 +137,16 @@ defmodule Synkade.Agent.ClaudeCode do
   end
 
   defp resolve_github_token(config) do
-    case Config.auth_mode(config) do
-      "app" ->
-        installation_id = Config.get(config, "tracker", "installation_id")
-
-        case Synkade.Tracker.GitHub.TokenServer.get_token(installation_id) do
-          {:ok, token} -> token
-          {:error, _} -> nil
+    case Config.get(config, "tracker", "api_key") do
+      nil ->
+        case System.get_env("GITHUB_TOKEN") do
+          nil -> nil
+          "" -> nil
+          token -> token
         end
 
-      _ ->
-        case Config.get(config, "tracker", "api_key") do
-          nil ->
-            case System.get_env("GITHUB_TOKEN") do
-              nil -> nil
-              "" -> nil
-              token -> token
-            end
-
-          token ->
-            token
-        end
+      token ->
+        token
     end
   end
 

@@ -15,44 +15,11 @@ defmodule Synkade.Settings.ProjectTest do
       assert "can't be blank" in errors_on(changeset).name
     end
 
-    test "validates tracker_kind inclusion" do
-      changeset = Project.changeset(%Project{}, %{name: "p", tracker_kind: "jira"})
-      refute changeset.valid?
-      assert errors_on(changeset).tracker_kind
-    end
-
-    test "validates agent_kind inclusion" do
-      changeset = Project.changeset(%Project{}, %{name: "p", agent_kind: "gpt"})
-      refute changeset.valid?
-      assert errors_on(changeset).agent_kind
-    end
-
-    test "validates agent_auth_mode inclusion" do
-      changeset = Project.changeset(%Project{}, %{name: "p", agent_auth_mode: "magic"})
-      refute changeset.valid?
-      assert errors_on(changeset).agent_auth_mode
-    end
-
-    test "validates execution_backend inclusion" do
-      changeset = Project.changeset(%Project{}, %{name: "p", execution_backend: "docker"})
-      refute changeset.valid?
-      assert errors_on(changeset).execution_backend
-    end
-
-    test "validates agent_max_turns > 0" do
-      changeset = Project.changeset(%Project{}, %{name: "p", agent_max_turns: 0})
-      refute changeset.valid?
-      assert errors_on(changeset).agent_max_turns
-    end
-
-    test "accepts valid enum values" do
+    test "accepts name and tracker_repo" do
       changeset =
         Project.changeset(%Project{}, %{
           name: "my-project",
-          tracker_kind: "github",
-          agent_kind: "claude",
-          agent_auth_mode: "api_key",
-          execution_backend: "local"
+          tracker_repo: "acme/repo"
         })
 
       assert changeset.valid?

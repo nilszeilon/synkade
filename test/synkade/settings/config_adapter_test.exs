@@ -4,10 +4,9 @@ defmodule Synkade.Settings.ConfigAdapterTest do
   alias Synkade.Settings.ConfigAdapter
   alias Synkade.Settings.{Setting, Project}
 
-  describe "to_config/1 with PAT mode" do
+  describe "to_config/1 tracker section" do
     test "produces tracker config with api_key" do
       setting = %Setting{
-        github_auth_mode: "pat",
         github_pat: "ghp_test123"
       }
 
@@ -15,39 +14,23 @@ defmodule Synkade.Settings.ConfigAdapterTest do
 
       assert config["tracker"]["kind"] == "github"
       assert config["tracker"]["api_key"] == "ghp_test123"
-      refute Map.has_key?(config["tracker"], "repo")
-      refute Map.has_key?(config["tracker"], "endpoint")
-      refute Map.has_key?(config["tracker"], "labels")
-      refute Map.has_key?(config["tracker"], "app_id")
     end
-  end
 
-  describe "to_config/1 with App mode" do
-    test "produces tracker config with app_id and private_key" do
+    test "includes webhook_secret when set" do
       setting = %Setting{
-        github_auth_mode: "app",
-        github_app_id: "123456",
-        github_private_key: "-----BEGIN RSA PRIVATE KEY-----\ntest",
+        github_pat: "ghp_test123",
         github_webhook_secret: "whsec_test"
       }
 
       config = ConfigAdapter.to_config(setting)
 
-      assert config["tracker"]["kind"] == "github"
-      assert config["tracker"]["app_id"] == "123456"
-      assert config["tracker"]["private_key"] == "-----BEGIN RSA PRIVATE KEY-----\ntest"
       assert config["tracker"]["webhook_secret"] == "whsec_test"
-      refute Map.has_key?(config["tracker"], "installation_id")
-      refute Map.has_key?(config["tracker"], "endpoint")
-      refute Map.has_key?(config["tracker"], "labels")
-      refute Map.has_key?(config["tracker"], "api_key")
     end
   end
 
   describe "to_config/1 agent section" do
     test "produces agent config" do
       setting = %Setting{
-        github_auth_mode: "pat",
         github_pat: "ghp_test",
         agent_kind: "claude",
         agent_api_key: "sk-ant-test",
@@ -69,7 +52,6 @@ defmodule Synkade.Settings.ConfigAdapterTest do
 
     test "omits nil agent fields" do
       setting = %Setting{
-        github_auth_mode: "pat",
         github_pat: "ghp_test"
       }
 
@@ -82,7 +64,6 @@ defmodule Synkade.Settings.ConfigAdapterTest do
 
     test "includes auth_mode and oauth_token for OAuth mode" do
       setting = %Setting{
-        github_auth_mode: "pat",
         github_pat: "ghp_test",
         agent_kind: "claude",
         agent_auth_mode: "oauth",
@@ -98,7 +79,6 @@ defmodule Synkade.Settings.ConfigAdapterTest do
 
     test "includes auth_mode for api_key mode" do
       setting = %Setting{
-        github_auth_mode: "pat",
         github_pat: "ghp_test",
         agent_auth_mode: "api_key",
         agent_api_key: "sk-ant-test"
@@ -115,7 +95,6 @@ defmodule Synkade.Settings.ConfigAdapterTest do
   describe "to_config/1 execution section" do
     test "produces execution config" do
       setting = %Setting{
-        github_auth_mode: "pat",
         github_pat: "ghp_test",
         execution_backend: "sprites",
         execution_sprites_token: "fly_token_123",
@@ -131,7 +110,6 @@ defmodule Synkade.Settings.ConfigAdapterTest do
 
     test "defaults to local backend" do
       setting = %Setting{
-        github_auth_mode: "pat",
         github_pat: "ghp_test"
       }
 
@@ -144,7 +122,6 @@ defmodule Synkade.Settings.ConfigAdapterTest do
   describe "to_config/1 prompt template" do
     test "includes prompt_template when set" do
       setting = %Setting{
-        github_auth_mode: "pat",
         github_pat: "ghp_test",
         prompt_template: "Fix {{ issue.title }}"
       }
@@ -155,7 +132,6 @@ defmodule Synkade.Settings.ConfigAdapterTest do
 
     test "omits prompt_template when nil" do
       setting = %Setting{
-        github_auth_mode: "pat",
         github_pat: "ghp_test",
         prompt_template: nil
       }
@@ -169,29 +145,22 @@ defmodule Synkade.Settings.ConfigAdapterTest do
     test "produces config from project overrides" do
       project = %Project{
         name: "my-project",
-        tracker_repo: "acme/api",
-        agent_kind: "codex",
-        agent_max_concurrent: 3
-      }
-
-      config = ConfigAdapter.project_to_config(project)
-
-      assert config["tracker"]["repo"] == "acme/api"
-      assert config["agent"]["kind"] == "codex"
-      assert config["agent"]["max_concurrent_agents"] == 3
-    end
-
-    test "omits empty sections" do
-      project = %Project{
-        name: "minimal",
         tracker_repo: "acme/api"
       }
 
       config = ConfigAdapter.project_to_config(project)
 
-      assert Map.has_key?(config, "tracker")
-      refute Map.has_key?(config, "agent")
-      refute Map.has_key?(config, "execution")
+      assert config["tracker"]["repo"] == "acme/api"
+    end
+
+    test "omits empty sections" do
+      project = %Project{
+        name: "minimal"
+      }
+
+      config = ConfigAdapter.project_to_config(project)
+
+      refute Map.has_key?(config, "tracker")
     end
 
     test "includes prompt_template when set" do
@@ -208,7 +177,6 @@ defmodule Synkade.Settings.ConfigAdapterTest do
   describe "resolve_project_config/2" do
     test "merges global and project configs" do
       global = %Setting{
-        github_auth_mode: "pat",
         github_pat: "ghp_global",
         agent_kind: "claude",
         agent_api_key: "sk-global",
@@ -217,15 +185,13 @@ defmodule Synkade.Settings.ConfigAdapterTest do
 
       project = %Project{
         name: "api",
-        tracker_repo: "acme/api",
-        agent_max_concurrent: 3
+        tracker_repo: "acme/api"
       }
 
       config = ConfigAdapter.resolve_project_config(global, project)
 
       # Project overrides
       assert config["tracker"]["repo"] == "acme/api"
-      assert config["agent"]["max_concurrent_agents"] == 3
 
       # Global preserved
       assert config["tracker"]["api_key"] == "ghp_global"

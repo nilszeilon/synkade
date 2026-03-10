@@ -22,9 +22,7 @@ defmodule Synkade.Settings.ConfigAdapter do
   """
   def project_to_config(%Project{} = p) do
     %{
-      "tracker" => project_tracker_config(p),
-      "agent" => project_agent_config(p),
-      "execution" => project_execution_config(p)
+      "tracker" => project_tracker_config(p)
     }
     |> reject_empty_sections()
     |> maybe_put_project_prompt(p)
@@ -42,19 +40,10 @@ defmodule Synkade.Settings.ConfigAdapter do
 
   # --- Setting → config ---
 
-  defp tracker_config(%Setting{github_auth_mode: "pat"} = s) do
+  defp tracker_config(%Setting{} = s) do
     %{
       "kind" => "github",
-      "api_key" => s.github_pat
-    }
-    |> reject_nils()
-  end
-
-  defp tracker_config(%Setting{github_auth_mode: "app"} = s) do
-    %{
-      "kind" => "github",
-      "app_id" => s.github_app_id,
-      "private_key" => s.github_private_key,
+      "api_key" => s.github_pat,
       "webhook_secret" => s.github_webhook_secret
     }
     |> reject_nils()
@@ -87,38 +76,7 @@ defmodule Synkade.Settings.ConfigAdapter do
 
   defp project_tracker_config(%Project{} = p) do
     %{
-      "kind" => p.tracker_kind,
-      "repo" => p.tracker_repo,
-      "api_key" => p.tracker_api_key,
-      "endpoint" => p.tracker_endpoint,
-      "labels" => non_empty_list(p.tracker_labels),
-      "app_id" => p.tracker_app_id,
-      "private_key" => p.tracker_private_key,
-      "webhook_secret" => p.tracker_webhook_secret,
-      "installation_id" => p.tracker_installation_id
-    }
-    |> reject_nils()
-  end
-
-  defp project_agent_config(%Project{} = p) do
-    %{
-      "kind" => p.agent_kind,
-      "auth_mode" => p.agent_auth_mode,
-      "api_key" => p.agent_api_key,
-      "oauth_token" => p.agent_oauth_token,
-      "model" => p.agent_model,
-      "max_turns" => p.agent_max_turns,
-      "allowed_tools" => non_empty_list(p.agent_allowed_tools),
-      "max_concurrent_agents" => p.agent_max_concurrent
-    }
-    |> reject_nils()
-  end
-
-  defp project_execution_config(%Project{} = p) do
-    %{
-      "backend" => p.execution_backend,
-      "sprites_token" => p.execution_sprites_token,
-      "sprites_org" => p.execution_sprites_org
+      "repo" => p.tracker_repo
     }
     |> reject_nils()
   end

@@ -15,9 +15,6 @@ defmodule Synkade.Settings.ConnectionTestTest do
             conn |> Plug.Conn.put_status(401) |> Req.Test.json(%{"message" => "Bad credentials"})
           end
 
-        {"GET", "/app"} ->
-          Req.Test.json(conn, %{"name" => "My GitHub App"})
-
         _ ->
           conn |> Plug.Conn.put_status(404) |> Req.Test.json(%{"message" => "Not found"})
       end
@@ -37,22 +34,6 @@ defmodule Synkade.Settings.ConnectionTestTest do
     test "returns error for invalid token" do
       assert {:error, "Authentication failed: invalid token"} =
                ConnTest.test_pat("bad_token", nil, @req_opts)
-    end
-  end
-
-  describe "test_app/4" do
-    test "returns ok for valid app credentials" do
-      # Generate a real RSA key for testing
-      key = :public_key.generate_key({:rsa, 2048, 65537})
-      pem = :public_key.pem_encode([:public_key.pem_entry_encode(:RSAPrivateKey, key)])
-
-      assert {:ok, "Connected as My GitHub App"} =
-               ConnTest.test_app("123456", pem, nil, @req_opts)
-    end
-
-    test "returns error for invalid PEM" do
-      assert {:error, "Invalid private key:" <> _} =
-               ConnTest.test_app("123456", "not-a-pem", nil)
     end
   end
 end

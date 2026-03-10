@@ -13,8 +13,6 @@ defmodule Synkade.Application do
       Synkade.Repo,
       {DNSCluster, query: Application.get_env(:synkade, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Synkade.PubSub},
-      {Registry, keys: :unique, name: Synkade.TokenServerRegistry},
-      {DynamicSupervisor, name: Synkade.GitHubAppSupervisor, strategy: :one_for_one},
       {Task.Supervisor, name: Synkade.TaskSupervisor},
       Synkade.Orchestrator,
       # Start to serve requests, typically the last entry

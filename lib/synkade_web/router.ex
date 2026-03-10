@@ -36,11 +36,6 @@ defmodule SynkadeWeb.Router do
     post "/webhooks", WebhookController, :handle
   end
 
-  scope "/github", SynkadeWeb.GitHub do
-    pipe_through :browser
-    get "/callback", OAuthController, :callback
-  end
-
   # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:synkade, :dev_routes) do
     # If you want to use the LiveDashboard in production, you should put
