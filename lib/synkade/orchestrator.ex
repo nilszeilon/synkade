@@ -5,7 +5,7 @@ defmodule Synkade.Orchestrator do
   require Logger
 
   alias Synkade.Orchestrator.{State, Dispatch, Retry, Reconciler, Worker}
-  alias Synkade.Workflow.{Config, ProjectRegistry}
+  alias Synkade.Workflow.Config
   alias Synkade.Tracker.Client, as: TrackerClient
   alias Synkade.Execution.BackendClient
   alias Synkade.Settings
@@ -470,9 +470,9 @@ defmodule Synkade.Orchestrator do
         %{state | config_error: "No settings configured"}
 
       {%Settings.Setting{} = setting, []} ->
-        # No per-project rows — fallback to global config + discovery
         global_config = ConfigAdapter.to_config(setting)
-        apply_config(state, global_config, setting.prompt_template)
+        maybe_start_app_services(global_config)
+        %{state | config_error: "No projects configured", projects: %{}}
 
       {%Settings.Setting{} = setting, projects} ->
         # Build per-project configs via ConfigAdapter.resolve_project_config
@@ -510,24 +510,6 @@ defmodule Synkade.Orchestrator do
             max_concurrent_agents: Config.max_concurrent_agents(first_config)
         }
     end
-  end
-
-  defp apply_config(state, config, prompt_template) do
-    # Start GitHub App services if needed
-    maybe_start_app_services(config)
-
-    projects = ProjectRegistry.resolve_projects(config, prompt_template)
-
-    projects_map =
-      Map.new(projects, fn p -> {p.name, p} end)
-
-    %{
-      state
-      | config_error: nil,
-        projects: projects_map,
-        poll_interval_ms: Config.poll_interval_ms(config),
-        max_concurrent_agents: Config.max_concurrent_agents(config)
-    }
   end
 
   defp maybe_start_app_services(config) do
