@@ -8,15 +8,17 @@ defmodule Synkade.Repo.Migrations.CreateIssues do
       add :parent_id, references(:issues, type: :binary_id, on_delete: :nilify_all)
       add :title, :string, null: false
       add :description, :text
-      add :kind, :string, null: false, default: "task"
-      add :state, :string, null: false, default: "backlog"
+      add :state, :string, default: "backlog"
       add :priority, :integer, default: 0
-      add :depth, :integer, null: false, default: 0
-      add :position, :integer, null: false, default: 0
+      add :depth, :integer, default: 0
+      add :position, :integer, default: 0
       add :agent_output, :text
       add :github_issue_url, :string
       add :github_pr_url, :string
       add :metadata, :map, default: %{}
+      add :dispatch_message, :string
+      add :assigned_agent_id, references(:agents, type: :binary_id, on_delete: :nilify_all)
+
       timestamps(type: :utc_datetime)
     end
 
