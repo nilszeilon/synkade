@@ -110,6 +110,12 @@ defmodule SynkadeWeb.Layouts do
                 Settings
               </.link>
             </li>
+            <li>
+              <.link navigate="/logs" class={[@active_tab == :logs && "active"]}>
+                <.icon name="hero-command-line" class="size-4" />
+                Logs
+              </.link>
+            </li>
           </ul>
           <div class="px-2 pt-2">
             <.theme_toggle />
