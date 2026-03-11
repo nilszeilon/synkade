@@ -67,8 +67,7 @@ defmodule Synkade.Orchestrator.Worker do
         _, _ -> {[], nil, issue_map}
       end
 
-    role = get_in(project.config, ["agent", "role"]) || "developer"
-    Renderer.render(prompt_template, project_map, issue_map, attempt, ancestors, dispatch_message, role)
+    Renderer.render(prompt_template, project_map, issue_map, attempt, ancestors, dispatch_message)
   end
 
   defp start_or_continue(config, nil, prompt, env_ref, _session_id) do

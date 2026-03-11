@@ -29,7 +29,6 @@ defmodule Synkade.Settings.ConfigAdapter do
       "max_turns" => a.max_turns,
       "allowed_tools" => non_empty_list(a.allowed_tools),
       "system_prompt" => a.system_prompt,
-      "role" => a.role,
       "synkade_api_token" => a.api_token
     }
     |> reject_nils()

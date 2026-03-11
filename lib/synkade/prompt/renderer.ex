@@ -1,33 +1,12 @@
 defmodule Synkade.Prompt.Renderer do
   @moduledoc false
 
-  @developer_default_template """
+  @default_template """
   You are working on issue {{ issue.identifier }}: {{ issue.title }}
 
   {{ issue.description }}
 
   Analyze the issue, implement the fix or feature, and run the test suite to verify your changes.
-  """
-
-  @researcher_default_template """
-  You are investigating issue {{ issue.identifier }}: {{ issue.title }}
-
-  {{ issue.description }}
-
-  Explore the codebase, trace relevant code paths, and document your findings.
-  """
-
-  @pr_suffix ~S"""
-
-  When you have completed the work, create a pull request using `gh pr create` and push it.
-  The PR title should reference the issue (e.g. "Fix #{{ issue.id }}: {{ issue.title }}").
-  Include a summary of changes in the PR body.
-  """
-
-  @researcher_output_suffix """
-
-  Do NOT make code changes or create pull requests. Output your findings as text.
-  Summarize what you discovered, relevant code locations, and any recommendations.
   """
 
   @ancestor_template """
@@ -102,7 +81,6 @@ defmodule Synkade.Prompt.Renderer do
           map(),
           integer() | nil,
           list(),
-          String.t() | nil,
           String.t() | nil
         ) ::
           {:ok, String.t()} | {:error, term()}
@@ -112,24 +90,9 @@ defmodule Synkade.Prompt.Renderer do
         issue,
         attempt \\ nil,
         ancestors \\ [],
-        dispatch_message \\ nil,
-        role \\ "developer"
+        dispatch_message \\ nil
       ) do
-    role = role || "developer"
-
-    default_template =
-      case role do
-        "researcher" -> @researcher_default_template
-        _ -> @developer_default_template
-      end
-
-    role_suffix =
-      case role do
-        "researcher" -> @researcher_output_suffix
-        _ -> @pr_suffix
-      end
-
-    template = (template || default_template) <> role_suffix
+    template = template || @default_template
 
     # Add ancestor context if there are ancestors
     template =

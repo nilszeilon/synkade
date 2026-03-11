@@ -354,7 +354,6 @@ defmodule SynkadeWeb.SettingsLive do
                 <tr>
                   <th>Name</th>
                   <th>Kind</th>
-                  <th>Role</th>
                   <th>Model</th>
                   <th>Token</th>
                   <th></th>
@@ -365,7 +364,6 @@ defmodule SynkadeWeb.SettingsLive do
                   <tr>
                     <td class="font-medium">{agent.name}</td>
                     <td class="text-sm text-base-content/60">{agent.kind}</td>
-                    <td class="text-sm text-base-content/60">{agent.role || "developer"}</td>
                     <td class="text-sm text-base-content/60">{agent.model || "-"}</td>
                     <td>
                       <%= if agent.api_token_hash do %>
@@ -483,17 +481,6 @@ defmodule SynkadeWeb.SettingsLive do
                 <option value="claude" selected={(@form[:kind].value || "claude") == "claude"}>Claude</option>
                 <option value="codex" selected={@form[:kind].value == "codex"}>Codex</option>
               </select>
-            </div>
-
-            <div class="form-control">
-              <label class="label"><span class="label-text">Role</span></label>
-              <select class="select select-bordered w-full" name={@form[:role].name} id={@form[:role].id}>
-                <option value="developer" selected={(@form[:role].value || "developer") == "developer"}>Developer</option>
-                <option value="researcher" selected={@form[:role].value == "researcher"}>Researcher</option>
-              </select>
-              <label class="label">
-                <span class="label-text-alt text-base-content/50">Developer: makes code changes + PRs. Researcher: investigates + documents findings.</span>
-              </label>
             </div>
 
             <div class="form-control">
