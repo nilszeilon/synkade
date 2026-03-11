@@ -137,7 +137,7 @@ defmodule Synkade.Settings do
     Repo.get_by(Agent, name: name)
   end
 
-  @doc "Creates an agent."
+  @doc "Creates an agent with an auto-generated API token."
   def create_agent(attrs) do
     result =
       %Agent{}
@@ -146,6 +146,8 @@ defmodule Synkade.Settings do
 
     case result do
       {:ok, agent} ->
+        {:ok, _plaintext} = generate_agent_token(agent)
+        agent = get_agent!(agent.id)
         broadcast_agents_updated()
         {:ok, agent}
 

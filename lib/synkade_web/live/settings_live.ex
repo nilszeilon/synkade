@@ -25,7 +25,7 @@ defmodule SynkadeWeb.SettingsLive do
      |> assign(:agents, Settings.list_agents())
      |> assign(:agent_editing, nil)
      |> assign(:agent_form, nil)
-     |> assign(:agent_token_plaintext, nil)
+     |> assign(:agent_token_visible, MapSet.new())
      |> assign_form(changeset)}
   end
 
@@ -162,16 +162,26 @@ defmodule SynkadeWeb.SettingsLive do
     agent = Settings.get_agent!(id)
 
     case Settings.generate_agent_token(agent) do
-      {:ok, plaintext} ->
+      {:ok, _plaintext} ->
         {:noreply,
          socket
          |> assign(:agents, Settings.list_agents())
-         |> assign(:agent_token_plaintext, plaintext)
-         |> put_flash(:info, "Token generated. Copy it now — it won't be shown again.")}
+         |> update(:agent_token_visible, &MapSet.put(&1, id))
+         |> put_flash(:info, "Token regenerated.")}
 
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Failed to generate token.")}
     end
+  end
+
+  @impl true
+  def handle_event("show_agent_token", %{"id" => id}, socket) do
+    {:noreply, update(socket, :agent_token_visible, &MapSet.put(&1, id))}
+  end
+
+  @impl true
+  def handle_event("hide_agent_token", %{"id" => id}, socket) do
+    {:noreply, update(socket, :agent_token_visible, &MapSet.delete(&1, id))}
   end
 
   @impl true
@@ -183,7 +193,7 @@ defmodule SynkadeWeb.SettingsLive do
         {:noreply,
          socket
          |> assign(:agents, Settings.list_agents())
-         |> assign(:agent_token_plaintext, nil)
+         |> update(:agent_token_visible, &MapSet.delete(&1, id))
          |> put_flash(:info, "Token revoked.")}
 
       {:error, _} ->
@@ -257,7 +267,7 @@ defmodule SynkadeWeb.SettingsLive do
         </.form>
 
         <div class={if @active_tab != "agents", do: "hidden"}>
-          <.agents_tab agents={@agents} agent_editing={@agent_editing} agent_form={@agent_form} agent_token_plaintext={@agent_token_plaintext} />
+          <.agents_tab agents={@agents} agent_editing={@agent_editing} agent_form={@agent_form} agent_token_visible={@agent_token_visible} />
         </div>
       </div>
     </Layouts.app>
@@ -320,20 +330,11 @@ defmodule SynkadeWeb.SettingsLive do
   attr :agents, :list, required: true
   attr :agent_editing, :any, required: true
   attr :agent_form, :any, required: true
-  attr :agent_token_plaintext, :string, default: nil
+  attr :agent_token_visible, :any, required: true
 
   defp agents_tab(assigns) do
     ~H"""
     <div>
-      <%= if @agent_token_plaintext do %>
-        <div class="alert alert-warning mb-4">
-          <div>
-            <p class="font-semibold">API Token (copy now — shown only once):</p>
-            <code class="block mt-1 text-xs break-all select-all">{@agent_token_plaintext}</code>
-          </div>
-        </div>
-      <% end %>
-
       <%= if @agent_editing do %>
         <.agent_form form={@agent_form} editing={@agent_editing} />
       <% else %>
@@ -368,13 +369,45 @@ defmodule SynkadeWeb.SettingsLive do
                     <td class="text-sm text-base-content/60">{agent.model || "-"}</td>
                     <td>
                       <%= if agent.api_token_hash do %>
-                        <span class="badge badge-success badge-sm">Active</span>
+                        <%= if MapSet.member?(@agent_token_visible, agent.id) do %>
+                          <code class="text-xs break-all select-all">{agent.api_token}</code>
+                        <% else %>
+                          <span class="badge badge-success badge-sm">Active</span>
+                        <% end %>
                       <% else %>
                         <span class="badge badge-ghost badge-sm">None</span>
                       <% end %>
                     </td>
                     <td class="text-right space-x-1">
                       <%= if agent.api_token_hash do %>
+                        <%= if MapSet.member?(@agent_token_visible, agent.id) do %>
+                          <button
+                            type="button"
+                            phx-click="hide_agent_token"
+                            phx-value-id={agent.id}
+                            class="btn btn-ghost btn-xs"
+                          >
+                            Hide
+                          </button>
+                        <% else %>
+                          <button
+                            type="button"
+                            phx-click="show_agent_token"
+                            phx-value-id={agent.id}
+                            class="btn btn-ghost btn-xs"
+                          >
+                            Show
+                          </button>
+                        <% end %>
+                        <button
+                          type="button"
+                          phx-click="generate_agent_token"
+                          phx-value-id={agent.id}
+                          class="btn btn-ghost btn-xs"
+                          data-confirm="Regenerate token? The current token will be invalidated."
+                        >
+                          Regenerate
+                        </button>
                         <button
                           type="button"
                           phx-click="revoke_agent_token"

@@ -101,7 +101,7 @@ defmodule Synkade.SettingsTest do
   end
 
   describe "create_agent/1" do
-    test "creates agent with valid attrs" do
+    test "creates agent with valid attrs and auto-generated token" do
       assert {:ok, %Agent{} = agent} =
                Settings.create_agent(%{
                  name: "my-agent",
@@ -113,6 +113,15 @@ defmodule Synkade.SettingsTest do
       assert agent.name == "my-agent"
       assert agent.kind == "claude"
       assert agent.api_key == "sk-ant-test"
+      assert agent.api_token_hash != nil
+      assert agent.api_token != nil
+      assert String.starts_with?(agent.api_token, "synkade_")
+    end
+
+    test "auto-generated token is verifiable" do
+      {:ok, agent} = Settings.create_agent(%{name: "verify-auto"})
+      assert {:ok, found} = Settings.verify_agent_token(agent.api_token)
+      assert found.id == agent.id
     end
 
     test "returns error for duplicate name" do
