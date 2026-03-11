@@ -180,33 +180,48 @@ defmodule SynkadeWeb.DashboardLive do
     allowed_transitions = [{"backlog", "queue"}, {"queue", "backlog"}]
 
     if {from_col, to_col} in allowed_transitions do
-      project = resolve_project(socket)
-      dispatch_labels = if project, do: Config.tracker_labels(project.config) || [], else: []
+      # Persist state transition to DB
+      new_state = if to_col == "queue", do: "queued", else: "backlog"
 
-      # Optimistic update
-      socket = move_card_in_assigns(socket, issue_id, from_col, to_col, dispatch_labels)
+      case Issues.get_issue(issue_id) do
+        nil ->
+          {:noreply, socket}
 
-      # Async label update on tracker
-      if project do
-        config = project.config
-        project_name = project.name
+        db_issue ->
+          case Issues.transition_state(db_issue, new_state) do
+            {:ok, _} ->
+              project = resolve_project(socket)
+              dispatch_labels = if project, do: Config.tracker_labels(project.config) || [], else: []
 
-        Task.start(fn ->
-          case {from_col, to_col} do
-            {"backlog", "queue"} ->
-              Enum.each(dispatch_labels, fn label ->
-                TrackerClient.add_issue_label(config, project_name, issue_id, label)
-              end)
+              # Optimistic update
+              socket = move_card_in_assigns(socket, issue_id, from_col, to_col, dispatch_labels)
 
-            {"queue", "backlog"} ->
-              Enum.each(dispatch_labels, fn label ->
-                TrackerClient.remove_issue_label(config, project_name, issue_id, label)
-              end)
+              # Async label update on tracker
+              if project do
+                config = project.config
+                project_name = project.name
+
+                Task.start(fn ->
+                  case {from_col, to_col} do
+                    {"backlog", "queue"} ->
+                      Enum.each(dispatch_labels, fn label ->
+                        TrackerClient.add_issue_label(config, project_name, issue_id, label)
+                      end)
+
+                    {"queue", "backlog"} ->
+                      Enum.each(dispatch_labels, fn label ->
+                        TrackerClient.remove_issue_label(config, project_name, issue_id, label)
+                      end)
+                  end
+                end)
+              end
+
+              {:noreply, socket}
+
+            {:error, :invalid_transition} ->
+              {:noreply, put_flash(socket, :error, "Cannot move issue — state has changed")}
           end
-        end)
       end
-
-      {:noreply, socket}
     else
       {:noreply, socket}
     end
