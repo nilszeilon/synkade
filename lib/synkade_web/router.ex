@@ -14,6 +14,11 @@ defmodule SynkadeWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :agent_api do
+    plug :accepts, ["json"]
+    plug SynkadeWeb.Plugs.AgentAuth
+  end
+
   scope "/", SynkadeWeb do
     pipe_through :browser
 
@@ -30,6 +35,16 @@ defmodule SynkadeWeb.Router do
     get "/projects", StateController, :projects
     get "/projects/:name", StateController, :project
     post "/refresh", StateController, :refresh
+  end
+
+  scope "/api/v1/agent", SynkadeWeb.Api do
+    pipe_through :agent_api
+
+    get "/issues", AgentIssuesController, :index
+    post "/issues", AgentIssuesController, :create
+    get "/issues/:id", AgentIssuesController, :show
+    patch "/issues/:id", AgentIssuesController, :update
+    post "/issues/:id/children", AgentIssuesController, :create_children
   end
 
   scope "/github", SynkadeWeb.GitHub do

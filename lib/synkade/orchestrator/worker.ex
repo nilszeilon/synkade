@@ -40,15 +40,15 @@ defmodule Synkade.Orchestrator.Worker do
   end
 
   defp render_prompt(prompt_template, project, issue, attempt) do
-    project_map = %{name: project.name, config: project.config}
+    project_map = %{name: project.name, config: project.config, db_id: project.db_id}
     issue_map = Map.from_struct(issue)
 
-    # Load DB issue for ancestor chain and kind
-    {ancestors, issue_map} =
+    # Load DB issue for ancestor chain and dispatch_message
+    {ancestors, dispatch_message, issue_map} =
       try do
         case Synkade.Issues.get_issue(issue.id) do
           nil ->
-            {[], issue_map}
+            {[], nil, issue_map}
 
           db_issue ->
             ancestor_maps =
@@ -61,13 +61,14 @@ defmodule Synkade.Orchestrator.Worker do
                 }
               end)
 
-            {ancestor_maps, issue_map}
+            {ancestor_maps, db_issue.dispatch_message, issue_map}
         end
       catch
-        _, _ -> {[], issue_map}
+        _, _ -> {[], nil, issue_map}
       end
 
-    Renderer.render(prompt_template, project_map, issue_map, attempt, ancestors)
+    role = get_in(project.config, ["agent", "role"]) || "developer"
+    Renderer.render(prompt_template, project_map, issue_map, attempt, ancestors, dispatch_message, role)
   end
 
   defp start_or_continue(config, nil, prompt, env_ref, _session_id) do

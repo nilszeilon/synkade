@@ -25,6 +25,7 @@ defmodule SynkadeWeb.SettingsLive do
      |> assign(:agents, Settings.list_agents())
      |> assign(:agent_editing, nil)
      |> assign(:agent_form, nil)
+     |> assign(:agent_token_plaintext, nil)
      |> assign_form(changeset)}
   end
 
@@ -157,6 +158,40 @@ defmodule SynkadeWeb.SettingsLive do
   end
 
   @impl true
+  def handle_event("generate_agent_token", %{"id" => id}, socket) do
+    agent = Settings.get_agent!(id)
+
+    case Settings.generate_agent_token(agent) do
+      {:ok, plaintext} ->
+        {:noreply,
+         socket
+         |> assign(:agents, Settings.list_agents())
+         |> assign(:agent_token_plaintext, plaintext)
+         |> put_flash(:info, "Token generated. Copy it now — it won't be shown again.")}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Failed to generate token.")}
+    end
+  end
+
+  @impl true
+  def handle_event("revoke_agent_token", %{"id" => id}, socket) do
+    agent = Settings.get_agent!(id)
+
+    case Settings.revoke_agent_token(agent) do
+      {:ok, _} ->
+        {:noreply,
+         socket
+         |> assign(:agents, Settings.list_agents())
+         |> assign(:agent_token_plaintext, nil)
+         |> put_flash(:info, "Token revoked.")}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Failed to revoke token.")}
+    end
+  end
+
+  @impl true
   def handle_info({:connection_result, result}, socket) do
     status =
       case result do
@@ -222,7 +257,7 @@ defmodule SynkadeWeb.SettingsLive do
         </.form>
 
         <div class={if @active_tab != "agents", do: "hidden"}>
-          <.agents_tab agents={@agents} agent_editing={@agent_editing} agent_form={@agent_form} />
+          <.agents_tab agents={@agents} agent_editing={@agent_editing} agent_form={@agent_form} agent_token_plaintext={@agent_token_plaintext} />
         </div>
       </div>
     </Layouts.app>
@@ -285,10 +320,20 @@ defmodule SynkadeWeb.SettingsLive do
   attr :agents, :list, required: true
   attr :agent_editing, :any, required: true
   attr :agent_form, :any, required: true
+  attr :agent_token_plaintext, :string, default: nil
 
   defp agents_tab(assigns) do
     ~H"""
     <div>
+      <%= if @agent_token_plaintext do %>
+        <div class="alert alert-warning mb-4">
+          <div>
+            <p class="font-semibold">API Token (copy now — shown only once):</p>
+            <code class="block mt-1 text-xs break-all select-all">{@agent_token_plaintext}</code>
+          </div>
+        </div>
+      <% end %>
+
       <%= if @agent_editing do %>
         <.agent_form form={@agent_form} editing={@agent_editing} />
       <% else %>
@@ -308,7 +353,9 @@ defmodule SynkadeWeb.SettingsLive do
                 <tr>
                   <th>Name</th>
                   <th>Kind</th>
+                  <th>Role</th>
                   <th>Model</th>
+                  <th>Token</th>
                   <th></th>
                 </tr>
               </thead>
@@ -317,8 +364,36 @@ defmodule SynkadeWeb.SettingsLive do
                   <tr>
                     <td class="font-medium">{agent.name}</td>
                     <td class="text-sm text-base-content/60">{agent.kind}</td>
+                    <td class="text-sm text-base-content/60">{agent.role || "developer"}</td>
                     <td class="text-sm text-base-content/60">{agent.model || "-"}</td>
-                    <td class="text-right">
+                    <td>
+                      <%= if agent.api_token_hash do %>
+                        <span class="badge badge-success badge-sm">Active</span>
+                      <% else %>
+                        <span class="badge badge-ghost badge-sm">None</span>
+                      <% end %>
+                    </td>
+                    <td class="text-right space-x-1">
+                      <%= if agent.api_token_hash do %>
+                        <button
+                          type="button"
+                          phx-click="revoke_agent_token"
+                          phx-value-id={agent.id}
+                          class="btn btn-ghost btn-xs text-warning"
+                          data-confirm="Revoke this agent's API token?"
+                        >
+                          Revoke
+                        </button>
+                      <% else %>
+                        <button
+                          type="button"
+                          phx-click="generate_agent_token"
+                          phx-value-id={agent.id}
+                          class="btn btn-ghost btn-xs"
+                        >
+                          Generate Token
+                        </button>
+                      <% end %>
                       <button type="button" phx-click="edit_agent" phx-value-id={agent.id} class="btn btn-ghost btn-xs">
                         Edit
                       </button>
@@ -375,6 +450,17 @@ defmodule SynkadeWeb.SettingsLive do
                 <option value="claude" selected={(@form[:kind].value || "claude") == "claude"}>Claude</option>
                 <option value="codex" selected={@form[:kind].value == "codex"}>Codex</option>
               </select>
+            </div>
+
+            <div class="form-control">
+              <label class="label"><span class="label-text">Role</span></label>
+              <select class="select select-bordered w-full" name={@form[:role].name} id={@form[:role].id}>
+                <option value="developer" selected={(@form[:role].value || "developer") == "developer"}>Developer</option>
+                <option value="researcher" selected={@form[:role].value == "researcher"}>Researcher</option>
+              </select>
+              <label class="label">
+                <span class="label-text-alt text-base-content/50">Developer: makes code changes + PRs. Researcher: investigates + documents findings.</span>
+              </label>
             </div>
 
             <div class="form-control">

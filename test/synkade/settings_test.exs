@@ -163,4 +163,54 @@ defmodule Synkade.SettingsTest do
       assert_receive {:agents_updated}
     end
   end
+
+  # --- Agent API Tokens ---
+
+  describe "generate_agent_token/1" do
+    test "returns a plaintext token with synkade_ prefix" do
+      {:ok, agent} = Settings.create_agent(%{name: "token-agent"})
+      {:ok, token} = Settings.generate_agent_token(agent)
+      assert String.starts_with?(token, "synkade_")
+    end
+
+    test "stores hash on agent record" do
+      {:ok, agent} = Settings.create_agent(%{name: "token-hash-agent"})
+      {:ok, _token} = Settings.generate_agent_token(agent)
+      updated = Settings.get_agent!(agent.id)
+      assert updated.api_token_hash != nil
+    end
+  end
+
+  describe "verify_agent_token/1" do
+    test "verifies a valid token" do
+      {:ok, agent} = Settings.create_agent(%{name: "verify-agent"})
+      {:ok, token} = Settings.generate_agent_token(agent)
+      assert {:ok, found} = Settings.verify_agent_token(token)
+      assert found.id == agent.id
+    end
+
+    test "rejects an invalid token" do
+      assert :error = Settings.verify_agent_token("synkade_invalid")
+    end
+
+    test "rejects after token regeneration" do
+      {:ok, agent} = Settings.create_agent(%{name: "regen-agent"})
+      {:ok, old_token} = Settings.generate_agent_token(agent)
+      agent = Settings.get_agent!(agent.id)
+      {:ok, new_token} = Settings.generate_agent_token(agent)
+      assert :error = Settings.verify_agent_token(old_token)
+      assert {:ok, _} = Settings.verify_agent_token(new_token)
+    end
+  end
+
+  describe "revoke_agent_token/1" do
+    test "clears the token hash" do
+      {:ok, agent} = Settings.create_agent(%{name: "revoke-agent"})
+      {:ok, token} = Settings.generate_agent_token(agent)
+      agent = Settings.get_agent!(agent.id)
+      {:ok, revoked} = Settings.revoke_agent_token(agent)
+      assert revoked.api_token_hash == nil
+      assert :error = Settings.verify_agent_token(token)
+    end
+  end
 end

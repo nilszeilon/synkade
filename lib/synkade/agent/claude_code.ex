@@ -130,9 +130,24 @@ defmodule Synkade.Agent.ClaudeCode do
           end
       end
 
-    case resolve_github_token(config) do
+    agent_env =
+      case resolve_github_token(config) do
+        nil -> agent_env
+        token -> [{~c"GITHUB_TOKEN", String.to_charlist(token)} | agent_env]
+      end
+
+    # Inject Synkade API credentials for runtime issue management
+    agent_env =
+      case Config.get(config, "agent", "synkade_api_url") do
+        nil -> agent_env
+        "" -> agent_env
+        url -> [{~c"SYNKADE_API_URL", String.to_charlist(url)} | agent_env]
+      end
+
+    case Config.get(config, "agent", "synkade_api_token") do
       nil -> agent_env
-      token -> [{~c"GITHUB_TOKEN", String.to_charlist(token)} | agent_env]
+      "" -> agent_env
+      token -> [{~c"SYNKADE_API_TOKEN", String.to_charlist(token)} | agent_env]
     end
   end
 

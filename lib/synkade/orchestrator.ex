@@ -12,6 +12,7 @@ defmodule Synkade.Orchestrator do
   alias Synkade.Issues
 
   @pubsub_topic "orchestrator:updates"
+  @max_events_per_issue 500
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: opts[:name] || __MODULE__)
@@ -19,9 +20,16 @@ defmodule Synkade.Orchestrator do
 
   def pubsub_topic, do: @pubsub_topic
 
+  def agent_events_topic(issue_id), do: "agent_events:#{issue_id}"
+
   @doc "Get the current orchestrator state."
   def get_state(server \\ __MODULE__) do
     GenServer.call(server, :get_state)
+  end
+
+  @doc "Get accumulated events for a specific issue."
+  def get_issue_events(server \\ __MODULE__, issue_id) do
+    GenServer.call(server, {:get_issue_events, issue_id})
   end
 
   @doc "Force a refresh."
@@ -70,6 +78,17 @@ defmodule Synkade.Orchestrator do
   end
 
   @impl true
+  def handle_call({:get_issue_events, issue_id}, _from, state) do
+    events =
+      state.running
+      |> Enum.find_value(fn {_key, entry} ->
+        if entry.issue_id == issue_id, do: Map.get(entry, :events, [])
+      end) || []
+
+    {:reply, events, state}
+  end
+
+  @impl true
   def handle_cast(:refresh, state) do
     send(self(), :poll_tick)
     {:noreply, state}
@@ -100,8 +119,17 @@ defmodule Synkade.Orchestrator do
               agent_total_tokens: entry.agent_total_tokens + event.total_tokens
           }
 
+          # Accumulate events (capped)
+          existing_events = Map.get(entry, :events, [])
+          events = Enum.take(existing_events ++ [event], -@max_events_per_issue)
+          entry = Map.put(entry, :events, events)
+
           put_in(state.running[key], entry)
       end
+
+    # Broadcast per-issue event for live session view
+    pubsub = state.__pubsub__
+    Phoenix.PubSub.broadcast(pubsub, agent_events_topic(issue_id), {:agent_event, event})
 
     broadcast_state(state)
     {:noreply, state}
@@ -454,12 +482,15 @@ defmodule Synkade.Orchestrator do
       end
     end
 
+    # Resolve per-issue agent override
+    effective_project = resolve_issue_agent_override(project, db_issue)
+
     # Launch worker task
     orchestrator = self()
 
     task =
       Task.Supervisor.async_nolink(Synkade.TaskSupervisor, fn ->
-        Worker.run(orchestrator, project, issue, attempt)
+        Worker.run(orchestrator, effective_project, issue, attempt)
       end)
 
     entry = %{
@@ -482,7 +513,8 @@ defmodule Synkade.Orchestrator do
       agent_total_tokens: 0,
       turn_count: 0,
       stalled: false,
-      should_stop: nil
+      should_stop: nil,
+      events: []
     }
 
     state = %{state | running: Map.put(state.running, key, entry)}
@@ -549,6 +581,21 @@ defmodule Synkade.Orchestrator do
 
               %Settings.Agent{} = a ->
                 config = ConfigAdapter.resolve_project_config(setting, project, a)
+
+                # Inject Synkade API URL for agent runtime access
+                api_url =
+                  try do
+                    SynkadeWeb.Endpoint.url() <> "/api/v1/agent"
+                  catch
+                    _, _ -> nil
+                  end
+
+                config =
+                  if api_url do
+                    put_in(config, ["agent", "synkade_api_url"], api_url)
+                  else
+                    config
+                  end
 
                 %{
                   name: project.name,
@@ -628,8 +675,14 @@ defmodule Synkade.Orchestrator do
   defp broadcast_state(state) do
     pubsub = state.__pubsub__
 
+    # Strip events from running entries to avoid large broadcast payloads
+    running_slim =
+      Map.new(state.running, fn {key, entry} ->
+        {key, Map.delete(entry, :events)}
+      end)
+
     snapshot = %{
-      running: state.running,
+      running: running_slim,
       retry_attempts: state.retry_attempts,
       awaiting_review: state.awaiting_review,
       agent_totals: state.agent_totals,
@@ -688,6 +741,27 @@ defmodule Synkade.Orchestrator do
       end
     catch
       _, _ -> :ok
+    end
+  end
+
+  defp resolve_issue_agent_override(project, nil), do: project
+
+  defp resolve_issue_agent_override(project, db_issue) do
+    case db_issue.assigned_agent_id do
+      nil ->
+        project
+
+      agent_id ->
+        try do
+          agent = Settings.get_agent!(agent_id)
+          setting = Settings.get_settings()
+          db_project = Settings.get_project!(project.db_id)
+          config = ConfigAdapter.resolve_project_config(setting, db_project, agent)
+
+          %{project | config: config, prompt_template: db_project.prompt_template || agent.system_prompt}
+        catch
+          _, _ -> project
+        end
     end
   end
 

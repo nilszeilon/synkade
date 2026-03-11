@@ -214,6 +214,33 @@ defmodule Synkade.IssuesTest do
     end
   end
 
+  describe "dispatch_issue/3" do
+    test "sets dispatch_message and transitions to queued", %{project: project} do
+      {:ok, issue} = Issues.create_issue(%{title: "Research X", project_id: project.id})
+      {:ok, dispatched} = Issues.dispatch_issue(issue, "look into how we can do X")
+      assert dispatched.state == "queued"
+
+      reloaded = Issues.get_issue!(issue.id)
+      assert reloaded.dispatch_message == "look into how we can do X"
+    end
+
+    test "sets assigned_agent_id when provided", %{project: project} do
+      {:ok, agent} = Synkade.Settings.create_agent(%{name: "researcher", model: "claude-sonnet-4-5-20250929"})
+      {:ok, issue} = Issues.create_issue(%{title: "Research Y", project_id: project.id})
+      {:ok, dispatched} = Issues.dispatch_issue(issue, "investigate Y", agent.id)
+      assert dispatched.state == "queued"
+
+      reloaded = Issues.get_issue!(issue.id)
+      assert reloaded.dispatch_message == "investigate Y"
+      assert reloaded.assigned_agent_id == agent.id
+    end
+
+    test "fails for invalid transition", %{project: project} do
+      {:ok, issue} = Issues.create_issue(%{title: "Done issue", project_id: project.id, state: "done"})
+      assert {:error, :invalid_transition} = Issues.dispatch_issue(issue, "try again")
+    end
+  end
+
   describe "create_children_from_agent/2" do
     test "creates children with correct depth and project", %{project: project} do
       {:ok, parent} = Issues.create_issue(%{title: "Parent", project_id: project.id})

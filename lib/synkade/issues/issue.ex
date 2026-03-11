@@ -21,9 +21,11 @@ defmodule Synkade.Issues.Issue do
     field :github_issue_url, :string
     field :github_pr_url, :string
     field :metadata, :map, default: %{}
+    field :dispatch_message, :string
 
     belongs_to :project, Synkade.Settings.Project
     belongs_to :parent, __MODULE__
+    belongs_to :assigned_agent, Synkade.Settings.Agent
     has_many :children, __MODULE__, foreign_key: :parent_id
 
     timestamps()
@@ -33,7 +35,8 @@ defmodule Synkade.Issues.Issue do
 
   @required_fields ~w(title project_id)a
   @optional_fields ~w(description state priority depth position parent_id
-                      agent_output github_issue_url github_pr_url metadata)a
+                      agent_output github_issue_url github_pr_url metadata
+                      dispatch_message assigned_agent_id)a
 
   def changeset(issue, attrs) do
     issue

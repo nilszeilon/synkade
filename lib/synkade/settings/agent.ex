@@ -15,11 +15,14 @@ defmodule Synkade.Settings.Agent do
     field :max_turns, :integer
     field :allowed_tools, {:array, :string}, default: []
     field :system_prompt, :string
+    field :role, :string, default: "developer"
+    field :api_token_hash, :string
+    field :api_token, Synkade.Encrypted.Binary
 
     timestamps()
   end
 
-  @fields ~w(name kind auth_mode api_key oauth_token model max_turns allowed_tools system_prompt)a
+  @fields ~w(name kind auth_mode api_key oauth_token model max_turns allowed_tools system_prompt role)a
 
   def changeset(agent, attrs) do
     agent
@@ -28,6 +31,7 @@ defmodule Synkade.Settings.Agent do
     |> unique_constraint(:name)
     |> validate_inclusion(:kind, ["claude", "codex"])
     |> validate_inclusion(:auth_mode, ["api_key", "oauth"])
+    |> validate_inclusion(:role, ["developer", "researcher"])
     |> validate_number(:max_turns, greater_than: 0)
   end
 end

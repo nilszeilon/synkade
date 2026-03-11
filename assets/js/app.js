@@ -94,11 +94,35 @@ const KanbanDrag = {
   },
 }
 
+const AutoScroll = {
+  mounted() {
+    this.observer = new MutationObserver(() => {
+      this.el.scrollTop = this.el.scrollHeight
+    })
+    this.observer.observe(this.el, { childList: true, subtree: true })
+    this.el.scrollTop = this.el.scrollHeight
+  },
+  updated() {
+    this.el.scrollTop = this.el.scrollHeight
+  },
+  destroyed() {
+    if (this.observer) this.observer.disconnect()
+  },
+}
+
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, KanbanDrag},
+  hooks: {...colocatedHooks, KanbanDrag, AutoScroll},
+})
+
+// Clipboard copy handler for phx:copy events
+window.addEventListener("phx:copy", (event) => {
+  const text = event.detail.text
+  if (text && navigator.clipboard) {
+    navigator.clipboard.writeText(text)
+  }
 })
 
 // Show progress bar on live navigation and form submits

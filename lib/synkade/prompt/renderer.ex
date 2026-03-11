@@ -1,10 +1,20 @@
 defmodule Synkade.Prompt.Renderer do
   @moduledoc false
 
-  @default_template """
+  @developer_default_template """
   You are working on issue {{ issue.identifier }}: {{ issue.title }}
 
   {{ issue.description }}
+
+  Analyze the issue, implement the fix or feature, and run the test suite to verify your changes.
+  """
+
+  @researcher_default_template """
+  You are investigating issue {{ issue.identifier }}: {{ issue.title }}
+
+  {{ issue.description }}
+
+  Explore the codebase, trace relevant code paths, and document your findings.
   """
 
   @pr_suffix ~S"""
@@ -12,6 +22,12 @@ defmodule Synkade.Prompt.Renderer do
   When you have completed the work, create a pull request using `gh pr create` and push it.
   The PR title should reference the issue (e.g. "Fix #{{ issue.id }}: {{ issue.title }}").
   Include a summary of changes in the PR body.
+  """
+
+  @researcher_output_suffix """
+
+  Do NOT make code changes or create pull requests. Output your findings as text.
+  Summarize what you discovered, relevant code locations, and any recommendations.
   """
 
   @ancestor_template """
@@ -29,6 +45,14 @@ defmodule Synkade.Prompt.Renderer do
   {% endif %}
   """
 
+  @dispatch_template """
+  {% if dispatch_message %}
+
+  ## Human Instructions
+  {{ dispatch_message }}
+  {% endif %}
+  """
+
   @children_suffix """
 
   If your work produces actionable sub-tasks, output them in this format:
@@ -39,10 +63,73 @@ defmodule Synkade.Prompt.Renderer do
   SYNKADE:CHILDREN -->
   """
 
-  @spec render(String.t() | nil, map(), map(), integer() | nil, list()) ::
+  @api_suffix """
+
+  ## Synkade Issue API
+
+  You have access to the Synkade issue management API via environment variables:
+  - `SYNKADE_API_URL` — base URL for API calls
+  - `SYNKADE_API_TOKEN` — bearer token for authentication
+
+  Use these to create, list, and update issues at runtime:
+
+  ```bash
+  # List issues for this project
+  curl -s -H "Authorization: Bearer $SYNKADE_API_TOKEN" "$SYNKADE_API_URL/issues?project_id={{ project_id }}"
+
+  # Create a sub-issue
+  curl -s -X POST -H "Authorization: Bearer $SYNKADE_API_TOKEN" -H "Content-Type: application/json" \\
+    -d '{"project_id":"{{ project_id }}","title":"Sub-task title","description":"Details","parent_id":"{{ issue.id }}"}' \\
+    "$SYNKADE_API_URL/issues"
+
+  # Update an issue (state, description, etc.)
+  curl -s -X PATCH -H "Authorization: Bearer $SYNKADE_API_TOKEN" -H "Content-Type: application/json" \\
+    -d '{"state":"done"}' \\
+    "$SYNKADE_API_URL/issues/<issue_id>"
+
+  # Create multiple child issues at once
+  curl -s -X POST -H "Authorization: Bearer $SYNKADE_API_TOKEN" -H "Content-Type: application/json" \\
+    -d '{"children":[{"title":"Child 1","description":"Details"},{"title":"Child 2","description":"Details"}]}' \\
+    "$SYNKADE_API_URL/issues/{{ issue.id }}/children"
+  ```
+
+  Alternatively, you can output children using SYNKADE:CHILDREN markers (see below).
+  """
+
+  @spec render(
+          String.t() | nil,
+          map(),
+          map(),
+          integer() | nil,
+          list(),
+          String.t() | nil,
+          String.t() | nil
+        ) ::
           {:ok, String.t()} | {:error, term()}
-  def render(template, project, issue, attempt \\ nil, ancestors \\ []) do
-    template = (template || @default_template) <> @pr_suffix
+  def render(
+        template,
+        project,
+        issue,
+        attempt \\ nil,
+        ancestors \\ [],
+        dispatch_message \\ nil,
+        role \\ "developer"
+      ) do
+    role = role || "developer"
+
+    default_template =
+      case role do
+        "researcher" -> @researcher_default_template
+        _ -> @developer_default_template
+      end
+
+    role_suffix =
+      case role do
+        "researcher" -> @researcher_output_suffix
+        _ -> @pr_suffix
+      end
+
+    template = (template || default_template) <> role_suffix
 
     # Add ancestor context if there are ancestors
     template =
@@ -52,8 +139,20 @@ defmodule Synkade.Prompt.Renderer do
         template
       end
 
-    # Always include children instruction — agents infer when to create sub-tasks
-    template = template <> @children_suffix
+    # Add dispatch message section
+    template = template <> @dispatch_template
+
+    # Add API suffix if Synkade API is configured, otherwise fallback to children markers
+    has_api = get_in(project, [:config, "agent", "synkade_api_url"]) != nil
+
+    template =
+      if has_api do
+        template <> @api_suffix <> @children_suffix
+      else
+        template <> @children_suffix
+      end
+
+    project_id = get_in(project, [:config, "agent", "synkade_api_url"]) && get_project_id(project)
 
     context =
       %{
@@ -61,7 +160,9 @@ defmodule Synkade.Prompt.Renderer do
         "issue" => stringify_keys(issue),
         "attempt" => attempt,
         "ancestors" => Enum.map(ancestors, &stringify_keys/1),
-        "has_parent" => ancestors != []
+        "has_parent" => ancestors != [],
+        "dispatch_message" => dispatch_message,
+        "project_id" => project_id
       }
 
     with {:ok, parsed} <- parse_template(template),
@@ -107,6 +208,9 @@ defmodule Synkade.Prompt.Renderer do
 
   defp stringify_keys(list) when is_list(list), do: Enum.map(list, &stringify_keys/1)
   defp stringify_keys(value), do: value
+
+  defp get_project_id(%{db_id: id}) when is_binary(id), do: id
+  defp get_project_id(_), do: nil
 
   defp format_errors(errors) when is_list(errors) do
     errors |> Enum.map(&format_error/1) |> Enum.join("; ")

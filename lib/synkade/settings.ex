@@ -190,6 +190,55 @@ defmodule Synkade.Settings do
     Agent.changeset(agent, attrs)
   end
 
+  # --- Agent API Tokens ---
+
+  @doc "Generates a new API token for an agent. Returns {:ok, plaintext_token}."
+  def generate_agent_token(%Agent{} = agent) do
+    plaintext = "synkade_" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
+    hash = :crypto.hash(:sha256, plaintext) |> Base.encode16(case: :lower)
+
+    result =
+      agent
+      |> Ecto.Changeset.change(%{api_token_hash: hash, api_token: plaintext})
+      |> Repo.update()
+
+    case result do
+      {:ok, _agent} ->
+        broadcast_agents_updated()
+        {:ok, plaintext}
+
+      error ->
+        error
+    end
+  end
+
+  @doc "Verifies a plaintext token and returns the matching agent."
+  def verify_agent_token(plaintext_token) do
+    hash = :crypto.hash(:sha256, plaintext_token) |> Base.encode16(case: :lower)
+
+    case Repo.one(from(a in Agent, where: a.api_token_hash == ^hash)) do
+      %Agent{} = agent -> {:ok, agent}
+      nil -> :error
+    end
+  end
+
+  @doc "Revokes the API token for an agent."
+  def revoke_agent_token(%Agent{} = agent) do
+    result =
+      agent
+      |> Ecto.Changeset.change(%{api_token_hash: nil, api_token: nil})
+      |> Repo.update()
+
+    case result do
+      {:ok, agent} ->
+        broadcast_agents_updated()
+        {:ok, agent}
+
+      error ->
+        error
+    end
+  end
+
   defp broadcast_update(settings) do
     Phoenix.PubSub.broadcast(
       Synkade.PubSub,

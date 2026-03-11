@@ -130,6 +130,13 @@ defmodule Synkade.Issues do
   def complete_issue(%Issue{} = issue), do: transition_state(issue, "done")
   def cancel_issue(%Issue{} = issue), do: transition_state(issue, "cancelled")
 
+  def dispatch_issue(%Issue{} = issue, dispatch_message, assigned_agent_id \\ nil) do
+    with {:ok, updated} <- update_issue(issue, %{dispatch_message: dispatch_message, assigned_agent_id: assigned_agent_id}),
+         {:ok, queued} <- transition_state(updated, "queued") do
+      {:ok, queued}
+    end
+  end
+
   # --- Tree Operations ---
 
   def ancestor_chain(%Issue{parent_id: nil}), do: []

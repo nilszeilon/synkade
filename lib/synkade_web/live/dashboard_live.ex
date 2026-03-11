@@ -1,7 +1,8 @@
 defmodule SynkadeWeb.DashboardLive do
   use SynkadeWeb, :live_view
 
-  alias Synkade.Orchestrator
+  alias Synkade.{Issues, Orchestrator, Settings}
+  alias Synkade.Issues.DispatchParser
   alias Synkade.Tracker.Client, as: TrackerClient
   alias Synkade.Workflow.Config
 
@@ -16,6 +17,7 @@ defmodule SynkadeWeb.DashboardLive do
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Synkade.PubSub, Orchestrator.pubsub_topic())
+      Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic())
     end
 
     state = Orchestrator.get_state()
@@ -36,6 +38,8 @@ defmodule SynkadeWeb.DashboardLive do
       |> assign(:board_issues, %{"backlog" => [], "queue" => [], "in_progress" => [], "human_review" => []})
       |> assign(:board_loading, true)
       |> assign(:board_error, nil)
+      |> assign(:modal, nil)
+      |> assign(:agents, Settings.list_agents())
 
     if connected?(socket) do
       send(self(), :load_board)
@@ -104,30 +108,57 @@ defmodule SynkadeWeb.DashboardLive do
         project ->
           dispatch_labels = Config.tracker_labels(project.config) || []
 
-          case TrackerClient.fetch_all_issues(project.config, project.name, states: ["open"]) do
-            {:ok, issues} ->
-              board_issues =
-                categorize_by_state(
-                  issues,
-                  project.name,
-                  dispatch_labels,
-                  socket.assigns.running,
-                  socket.assigns.retry_attempts,
-                  socket.assigns.awaiting_review
-                )
+          tracker_issues =
+            case TrackerClient.fetch_all_issues(project.config, project.name, states: ["open"]) do
+              {:ok, issues} -> issues
+              {:error, _} -> []
+            end
 
-              socket
-              |> assign(:board_issues, board_issues)
-              |> assign(:board_loading, false)
-              |> assign(:board_error, nil)
+          db_id = resolve_db_id(project)
 
-            {:error, reason} ->
-              socket
-              |> assign(:board_loading, false)
-              |> assign(:board_error, "Failed to load issues: #{inspect(reason)}")
-          end
+          db_issues =
+            if db_id do
+              try do
+                Issues.list_issues(db_id)
+                |> Enum.reject(fn i -> i.state in ["done", "cancelled"] end)
+                |> Enum.map(&db_issue_to_tracker_issue(&1, project.name))
+              catch
+                _, _ -> []
+              end
+            else
+              []
+            end
+
+          # Merge, deduplicating by id
+          tracker_ids = MapSet.new(tracker_issues, & &1.id)
+          merged = tracker_issues ++ Enum.reject(db_issues, fn i -> MapSet.member?(tracker_ids, i.id) end)
+
+          board_issues =
+            categorize_by_state(
+              merged,
+              project.name,
+              dispatch_labels,
+              socket.assigns.running,
+              socket.assigns.retry_attempts,
+              socket.assigns.awaiting_review
+            )
+
+          socket
+          |> assign(:board_issues, board_issues)
+          |> assign(:board_loading, false)
+          |> assign(:board_error, nil)
       end
 
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:agents_updated}, socket) do
+    {:noreply, assign(socket, :agents, Settings.list_agents())}
+  end
+
+  @impl true
+  def handle_info(_msg, socket) do
     {:noreply, socket}
   end
 
@@ -181,6 +212,148 @@ defmodule SynkadeWeb.DashboardLive do
     end
   end
 
+  # --- Modal events ---
+
+  @impl true
+  def handle_event("open_new_issue", _params, socket) do
+    {:noreply, assign(socket, :modal, %{mode: :new, title: "", description: ""})}
+  end
+
+  @impl true
+  def handle_event("open_issue", %{"id" => issue_id}, socket) do
+    case Issues.get_issue(issue_id) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Issue not found")}
+
+      issue ->
+        {:noreply, assign(socket, :modal, %{mode: :view, issue: issue, dispatch_message: ""})}
+    end
+  end
+
+  @impl true
+  def handle_event("edit_issue", _params, socket) do
+    issue = socket.assigns.modal.issue
+
+    {:noreply,
+     assign(socket, :modal, %{
+       mode: :edit,
+       issue: issue,
+       title: issue.title,
+       description: issue.description || ""
+     })}
+  end
+
+  @impl true
+  def handle_event("close_modal", _params, socket) do
+    {:noreply, assign(socket, :modal, nil)}
+  end
+
+  @impl true
+  def handle_event("save_new_issue", %{"title" => title, "description" => description}, socket) do
+    title = String.trim(title)
+
+    if title == "" do
+      {:noreply, put_flash(socket, :error, "Title cannot be empty")}
+    else
+      db_id = resolve_db_id(resolve_project(socket))
+
+      case db_id do
+        nil ->
+          {:noreply, put_flash(socket, :error, "No project selected")}
+
+        db_id ->
+          attrs = %{title: title, project_id: db_id}
+          attrs = if String.trim(description) != "", do: Map.put(attrs, :description, String.trim(description)), else: attrs
+
+          case Issues.create_issue(attrs) do
+            {:ok, _issue} ->
+              send(self(), :load_board)
+              {:noreply, socket |> assign(:modal, nil) |> put_flash(:info, "Issue created")}
+
+            {:error, _} ->
+              {:noreply, put_flash(socket, :error, "Failed to create issue")}
+          end
+      end
+    end
+  end
+
+  @impl true
+  def handle_event("save_edit_issue", %{"title" => title, "description" => description}, socket) do
+    title = String.trim(title)
+    issue = socket.assigns.modal.issue
+
+    if title == "" do
+      {:noreply, put_flash(socket, :error, "Title cannot be empty")}
+    else
+      attrs = %{title: title, description: String.trim(description)}
+
+      case Issues.update_issue(issue, attrs) do
+        {:ok, updated} ->
+          send(self(), :load_board)
+          {:noreply, socket |> assign(:modal, %{mode: :view, issue: updated, dispatch_message: ""}) |> put_flash(:info, "Issue updated")}
+
+        {:error, _} ->
+          {:noreply, put_flash(socket, :error, "Failed to update issue")}
+      end
+    end
+  end
+
+  @impl true
+  def handle_event("dispatch_issue", %{"dispatch" => %{"message" => message}}, socket) do
+    message = String.trim(message)
+
+    if message == "" do
+      {:noreply, put_flash(socket, :error, "Dispatch message cannot be empty")}
+    else
+      issue = socket.assigns.modal.issue
+      {agent_name, instruction} = DispatchParser.parse(message)
+
+      agent_id =
+        case agent_name do
+          nil -> nil
+          name ->
+            case Settings.get_agent_by_name(name) do
+              nil -> nil
+              agent -> agent.id
+            end
+        end
+
+      case Issues.dispatch_issue(issue, instruction, agent_id) do
+        {:ok, _} ->
+          send(self(), :load_board)
+
+          {:noreply,
+           socket
+           |> assign(:modal, nil)
+           |> put_flash(:info, "Issue dispatched" <> if(agent_name, do: " to #{agent_name}", else: ""))}
+
+        {:error, :invalid_transition} ->
+          {:noreply, put_flash(socket, :error, "Cannot dispatch from current state")}
+
+        {:error, _} ->
+          {:noreply, put_flash(socket, :error, "Failed to dispatch issue")}
+      end
+    end
+  end
+
+  @impl true
+  def handle_event("delete_issue", %{"id" => issue_id}, socket) do
+    case Issues.get_issue(issue_id) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Issue not found")}
+
+      issue ->
+        case Issues.delete_issue(issue) do
+          {:ok, _} ->
+            send(self(), :load_board)
+            {:noreply, socket |> assign(:modal, nil) |> put_flash(:info, "Issue deleted")}
+
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, "Failed to delete issue")}
+        end
+    end
+  end
+
   # --- Board helpers ---
 
   defp resolve_project(socket) do
@@ -199,6 +372,16 @@ defmodule SynkadeWeb.DashboardLive do
     end
   end
 
+  defp resolve_db_id(nil), do: nil
+
+  defp resolve_db_id(project) do
+    Map.get(project, :db_id) ||
+      case Settings.get_project_by_name(project.name) do
+        %{id: id} -> id
+        _ -> nil
+      end
+  end
+
   defp categorize_by_state(issues, project_name, dispatch_labels, running, retry_attempts, awaiting_review) do
     base = %{"backlog" => [], "queue" => [], "in_progress" => [], "human_review" => []}
 
@@ -213,6 +396,15 @@ defmodule SynkadeWeb.DashboardLive do
           Map.has_key?(awaiting_review, key) ->
             "human_review"
 
+          issue.state in ["in_progress"] ->
+            "in_progress"
+
+          issue.state in ["awaiting_review"] ->
+            "human_review"
+
+          issue.state in ["queued"] ->
+            "queue"
+
           dispatch_labels != [] and Enum.any?(dispatch_labels, &(&1 in issue.labels)) ->
             "queue"
 
@@ -225,7 +417,6 @@ defmodule SynkadeWeb.DashboardLive do
   end
 
   defp recategorize_from_assigns(socket, project_name, dispatch_labels) do
-    # Collect all issues from all columns
     all_issues =
       socket.assigns.board_issues
       |> Map.values()
@@ -254,7 +445,6 @@ defmodule SynkadeWeb.DashboardLive do
       end
 
     if card do
-      # Update card labels for optimistic UI
       updated_labels =
         case {from_col, to_col} do
           {"backlog", "queue"} ->
@@ -291,6 +481,27 @@ defmodule SynkadeWeb.DashboardLive do
       Enum.find_value(awaiting_review, fn {_key, entry} ->
         if entry.issue_id == issue.id, do: {:review, entry}
       end)
+  end
+
+  defp db_issue_to_tracker_issue(db_issue, project_name) do
+    %Synkade.Tracker.Issue{
+      project_name: project_name,
+      id: db_issue.id,
+      identifier: "#{project_name}##{db_issue.id |> String.slice(0..7)}",
+      title: db_issue.title,
+      description: db_issue.description,
+      state: db_issue.state,
+      priority: db_issue.priority,
+      labels: [],
+      blocked_by: [],
+      created_at: db_issue.inserted_at,
+      updated_at: db_issue.updated_at
+    }
+  end
+
+  defp is_db_issue?(issue_id) do
+    # DB issue IDs are UUIDs (36 chars with hyphens)
+    String.length(issue_id) == 36 and String.contains?(issue_id, "-")
   end
 
   defp draggable?(col_id), do: col_id in ["backlog", "queue"]
@@ -410,9 +621,19 @@ defmodule SynkadeWeb.DashboardLive do
                     auto
                   </span>
                 </h3>
-                <span class="badge badge-ghost badge-sm">
-                  {length(Map.get(@board_issues, col["id"], []))}
-                </span>
+                <div class="flex items-center gap-1">
+                  <span class="badge badge-ghost badge-sm">
+                    {length(Map.get(@board_issues, col["id"], []))}
+                  </span>
+                  <button
+                    :if={col["id"] == "backlog"}
+                    phx-click="open_new_issue"
+                    class="btn btn-ghost btn-xs btn-circle"
+                    title="New issue"
+                  >
+                    +
+                  </button>
+                </div>
               </div>
               <div class="kanban-drop-zone flex flex-col gap-2 min-h-[100px]">
                 <%= for issue <- Map.get(@board_issues, col["id"], []) do %>
@@ -421,6 +642,7 @@ defmodule SynkadeWeb.DashboardLive do
                     column={col["id"]}
                     draggable={draggable?(col["id"])}
                     status={issue_status(issue, @filtered_running, @filtered_retries, @filtered_awaiting)}
+                    clickable={col["id"] == "backlog" && is_db_issue?(issue.id)}
                   />
                 <% end %>
               </div>
@@ -428,7 +650,125 @@ defmodule SynkadeWeb.DashboardLive do
           <% end %>
         </div>
       </div>
+
+      <!-- Modal -->
+      <.issue_modal :if={@modal} modal={@modal} agents={@agents} />
     </Layouts.app>
+    """
+  end
+
+  # --- Components ---
+
+  attr :modal, :map, required: true
+  attr :agents, :list, required: true
+
+  defp issue_modal(assigns) do
+    ~H"""
+    <div class="modal modal-open" phx-window-keydown="close_modal" phx-key="Escape">
+      <div class="modal-box max-w-lg">
+        <%= case @modal.mode do %>
+          <% :new -> %>
+            <h3 class="font-bold text-lg mb-4">New Issue</h3>
+            <form phx-submit="save_new_issue">
+              <div class="form-control mb-3">
+                <input
+                  type="text"
+                  name="title"
+                  placeholder="Issue title"
+                  class="input input-bordered w-full"
+                  autofocus
+                />
+              </div>
+              <div class="form-control mb-4">
+                <textarea
+                  name="description"
+                  placeholder="Description (optional)"
+                  class="textarea textarea-bordered w-full"
+                  rows="4"
+                ></textarea>
+              </div>
+              <div class="modal-action">
+                <button type="button" phx-click="close_modal" class="btn btn-ghost">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create</button>
+              </div>
+            </form>
+
+          <% :edit -> %>
+            <h3 class="font-bold text-lg mb-4">Edit Issue</h3>
+            <form phx-submit="save_edit_issue">
+              <div class="form-control mb-3">
+                <input
+                  type="text"
+                  name="title"
+                  value={@modal.title}
+                  class="input input-bordered w-full"
+                  autofocus
+                />
+              </div>
+              <div class="form-control mb-4">
+                <textarea
+                  name="description"
+                  class="textarea textarea-bordered w-full"
+                  rows="4"
+                >{@modal.description}</textarea>
+              </div>
+              <div class="modal-action">
+                <button type="button" phx-click="close_modal" class="btn btn-ghost">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save</button>
+              </div>
+            </form>
+
+          <% :view -> %>
+            <div class="flex items-start justify-between mb-2">
+              <h3 class="font-bold text-lg">{@modal.issue.title}</h3>
+              <button phx-click="close_modal" class="btn btn-ghost btn-sm btn-circle">x</button>
+            </div>
+            <p :if={@modal.issue.description} class="text-sm whitespace-pre-wrap mb-4 text-base-content/70">
+              {@modal.issue.description}
+            </p>
+            <p :if={!@modal.issue.description} class="text-sm text-base-content/40 italic mb-4">
+              No description
+            </p>
+
+            <!-- Dispatch input for backlog issues -->
+            <div :if={@modal.issue.state == "backlog"} class="mb-4">
+              <.form for={to_form(%{"message" => ""}, as: :dispatch)} phx-submit="dispatch_issue">
+                <div class="form-control">
+                  <label class="label"><span class="label-text text-xs">Dispatch to agent</span></label>
+                  <div class="flex gap-2">
+                    <input
+                      type="text"
+                      name="dispatch[message]"
+                      placeholder="@agent instructions..."
+                      class="input input-bordered input-sm flex-1"
+                      list="modal-agent-names"
+                      autocomplete="off"
+                    />
+                    <button type="submit" class="btn btn-sm btn-primary">Go</button>
+                  </div>
+                  <datalist id="modal-agent-names">
+                    <option :for={agent <- @agents} value={"@#{agent.name} "} />
+                  </datalist>
+                </div>
+              </.form>
+            </div>
+
+            <div class="modal-action">
+              <button
+                phx-click="delete_issue"
+                phx-value-id={@modal.issue.id}
+                class="btn btn-error btn-ghost btn-sm"
+                data-confirm="Delete this issue?"
+              >
+                Delete
+              </button>
+              <button phx-click="edit_issue" class="btn btn-ghost btn-sm">Edit</button>
+              <button phx-click="close_modal" class="btn btn-sm">Close</button>
+            </div>
+        <% end %>
+      </div>
+      <div class="modal-backdrop" phx-click="close_modal"></div>
+    </div>
     """
   end
 
@@ -436,17 +776,21 @@ defmodule SynkadeWeb.DashboardLive do
   attr :column, :string, required: true
   attr :draggable, :boolean, default: true
   attr :status, :any, default: nil
+  attr :clickable, :boolean, default: false
 
   defp issue_card(assigns) do
     ~H"""
     <div
       class={[
         "kanban-card card card-compact bg-base-100 shadow-sm",
-        if(@draggable, do: "cursor-grab active:cursor-grabbing", else: "cursor-default")
+        if(@draggable, do: "cursor-grab active:cursor-grabbing", else: "cursor-default"),
+        @clickable && "hover:ring-1 hover:ring-primary/30"
       ]}
       draggable={to_string(@draggable)}
       data-issue-id={@issue.id}
       data-column={@column}
+      phx-click={@clickable && "open_issue"}
+      phx-value-id={@clickable && @issue.id}
     >
       <div class="card-body p-3">
         <div class="flex items-start justify-between gap-2">
