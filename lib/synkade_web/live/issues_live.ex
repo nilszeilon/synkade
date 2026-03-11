@@ -259,6 +259,19 @@ defmodule SynkadeWeb.IssuesLive do
   end
 
   @impl true
+  def handle_event("unqueue_issue", %{"id" => issue_id}, socket) do
+    issue = Issues.get_issue!(issue_id)
+
+    case Issues.transition_state(issue, "backlog") do
+      {:ok, _} ->
+        {:noreply, socket |> load_issues(socket.assigns.selected_project_id) |> put_flash(:info, "Issue moved to backlog")}
+
+      {:error, :invalid_transition} ->
+        {:noreply, put_flash(socket, :error, "Cannot move to backlog from current state")}
+    end
+  end
+
+  @impl true
   def handle_event("dispatch_issue", %{"dispatch" => %{"message" => message}}, socket) do
     message = String.trim(message)
 
@@ -534,6 +547,15 @@ defmodule SynkadeWeb.IssuesLive do
             Queue
           </button>
           <button
+            :if={@issue.state == "queued"}
+            phx-click="unqueue_issue"
+            phx-value-id={@issue.id}
+            class="btn btn-ghost btn-xs"
+            title="Move to backlog"
+          >
+            Unqueue
+          </button>
+          <button
             phx-click="new_issue"
             phx-value-parent_id={@issue.id}
             class="btn btn-ghost btn-xs"
@@ -680,6 +702,14 @@ defmodule SynkadeWeb.IssuesLive do
         </div>
 
         <div class="flex gap-2">
+          <button
+            :if={@issue.state == "queued"}
+            phx-click="unqueue_issue"
+            phx-value-id={@issue.id}
+            class="btn btn-sm btn-ghost"
+          >
+            Backlog
+          </button>
           <button
             :if={@issue.state not in ["done", "cancelled"]}
             phx-click="cancel_issue"
