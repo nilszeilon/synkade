@@ -561,8 +561,19 @@ defmodule SynkadeWeb.SettingsLive do
                 name={@form[:model].name}
                 id={@form[:model].id}
                 value={@form[:model].value}
-                placeholder="claude-sonnet-4-5-20250929"
+                placeholder={
+                  if @form[:kind].value == "opencode",
+                    do: "openrouter/minimax/minimax-m2.5",
+                    else: "claude-sonnet-4-5-20250929"
+                }
               />
+              <%= if @form[:kind].value == "opencode" do %>
+                <label class="label">
+                  <span class="label-text-alt text-base-content/60">
+                    For OpenRouter use provider/model format, e.g. openrouter/minimax/minimax-m2.5
+                  </span>
+                </label>
+              <% end %>
             </div>
 
             <div class="form-control">

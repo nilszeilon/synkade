@@ -45,8 +45,8 @@ defmodule Synkade.Agent.OpenCode do
     args = ["run", "--format", "json"]
 
     args = if model, do: args ++ ["--model", model], else: args
-    args = args ++ extra_args ++ [prompt]
-    args
+
+    args ++ extra_args ++ [prompt]
   end
 
   @impl true
@@ -97,24 +97,26 @@ defmodule Synkade.Agent.OpenCode do
     command = Config.agent_command(config)
     turn_timeout = Config.get(config, "agent", "turn_timeout_ms") || 3_600_000
 
-    # Build the bash command string with single-quote escaping for each arg.
-    # Then launch via spawn_executable on `script` so each OS-level argument
-    # is passed directly — no nested shell interpretation.
+    # Build shell-escaped command with </dev/null to close stdin.
+    # OpenCode blocks on `Bun.stdin.text()` when stdin is a pipe, so we
+    # redirect from /dev/null. We do NOT use a `script` PTY wrapper because
+    # that makes opencode emit ANSI escape codes instead of clean JSON.
     bash_command =
-      Enum.map_join([command | args], " ", &shell_escape/1)
+      "exec " <> Enum.map_join([command | args], " ", &shell_escape/1) <> " </dev/null"
 
-    script_path = System.find_executable("script") || "/usr/bin/script"
+    bash_path = System.find_executable("bash") || "/bin/bash"
 
-    Logger.info("OpenCode: starting agent in #{workspace_path}, script=#{script_path}")
+    Logger.info("OpenCode: starting agent in #{workspace_path}")
+    Logger.info("OpenCode: bash_command=#{bash_command}")
 
     port =
       Port.open(
-        {:spawn_executable, String.to_charlist(script_path)},
+        {:spawn_executable, String.to_charlist(bash_path)},
         [
           :binary,
           :exit_status,
           :stderr_to_stdout,
-          {:args, [~c"-q", ~c"/dev/null", ~c"bash", ~c"-lc", String.to_charlist(bash_command)]},
+          {:args, [~c"-lc", String.to_charlist(bash_command)]},
           {:cd, String.to_charlist(workspace_path)},
           {:env, env},
           {:line, @port_line_bytes}
