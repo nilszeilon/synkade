@@ -82,23 +82,24 @@ defmodule Synkade.Agent.ClaudeCode do
     command = Config.agent_command(config)
     turn_timeout = Config.get(config, "agent", "turn_timeout_ms") || 3_600_000
 
-    # Use script wrapper to create a pseudo-terminal, forcing line-buffered
-    # output from the CLI. Without this, stdout is block-buffered when
-    # connected to an Erlang port pipe, and no data ever arrives.
-    full_command =
+    # Build the bash command string with single-quote escaping for each arg.
+    # Then launch via spawn_executable on `script` so each OS-level argument
+    # is passed directly — no nested shell interpretation.
+    bash_command =
       Enum.map_join([command | args], " ", &shell_escape/1)
 
-    wrapped_command = "script -q /dev/null bash -lc #{shell_escape(full_command)}"
+    script_path = System.find_executable("script")
 
     Logger.info("ClaudeCode: starting agent in #{workspace_path}")
 
     port =
       Port.open(
-        {:spawn, String.to_charlist(wrapped_command)},
+        {:spawn_executable, String.to_charlist(script_path)},
         [
           :binary,
           :exit_status,
           :stderr_to_stdout,
+          {:args, [~c"-q", ~c"/dev/null", ~c"bash", ~c"-lc", String.to_charlist(bash_command)]},
           {:cd, String.to_charlist(workspace_path)},
           {:env, build_env(config)},
           {:line, @port_line_bytes}

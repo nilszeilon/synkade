@@ -40,6 +40,25 @@ defmodule Synkade.Prompt.Renderer do
   SYNKADE:CHILDREN -->
   """
 
+  @git_suffix """
+
+  ## Git & Pull Requests
+
+  You have a `GITHUB_TOKEN` environment variable set with a GitHub Personal Access Token.
+  The workspace is a git clone of `{{ tracker_repo }}`.
+
+  After making changes, commit your work and create a pull request using `gh`:
+
+  ```bash
+  git checkout -b fix/{{ issue.identifier }}
+  git add -A
+  git commit -m "Description of changes"
+  gh pr create --title "Short title" --body "Description of what was done"
+  ```
+
+  Always create a PR with your changes so they can be reviewed.
+  """
+
   @api_suffix """
 
   ## Synkade Issue API
@@ -126,6 +145,17 @@ defmodule Synkade.Prompt.Renderer do
     # Add dispatch message section
     template = template <> @dispatch_template
 
+    # Add git/PR suffix if tracker has a repo and API key (PAT)
+    tracker_repo = get_in(project, [:config, "tracker", "repo"])
+    tracker_api_key = get_in(project, [:config, "tracker", "api_key"])
+
+    template =
+      if tracker_repo && tracker_api_key do
+        template <> @git_suffix
+      else
+        template
+      end
+
     # Add API suffix if Synkade API is configured, otherwise fallback to children markers
     has_api = get_in(project, [:config, "agent", "synkade_api_url"]) != nil
 
@@ -146,7 +176,8 @@ defmodule Synkade.Prompt.Renderer do
         "ancestors" => Enum.map(ancestors, &stringify_keys/1),
         "has_parent" => ancestors != [],
         "dispatch_message" => dispatch_message,
-        "project_id" => project_id
+        "project_id" => project_id,
+        "tracker_repo" => tracker_repo
       }
 
     with {:ok, parsed} <- parse_template(template),

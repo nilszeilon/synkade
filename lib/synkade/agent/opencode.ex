@@ -93,34 +93,33 @@ defmodule Synkade.Agent.OpenCode do
 
   defp run_agent(config, args, workspace_path) do
     env = build_env(config)
-    require Logger
-    Logger.warning("run_agent: args=#{inspect(args)}, workspace=#{inspect(workspace_path)}")
 
     command = Config.agent_command(config)
     turn_timeout = Config.get(config, "agent", "turn_timeout_ms") || 3_600_000
 
-    # Use bash -lc wrapper (like Symphony does) to ensure proper shell environment
-    # This is critical for getting line-buffered output from the agent
-    full_command = Enum.join([command | args], " ")
+    # Build the bash command string with single-quote escaping for each arg.
+    # Then launch via spawn_executable on `script` so each OS-level argument
+    # is passed directly — no nested shell interpretation.
+    bash_command =
+      Enum.map_join([command | args], " ", &shell_escape/1)
 
-    Logger.warning("run_agent: running via script: #{full_command}")
+    script_path = System.find_executable("script")
 
-    wrapped_command = "script -q /dev/null bash -lc '#{full_command}'"
+    Logger.info("OpenCode: starting agent in #{workspace_path}")
 
     port =
       Port.open(
-        {:spawn, String.to_charlist(wrapped_command)},
+        {:spawn_executable, String.to_charlist(script_path)},
         [
           :binary,
           :exit_status,
           :stderr_to_stdout,
+          {:args, [~c"-q", ~c"/dev/null", ~c"bash", ~c"-lc", String.to_charlist(bash_command)]},
           {:cd, String.to_charlist(workspace_path)},
           {:env, env},
           {:line, @port_line_bytes}
         ]
       )
-
-    Logger.warning("run_agent: port opened, os_pid=#{inspect(port_os_pid(port))}")
 
     session = %{
       session_id: nil,
@@ -134,6 +133,10 @@ defmodule Synkade.Agent.OpenCode do
     {:ok, session}
   rescue
     e -> {:error, Exception.message(e)}
+  end
+
+  defp shell_escape(arg) do
+    "'" <> String.replace(arg, "'", "'\\''") <> "'"
   end
 
   defp resolve_github_token(config) do
