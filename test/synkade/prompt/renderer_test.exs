@@ -9,11 +9,11 @@ defmodule Synkade.Prompt.RendererTest do
     id: "123",
     identifier: "acme/api#123",
     title: "Fix the login bug",
-    description: "The login form crashes on empty email.",
+    body: "The login form crashes on empty email.",
     state: "open",
     labels: ["bug", "urgent"],
     blocked_by: [%{id: "100", identifier: "acme/api#100", state: "open"}],
-    priority: 1,
+    priority: nil,
     url: "https://github.com/acme/api/issues/123"
   }
 
@@ -66,8 +66,8 @@ defmodule Synkade.Prompt.RendererTest do
       assert rendered =~ "Blocked by: acme/api#100"
     end
 
-    test "handles description" do
-      template = "{{ issue.description }}"
+    test "handles body" do
+      template = "{{ issue.body }}"
       assert {:ok, rendered} = Renderer.render(template, @project, @issue)
       assert rendered =~ "The login form crashes on empty email."
     end

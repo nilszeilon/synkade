@@ -97,26 +97,25 @@ defmodule Synkade.Orchestrator.DispatchTest do
   end
 
   describe "sort_candidates/1" do
-    test "sorts by priority ascending" do
-      a = make_issue(%{id: "1", priority: 3})
-      b = make_issue(%{id: "2", priority: 1})
-      c = make_issue(%{id: "3", priority: 2})
-
-      sorted = Dispatch.sort_candidates([a, b, c])
-      assert Enum.map(sorted, & &1.id) == ["2", "3", "1"]
-    end
-
-    test "sorts by created_at when priority is equal" do
-      a = make_issue(%{id: "1", priority: 1, created_at: ~U[2024-01-20 10:00:00Z]})
-      b = make_issue(%{id: "2", priority: 1, created_at: ~U[2024-01-10 10:00:00Z]})
+    test "sorts by created_at ascending" do
+      a = make_issue(%{id: "1", created_at: ~U[2024-01-20 10:00:00Z]})
+      b = make_issue(%{id: "2", created_at: ~U[2024-01-10 10:00:00Z]})
 
       sorted = Dispatch.sort_candidates([a, b])
       assert Enum.map(sorted, & &1.id) == ["2", "1"]
     end
 
-    test "nil priority sorts last" do
-      a = make_issue(%{id: "1", priority: nil})
-      b = make_issue(%{id: "2", priority: 1})
+    test "sorts by identifier when created_at is equal" do
+      a = make_issue(%{id: "1", identifier: "b#1", created_at: ~U[2024-01-10 10:00:00Z]})
+      b = make_issue(%{id: "2", identifier: "a#2", created_at: ~U[2024-01-10 10:00:00Z]})
+
+      sorted = Dispatch.sort_candidates([a, b])
+      assert Enum.map(sorted, & &1.id) == ["2", "1"]
+    end
+
+    test "nil created_at sorts last" do
+      a = make_issue(%{id: "1", created_at: nil})
+      b = make_issue(%{id: "2", created_at: ~U[2024-01-10 10:00:00Z]})
 
       sorted = Dispatch.sort_candidates([a, b])
       assert Enum.map(sorted, & &1.id) == ["2", "1"]

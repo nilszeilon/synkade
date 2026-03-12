@@ -5,9 +5,11 @@ defmodule Synkade.Issues.ChildParser do
   Parse structured child issue declarations from agent output.
 
   Looks for content between `<!-- SYNKADE:CHILDREN` and `SYNKADE:CHILDREN -->` markers.
-  Content is a simple YAML-like list of maps with keys: title, description, priority.
+  Content is a simple YAML-like list of maps with keys: title, description, body.
 
-  Returns a list of maps with atom keys.
+  Returns a list of maps with atom keys containing `:body`.
+  For backwards compat, accepts `title`+`description` and assembles into body.
+  Also accepts `body` key directly.
   """
   @spec parse(String.t()) :: [map()]
   def parse(text) when is_binary(text) do
@@ -26,11 +28,6 @@ defmodule Synkade.Issues.ChildParser do
     end
   end
 
-  # Parse a simple YAML-like list format:
-  # - title: "Sub-task title"
-  #   kind: task
-  #   description: "What needs to be done"
-  #   priority: 1
   defp parse_items(text) do
     text
     |> String.split(~r/^- /m, trim: true)
@@ -54,12 +51,16 @@ defmodule Synkade.Issues.ChildParser do
         end
       end)
 
-    %{
-      title: fields["title"],
-      description: fields["description"],
-      priority: parse_priority(fields["priority"])
-    }
+    # Support `body` key directly, or assemble from `title` + `description`
+    body = fields["body"] || assemble_body(fields["title"], fields["description"])
+
+    %{body: body}
   end
+
+  defp assemble_body(nil, nil), do: nil
+  defp assemble_body(title, nil), do: "# #{title}"
+  defp assemble_body(nil, desc), do: desc
+  defp assemble_body(title, desc), do: "# #{title}\n\n#{desc}"
 
   defp strip_quotes(value) do
     value
@@ -69,16 +70,6 @@ defmodule Synkade.Issues.ChildParser do
     |> String.trim_trailing("'")
   end
 
-  defp valid_item?(%{title: title}) when is_binary(title) and title != "", do: true
+  defp valid_item?(%{body: body}) when is_binary(body) and body != "", do: true
   defp valid_item?(_), do: false
-
-  defp parse_priority(p) when is_binary(p) do
-    case Integer.parse(p) do
-      {n, _} -> n
-      :error -> 0
-    end
-  end
-
-  defp parse_priority(p) when is_integer(p), do: p
-  defp parse_priority(_), do: 0
 end

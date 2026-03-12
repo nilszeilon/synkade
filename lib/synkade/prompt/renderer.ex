@@ -4,7 +4,7 @@ defmodule Synkade.Prompt.Renderer do
   @default_template """
   You are working on issue {{ issue.identifier }}: {{ issue.title }}
 
-  {{ issue.description }}
+  {{ issue.body }}
 
   Analyze the issue, implement the fix or feature, and run the test suite to verify your changes.
   """
@@ -15,7 +15,7 @@ defmodule Synkade.Prompt.Renderer do
   ## Context from parent issues
   {% for ancestor in ancestors %}
   ### {{ ancestor.title }}
-  {{ ancestor.description }}
+  {{ ancestor.body }}
   {% if ancestor.agent_output %}
   #### Findings:
   {{ ancestor.agent_output }}
@@ -36,9 +36,7 @@ defmodule Synkade.Prompt.Renderer do
 
   If your work produces actionable sub-tasks, output them in this format:
   <!-- SYNKADE:CHILDREN
-  - title: "Sub-task title"
-    description: "What needs to be done"
-    priority: 1
+  - body: "# Sub-task title\\n\\nWhat needs to be done"
   SYNKADE:CHILDREN -->
   """
 
@@ -58,7 +56,7 @@ defmodule Synkade.Prompt.Renderer do
 
   # Create a sub-issue
   curl -s -X POST -H "Authorization: Bearer $SYNKADE_API_TOKEN" -H "Content-Type: application/json" \\
-    -d '{"project_id":"{{ project_id }}","title":"Sub-task title","description":"Details","parent_id":"{{ issue.id }}"}' \\
+    -d '{"project_id":"{{ project_id }}","body":"# Sub-task title\\n\\nDetails","parent_id":"{{ issue.id }}"}' \\
     "$SYNKADE_API_URL/issues"
 
   # Update an issue (state, description, etc.)
@@ -68,7 +66,7 @@ defmodule Synkade.Prompt.Renderer do
 
   # Create multiple child issues at once
   curl -s -X POST -H "Authorization: Bearer $SYNKADE_API_TOKEN" -H "Content-Type: application/json" \\
-    -d '{"children":[{"title":"Child 1","description":"Details"},{"title":"Child 2","description":"Details"}]}' \\
+    -d '{"children":[{"body":"# Child 1\\n\\nDetails"},{"body":"# Child 2\\n\\nDetails"}]}' \\
     "$SYNKADE_API_URL/issues/{{ issue.id }}/children"
   ```
 

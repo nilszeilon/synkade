@@ -252,7 +252,7 @@ defmodule SynkadeWeb.DashboardLive do
 
   @impl true
   def handle_event("open_new_issue", _params, socket) do
-    {:noreply, assign(socket, :modal, %{mode: :new, title: "", description: ""})}
+    {:noreply, assign(socket, :modal, %{mode: :new, body: ""})}
   end
 
   @impl true
@@ -274,8 +274,7 @@ defmodule SynkadeWeb.DashboardLive do
      assign(socket, :modal, %{
        mode: :edit,
        issue: issue,
-       title: issue.title,
-       description: issue.description || ""
+       body: issue.body || ""
      })}
   end
 
@@ -285,60 +284,45 @@ defmodule SynkadeWeb.DashboardLive do
   end
 
   @impl true
-  def handle_event("save_new_issue", %{"title" => title, "description" => description}, socket) do
-    title = String.trim(title)
+  def handle_event("save_new_issue", %{"body" => body}, socket) do
+    db_id = resolve_db_id(resolve_project(socket))
 
-    if title == "" do
-      {:noreply, put_flash(socket, :error, "Title cannot be empty")}
-    else
-      db_id = resolve_db_id(resolve_project(socket))
+    case db_id do
+      nil ->
+        {:noreply, put_flash(socket, :error, "No project selected")}
 
-      case db_id do
-        nil ->
-          {:noreply, put_flash(socket, :error, "No project selected")}
+      db_id ->
+        body = String.trim(body)
+        attrs = %{project_id: db_id}
+        attrs = if body != "", do: Map.put(attrs, :body, body), else: attrs
 
-        db_id ->
-          attrs = %{title: title, project_id: db_id}
+        case Issues.create_issue(attrs) do
+          {:ok, _issue} ->
+            send(self(), :load_board)
+            {:noreply, socket |> assign(:modal, nil) |> put_flash(:info, "Issue created")}
 
-          attrs =
-            if String.trim(description) != "",
-              do: Map.put(attrs, :description, String.trim(description)),
-              else: attrs
-
-          case Issues.create_issue(attrs) do
-            {:ok, _issue} ->
-              send(self(), :load_board)
-              {:noreply, socket |> assign(:modal, nil) |> put_flash(:info, "Issue created")}
-
-            {:error, _} ->
-              {:noreply, put_flash(socket, :error, "Failed to create issue")}
-          end
-      end
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, "Failed to create issue")}
+        end
     end
   end
 
   @impl true
-  def handle_event("save_edit_issue", %{"title" => title, "description" => description}, socket) do
-    title = String.trim(title)
+  def handle_event("save_edit_issue", %{"body" => body}, socket) do
     issue = socket.assigns.modal.issue
+    attrs = %{body: String.trim(body)}
 
-    if title == "" do
-      {:noreply, put_flash(socket, :error, "Title cannot be empty")}
-    else
-      attrs = %{title: title, description: String.trim(description)}
+    case Issues.update_issue(issue, attrs) do
+      {:ok, updated} ->
+        send(self(), :load_board)
 
-      case Issues.update_issue(issue, attrs) do
-        {:ok, updated} ->
-          send(self(), :load_board)
+        {:noreply,
+         socket
+         |> assign(:modal, %{mode: :view, issue: updated, dispatch_message: ""})
+         |> put_flash(:info, "Issue updated")}
 
-          {:noreply,
-           socket
-           |> assign(:modal, %{mode: :view, issue: updated, dispatch_message: ""})
-           |> put_flash(:info, "Issue updated")}
-
-        {:error, _} ->
-          {:noreply, put_flash(socket, :error, "Failed to update issue")}
-      end
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Failed to update issue")}
     end
   end
 
@@ -540,14 +524,16 @@ defmodule SynkadeWeb.DashboardLive do
   end
 
   defp db_issue_to_tracker_issue(db_issue, project_name) do
+    alias Synkade.Issues.Issue
+
     %Synkade.Tracker.Issue{
       project_name: project_name,
       id: db_issue.id,
       identifier: "#{project_name}##{db_issue.id |> String.slice(0..7)}",
-      title: db_issue.title,
-      description: db_issue.description,
+      title: Issue.title(db_issue),
+      description: db_issue.body,
       state: db_issue.state,
-      priority: db_issue.priority,
+      priority: nil,
       labels: [],
       blocked_by: [],
       created_at: db_issue.inserted_at,
@@ -731,21 +717,13 @@ defmodule SynkadeWeb.DashboardLive do
           <% :new -> %>
             <h3 class="font-bold text-lg mb-4">New Issue</h3>
             <form phx-submit="save_new_issue">
-              <div class="form-control mb-3">
-                <input
-                  type="text"
-                  name="title"
-                  placeholder="Issue title"
-                  class="input input-bordered w-full"
-                  autofocus
-                />
-              </div>
               <div class="form-control mb-4">
                 <textarea
-                  name="description"
-                  placeholder="Description (optional)"
-                  class="textarea textarea-bordered w-full"
-                  rows="4"
+                  name="body"
+                  placeholder={"# Issue title\n\nDescribe the issue..."}
+                  class="textarea textarea-bordered w-full font-mono"
+                  rows="6"
+                  autofocus
                 ></textarea>
               </div>
               <div class="modal-action">
@@ -756,21 +734,13 @@ defmodule SynkadeWeb.DashboardLive do
           <% :edit -> %>
             <h3 class="font-bold text-lg mb-4">Edit Issue</h3>
             <form phx-submit="save_edit_issue">
-              <div class="form-control mb-3">
-                <input
-                  type="text"
-                  name="title"
-                  value={@modal.title}
-                  class="input input-bordered w-full"
-                  autofocus
-                />
-              </div>
               <div class="form-control mb-4">
                 <textarea
-                  name="description"
-                  class="textarea textarea-bordered w-full"
-                  rows="4"
-                >{@modal.description}</textarea>
+                  name="body"
+                  class="textarea textarea-bordered w-full font-mono"
+                  rows="6"
+                  autofocus
+                >{@modal.body}</textarea>
               </div>
               <div class="modal-action">
                 <button type="button" phx-click="close_modal" class="btn btn-ghost">Cancel</button>
@@ -779,17 +749,17 @@ defmodule SynkadeWeb.DashboardLive do
             </form>
           <% :view -> %>
             <div class="flex items-start justify-between mb-2">
-              <h3 class="font-bold text-lg">{@modal.issue.title}</h3>
+              <h3 class="font-bold text-lg">{Synkade.Issues.Issue.title(@modal.issue)}</h3>
               <button phx-click="close_modal" class="btn btn-ghost btn-sm btn-circle">x</button>
             </div>
             <p
-              :if={@modal.issue.description}
+              :if={@modal.issue.body}
               class="text-sm whitespace-pre-wrap mb-4 text-base-content/70"
             >
-              {@modal.issue.description}
+              {@modal.issue.body}
             </p>
-            <p :if={!@modal.issue.description} class="text-sm text-base-content/40 italic mb-4">
-              No description
+            <p :if={!@modal.issue.body} class="text-sm text-base-content/40 italic mb-4">
+              No body
             </p>
             
     <!-- Dispatch input for backlog issues -->
@@ -862,14 +832,6 @@ defmodule SynkadeWeb.DashboardLive do
             <p class="text-xs text-base-content/50 font-mono">{@issue.identifier}</p>
             <p class="text-sm font-medium leading-tight truncate">{@issue.title}</p>
           </div>
-          <%= if @issue.priority do %>
-            <span class={[
-              "badge badge-xs flex-shrink-0",
-              priority_badge_class(@issue.priority)
-            ]}>
-              P{@issue.priority}
-            </span>
-          <% end %>
         </div>
 
         <%= case @status do %>
@@ -930,11 +892,6 @@ defmodule SynkadeWeb.DashboardLive do
     </div>
     """
   end
-
-  defp priority_badge_class(1), do: "badge-error"
-  defp priority_badge_class(2), do: "badge-warning"
-  defp priority_badge_class(3), do: "badge-info"
-  defp priority_badge_class(_), do: "badge-ghost"
 
   defp format_number(n) when is_integer(n) and n >= 1_000_000 do
     "#{Float.round(n / 1_000_000, 1)}M"

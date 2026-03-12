@@ -9,10 +9,8 @@ defmodule Synkade.Repo.Migrations.CreateIssues do
         null: false
 
       add :parent_id, references(:issues, type: :binary_id, on_delete: :nilify_all)
-      add :title, :string, null: false
-      add :description, :text
+      add :body, :text
       add :state, :string, default: "backlog"
-      add :priority, :integer, default: 0
       add :depth, :integer, default: 0
       add :position, :integer, default: 0
       add :agent_output, :text

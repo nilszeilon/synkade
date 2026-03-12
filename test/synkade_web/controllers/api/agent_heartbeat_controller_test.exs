@@ -13,8 +13,7 @@ defmodule SynkadeWeb.Api.AgentHeartbeatControllerTest do
 
     {:ok, issue} =
       Issues.create_issue(%{
-        title: "Heartbeat test issue",
-        description: "Testing heartbeat",
+        body: "# Heartbeat test issue\n\nTesting heartbeat",
         project_id: project.id
       })
 
@@ -108,7 +107,7 @@ defmodule SynkadeWeb.Api.AgentHeartbeatControllerTest do
 
       {:ok, other_issue} =
         Issues.create_issue(%{
-          title: "Other issue",
+          body: "# Other issue",
           project_id: other_project.id
         })
 

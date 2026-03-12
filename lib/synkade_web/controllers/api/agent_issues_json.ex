@@ -1,6 +1,8 @@
 defmodule SynkadeWeb.Api.AgentIssuesJSON do
   @moduledoc false
 
+  alias Synkade.Issues.Issue
+
   def issues(issues) do
     %{data: Enum.map(issues, &issue_summary/1)}
   end
@@ -12,9 +14,8 @@ defmodule SynkadeWeb.Api.AgentIssuesJSON do
   defp issue_summary(issue) do
     %{
       id: issue.id,
-      title: issue.title,
+      title: Issue.title(issue),
       state: issue.state,
-      priority: issue.priority,
       parent_id: issue.parent_id,
       inserted_at: issue.inserted_at,
       updated_at: issue.updated_at
@@ -30,10 +31,9 @@ defmodule SynkadeWeb.Api.AgentIssuesJSON do
 
     %{
       id: issue.id,
-      title: issue.title,
-      description: issue.description,
+      title: Issue.title(issue),
+      body: issue.body,
       state: issue.state,
-      priority: issue.priority,
       depth: issue.depth,
       parent_id: issue.parent_id,
       agent_output: issue.agent_output,

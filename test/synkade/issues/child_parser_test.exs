@@ -4,7 +4,7 @@ defmodule Synkade.Issues.ChildParserTest do
   alias Synkade.Issues.ChildParser
 
   describe "parse/1" do
-    test "parses children from agent output" do
+    test "parses children from agent output with title+description (backwards compat)" do
       output = """
       Here are the results of my research.
 
@@ -12,11 +12,9 @@ defmodule Synkade.Issues.ChildParserTest do
       - title: "Implement auth module"
         kind: task
         description: "Create the authentication module"
-        priority: 1
       - title: "Fix login bug"
         kind: bug
         description: "Login fails on mobile"
-        priority: 2
       SYNKADE:CHILDREN -->
 
       That's my analysis.
@@ -26,13 +24,19 @@ defmodule Synkade.Issues.ChildParserTest do
       assert length(children) == 2
 
       [first, second] = children
-      assert first.title == "Implement auth module"
-      assert first.description == "Create the authentication module"
-      assert first.priority == 1
+      assert first.body == "# Implement auth module\n\nCreate the authentication module"
+      assert second.body == "# Fix login bug\n\nLogin fails on mobile"
+    end
 
-      assert second.title == "Fix login bug"
-      assert second.description == "Login fails on mobile"
-      assert second.priority == 2
+    test "parses children with body key directly" do
+      output = """
+      <!-- SYNKADE:CHILDREN
+      - body: "# Do the thing\\n\\nDetails here"
+      SYNKADE:CHILDREN -->
+      """
+
+      [child] = ChildParser.parse(output)
+      assert child.body == "# Do the thing\\n\\nDetails here"
     end
 
     test "returns empty list when no markers present" do
@@ -47,7 +51,7 @@ defmodule Synkade.Issues.ChildParserTest do
       assert ChildParser.parse("") == []
     end
 
-    test "defaults priority to 0" do
+    test "title-only produces heading body" do
       output = """
       <!-- SYNKADE:CHILDREN
       - title: "Do the thing"
@@ -56,14 +60,13 @@ defmodule Synkade.Issues.ChildParserTest do
       """
 
       [child] = ChildParser.parse(output)
-      assert child.priority == 0
+      assert child.body == "# Do the thing"
     end
 
-    test "filters out items without title" do
+    test "filters out items without title or body" do
       output = """
       <!-- SYNKADE:CHILDREN
       - kind: task
-        description: "no title here"
       - title: "Has title"
         kind: task
       SYNKADE:CHILDREN -->
@@ -71,7 +74,7 @@ defmodule Synkade.Issues.ChildParserTest do
 
       children = ChildParser.parse(output)
       assert length(children) == 1
-      assert hd(children).title == "Has title"
+      assert hd(children).body == "# Has title"
     end
 
     test "handles unquoted values" do
@@ -80,13 +83,11 @@ defmodule Synkade.Issues.ChildParserTest do
       - title: Implement feature
         kind: task
         description: Do the thing
-        priority: 3
       SYNKADE:CHILDREN -->
       """
 
       [child] = ChildParser.parse(output)
-      assert child.title == "Implement feature"
-      assert child.priority == 3
+      assert child.body == "# Implement feature\n\nDo the thing"
     end
   end
 end

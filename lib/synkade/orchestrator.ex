@@ -794,14 +794,16 @@ defmodule Synkade.Orchestrator do
   end
 
   defp db_issue_to_tracker_issue(db_issue, project) do
+    alias Synkade.Issues.Issue
+
     %Synkade.Tracker.Issue{
       project_name: project.name,
       id: db_issue.id,
       identifier: "#{project.name}##{db_issue.id |> String.slice(0..7)}",
-      title: db_issue.title,
-      description: db_issue.description,
+      title: Issue.title(db_issue),
+      description: db_issue.body,
       state: db_issue.state,
-      priority: db_issue.priority,
+      priority: nil,
       labels: [],
       blocked_by: [],
       created_at: db_issue.inserted_at,

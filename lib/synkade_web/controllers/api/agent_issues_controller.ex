@@ -19,17 +19,17 @@ defmodule SynkadeWeb.Api.AgentIssuesController do
     conn |> put_status(400) |> json(%{error: "project_id is required"})
   end
 
-  def create(conn, %{"project_id" => project_id, "title" => title} = params) do
+  def create(conn, %{"project_id" => project_id} = params) do
     agent = conn.assigns.current_agent
 
     if has_project_access?(agent, project_id) do
+      body = params["body"] || assemble_body(params["title"], params["description"])
+
       attrs = %{
-        title: title,
         project_id: project_id,
-        description: params["description"],
+        body: body,
         parent_id: params["parent_id"],
-        state: params["state"] || "backlog",
-        priority: params["priority"] || 0
+        state: params["state"] || "backlog"
       }
 
       case Issues.create_issue(attrs) do
@@ -46,7 +46,7 @@ defmodule SynkadeWeb.Api.AgentIssuesController do
   end
 
   def create(conn, _params) do
-    conn |> put_status(400) |> json(%{error: "project_id and title are required"})
+    conn |> put_status(400) |> json(%{error: "project_id is required"})
   end
 
   def show(conn, %{"id" => id}) do
@@ -75,11 +75,17 @@ defmodule SynkadeWeb.Api.AgentIssuesController do
 
       issue ->
         if has_project_access?(agent, issue.project_id) do
+          # Support body directly, or assemble from title+description for backwards compat
+          body =
+            cond do
+              params["body"] -> params["body"]
+              params["title"] || params["description"] -> assemble_body(params["title"], params["description"])
+              true -> nil
+            end
+
           update_attrs =
             %{}
-            |> maybe_put(:title, params["title"])
-            |> maybe_put(:description, params["description"])
-            |> maybe_put(:priority, params["priority"])
+            |> maybe_put(:body, body)
             |> maybe_put(:agent_output, params["agent_output"])
 
           # Handle state transition separately
@@ -123,11 +129,8 @@ defmodule SynkadeWeb.Api.AgentIssuesController do
         if has_project_access?(agent, parent.project_id) do
           children_maps =
             Enum.map(children_attrs, fn child ->
-              %{
-                title: child["title"],
-                description: child["description"],
-                priority: child["priority"] || 0
-              }
+              body = child["body"] || assemble_body(child["title"], child["description"])
+              %{body: body}
             end)
 
           results = Issues.create_children_from_agent(parent, children_maps)
@@ -146,6 +149,11 @@ defmodule SynkadeWeb.Api.AgentIssuesController do
 
   # --- Private ---
 
+  defp assemble_body(nil, nil), do: nil
+  defp assemble_body(title, nil), do: "# #{title}"
+  defp assemble_body(nil, desc), do: desc
+  defp assemble_body(title, desc), do: "# #{title}\n\n#{desc}"
+
   defp has_project_access?(agent, project_id) do
     case Settings.get_project!(project_id) do
       %{default_agent_id: agent_id} when agent_id == agent.id -> true
@@ -156,7 +164,6 @@ defmodule SynkadeWeb.Api.AgentIssuesController do
   end
 
   defp project_has_agent_issues?(agent, project_id) do
-    # Agent has access if it's been dispatched to any issue in this project
     import Ecto.Query
 
     Synkade.Repo.exists?(

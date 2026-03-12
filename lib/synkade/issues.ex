@@ -161,7 +161,7 @@ defmodule Synkade.Issues do
   def list_queued_issues(project_id) do
     from(i in Issue,
       where: i.project_id == ^project_id and i.state == "queued",
-      order_by: [asc: i.priority, asc: i.inserted_at]
+      order_by: [asc: i.inserted_at]
     )
     |> Repo.all()
   end

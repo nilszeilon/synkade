@@ -458,29 +458,13 @@ defmodule SynkadeWeb.IssuesLive do
           <.form for={@form} phx-change="validate_issue" phx-submit="save_issue">
             <div class="flex flex-col gap-3">
               <div class="form-control">
-                <input
-                  type="text"
-                  name="issue[title]"
-                  value={@form[:title].value}
-                  placeholder="Issue title"
-                  class="input input-bordered input-sm w-full"
-                  phx-debounce="300"
-                />
-                <span
-                  :for={msg <- Enum.map(@form[:title].errors, &translate_error/1)}
-                  class="text-error text-xs"
-                >
-                  {msg}
-                </span>
-              </div>
-              <div class="form-control">
                 <textarea
-                  name="issue[description]"
-                  placeholder="Description (optional)"
-                  class="textarea textarea-bordered textarea-sm w-full"
-                  rows="3"
+                  name="issue[body]"
+                  placeholder={"# Issue title\n\nDescribe the issue..."}
+                  class="textarea textarea-bordered textarea-sm w-full font-mono"
+                  rows="5"
                   phx-debounce="300"
-                >{@form[:description].value}</textarea>
+                >{@form[:body].value}</textarea>
               </div>
               <div class="flex gap-2">
                 <button type="submit" class="btn btn-sm btn-primary">Create</button>
@@ -566,7 +550,7 @@ defmodule SynkadeWeb.IssuesLive do
           phx-click="select_issue"
           phx-value-id={@issue.id}
         >
-          <span class="text-sm truncate">{@issue.title}</span>
+          <span class="text-sm truncate">{Issue.title(@issue)}</span>
           <span class={"badge badge-xs #{state_badge_class(@issue.state)} ml-auto flex-shrink-0"}>
             {@issue.state}
           </span>
@@ -632,7 +616,7 @@ defmodule SynkadeWeb.IssuesLive do
           <div class="flex items-center gap-2 mb-1">
             <span class={"badge badge-sm #{state_badge_class(@issue.state)}"}>{@issue.state}</span>
           </div>
-          <h2 class="text-lg font-bold">{@issue.title}</h2>
+          <h2 class="text-lg font-bold">{Issue.title(@issue)}</h2>
         </div>
         <button phx-click="close_detail" class="btn btn-ghost btn-sm btn-circle">x</button>
       </div>
@@ -669,9 +653,9 @@ defmodule SynkadeWeb.IssuesLive do
       <div class="overflow-y-auto flex-1 px-4 py-2">
         <!-- Ancestor thread entries -->
         <div :for={ancestor <- @ancestors} class="border-l-2 border-base-300 pl-3 mb-3">
-          <p class="text-sm font-semibold text-base-content/70">{ancestor.title}</p>
-          <p :if={ancestor.description} class="text-xs text-base-content/60 whitespace-pre-wrap mt-1">
-            {ancestor.description}
+          <p class="text-sm font-semibold text-base-content/70">{Issue.title(ancestor)}</p>
+          <p :if={ancestor.body} class="text-xs text-base-content/60 whitespace-pre-wrap mt-1">
+            {ancestor.body}
           </p>
           <div :if={ancestor.agent_output} class="mt-1">
             <pre class="text-xs bg-base-300 p-2 rounded overflow-auto max-h-40">{ancestor.agent_output}</pre>
@@ -680,9 +664,9 @@ defmodule SynkadeWeb.IssuesLive do
         
     <!-- Current issue -->
         <div class="border-l-2 border-primary pl-3 mb-3">
-          <p class="text-sm font-semibold">{@issue.title}</p>
-          <p :if={@issue.description} class="text-xs whitespace-pre-wrap mt-1">
-            {@issue.description}
+          <p class="text-sm font-semibold">{Issue.title(@issue)}</p>
+          <p :if={@issue.body} class="text-xs whitespace-pre-wrap mt-1">
+            {@issue.body}
           </p>
           <div :if={@issue.dispatch_message} class="mt-2">
             <p class="text-xs text-base-content/50 mb-1">Dispatch message</p>
@@ -734,7 +718,7 @@ defmodule SynkadeWeb.IssuesLive do
               phx-click="select_issue"
               phx-value-id={child.id}
             >
-              {child.title}
+              {Issue.title(child)}
             </span>
             <span class={"badge badge-xs #{state_badge_class(child.state)} ml-auto"}>
               {child.state}

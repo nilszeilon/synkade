@@ -57,8 +57,8 @@ defmodule Synkade.Orchestrator.Worker do
               Synkade.Issues.ancestor_chain(db_issue)
               |> Enum.map(fn a ->
                 %{
-                  title: a.title,
-                  description: a.description,
+                  title: Synkade.Issues.Issue.title(a),
+                  body: a.body,
                   agent_output: a.agent_output
                 }
               end)

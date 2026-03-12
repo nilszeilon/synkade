@@ -11,10 +11,8 @@ defmodule Synkade.Issues.Issue do
   @states ~w(backlog queued in_progress awaiting_review done cancelled)
 
   schema "issues" do
-    field :title, :string
-    field :description, :string
+    field :body, :string
     field :state, :string, default: "backlog"
-    field :priority, :integer, default: 0
     field :depth, :integer, default: 0
     field :position, :integer, default: 0
     field :agent_output, :string
@@ -33,8 +31,19 @@ defmodule Synkade.Issues.Issue do
 
   def states, do: @states
 
-  @required_fields ~w(title project_id)a
-  @optional_fields ~w(description state priority depth position parent_id
+  @doc "Derive title from first `# Heading` in body, defaulting to \"Unnamed\"."
+  def title(%__MODULE__{body: nil}), do: "Unnamed"
+  def title(%__MODULE__{body: ""}), do: "Unnamed"
+
+  def title(%__MODULE__{body: text}) do
+    case Regex.run(~r/^#\s+(.+)$/m, text) do
+      [_, heading] -> String.trim(heading)
+      nil -> "Unnamed"
+    end
+  end
+
+  @required_fields ~w(project_id)a
+  @optional_fields ~w(body state depth position parent_id
                       agent_output github_issue_url github_pr_url metadata
                       dispatch_message assigned_agent_id)a
 

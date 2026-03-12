@@ -12,18 +12,17 @@ defmodule Synkade.Issues.IssueTest do
 
   describe "changeset/2" do
     test "valid with required fields", %{project: project} do
-      changeset = Issue.changeset(%Issue{}, %{title: "Fix bug", project_id: project.id})
+      changeset = Issue.changeset(%Issue{}, %{project_id: project.id})
       assert changeset.valid?
     end
 
-    test "invalid without title", %{project: project} do
-      changeset = Issue.changeset(%Issue{}, %{project_id: project.id})
-      refute changeset.valid?
-      assert errors_on(changeset).title
+    test "valid with body", %{project: project} do
+      changeset = Issue.changeset(%Issue{}, %{body: "# Fix bug", project_id: project.id})
+      assert changeset.valid?
     end
 
     test "invalid without project_id" do
-      changeset = Issue.changeset(%Issue{}, %{title: "Fix bug"})
+      changeset = Issue.changeset(%Issue{}, %{body: "# Fix bug"})
       refute changeset.valid?
       assert errors_on(changeset).project_id
     end
@@ -31,7 +30,6 @@ defmodule Synkade.Issues.IssueTest do
     test "validates state inclusion" do
       changeset =
         Issue.changeset(%Issue{}, %{
-          title: "X",
           project_id: Ecto.UUID.generate(),
           state: "invalid"
         })
@@ -43,18 +41,52 @@ defmodule Synkade.Issues.IssueTest do
     test "accepts all valid states" do
       for state <- ~w(backlog queued in_progress awaiting_review done cancelled) do
         changeset =
-          Issue.changeset(%Issue{}, %{title: "X", project_id: Ecto.UUID.generate(), state: state})
+          Issue.changeset(%Issue{}, %{project_id: Ecto.UUID.generate(), state: state})
 
         assert changeset.valid?, "Expected state #{state} to be valid"
       end
     end
 
     test "defaults", %{project: project} do
-      changeset = Issue.changeset(%Issue{}, %{title: "Test", project_id: project.id})
+      changeset = Issue.changeset(%Issue{}, %{project_id: project.id})
       assert get_field(changeset, :state) == "backlog"
       assert get_field(changeset, :depth) == 0
       assert get_field(changeset, :position) == 0
-      assert get_field(changeset, :priority) == 0
+    end
+  end
+
+  describe "title/1" do
+    test "extracts title from first heading" do
+      issue = %Issue{body: "# Fix the bug\n\nSome details"}
+      assert Issue.title(issue) == "Fix the bug"
+    end
+
+    test "extracts title from heading with extra spaces" do
+      issue = %Issue{body: "# Fix the bug  \n\nSome details"}
+      assert Issue.title(issue) == "Fix the bug"
+    end
+
+    test "extracts first heading when multiple exist" do
+      issue = %Issue{body: "# First\n\n## Second\n\n# Third"}
+      assert Issue.title(issue) == "First"
+    end
+
+    test "returns Unnamed for nil body" do
+      assert Issue.title(%Issue{body: nil}) == "Unnamed"
+    end
+
+    test "returns Unnamed for empty body" do
+      assert Issue.title(%Issue{body: ""}) == "Unnamed"
+    end
+
+    test "returns Unnamed when no heading present" do
+      issue = %Issue{body: "Just some text without a heading"}
+      assert Issue.title(issue) == "Unnamed"
+    end
+
+    test "does not match ## headings as title" do
+      issue = %Issue{body: "## Not a title\n\nSome text"}
+      assert Issue.title(issue) == "Unnamed"
     end
   end
 end

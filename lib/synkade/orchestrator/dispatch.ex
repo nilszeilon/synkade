@@ -27,11 +27,11 @@ defmodule Synkade.Orchestrator.Dispatch do
     |> Enum.map(fn {issue, _result} -> issue end)
   end
 
-  @doc "Sort candidates by priority (asc), created_at (asc), identifier (asc)."
+  @doc "Sort candidates by created_at (asc), identifier (asc)."
   @spec sort_candidates([map()]) :: [map()]
   def sort_candidates(issues) do
     Enum.sort_by(issues, fn issue ->
-      {issue.priority || 999_999, issue.created_at || ~U[9999-12-31 23:59:59Z], issue.identifier}
+      {issue.created_at || ~U[9999-12-31 23:59:59Z], issue.identifier}
     end)
   end
 
@@ -80,8 +80,7 @@ defmodule Synkade.Orchestrator.Dispatch do
   end
 
   defp has_required_fields?(issue) do
-    issue.id != nil and issue.identifier != nil and
-      issue.title != nil and issue.state != nil
+    issue.id != nil and issue.identifier != nil and issue.state != nil
   end
 
   defp running?(issue, state) do
