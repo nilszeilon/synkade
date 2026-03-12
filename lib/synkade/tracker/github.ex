@@ -25,6 +25,7 @@ defmodule Synkade.Tracker.GitHub do
       end
 
     params = [state: gh_state, per_page: 100, sort: "created", direction: "asc"]
+
     params =
       if labels && labels != [], do: [{:labels, Enum.join(labels, ",")} | params], else: params
 
@@ -117,9 +118,14 @@ defmodule Synkade.Tracker.GitHub do
     url = "#{endpoint}/repos/#{repo}/issues/#{issue_id}/labels"
 
     case req_post(url, %{"labels" => [label]}, config) do
-      {:ok, %{status: status}} when status in 200..299 -> :ok
-      {:ok, %{status: status, body: body}} -> {:error, "GitHub API error #{status}: #{inspect(body)}"}
-      {:error, reason} -> {:error, reason}
+      {:ok, %{status: status}} when status in 200..299 ->
+        :ok
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, "GitHub API error #{status}: #{inspect(body)}"}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -130,9 +136,14 @@ defmodule Synkade.Tracker.GitHub do
     url = "#{endpoint}/repos/#{repo}/issues/#{issue_id}/labels/#{URI.encode(label)}"
 
     case req_delete(url, config) do
-      {:ok, %{status: status}} when status in [200, 204, 404] -> :ok
-      {:ok, %{status: status, body: body}} -> {:error, "GitHub API error #{status}: #{inspect(body)}"}
-      {:error, reason} -> {:error, reason}
+      {:ok, %{status: status}} when status in [200, 204, 404] ->
+        :ok
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, "GitHub API error #{status}: #{inspect(body)}"}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

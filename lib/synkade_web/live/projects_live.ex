@@ -241,8 +241,14 @@ defmodule SynkadeWeb.ProjectsLive do
 
             <div class="form-control">
               <label class="label"><span class="label-text">Default Agent</span></label>
-              <select class="select select-bordered w-full" name={@form[:default_agent_id].name} id={@form[:default_agent_id].id}>
-                <option value="" selected={is_nil(@form[:default_agent_id].value)}>Use first agent</option>
+              <select
+                class="select select-bordered w-full"
+                name={@form[:default_agent_id].name}
+                id={@form[:default_agent_id].id}
+              >
+                <option value="" selected={is_nil(@form[:default_agent_id].value)}>
+                  Use first agent
+                </option>
                 <%= for agent <- @agents do %>
                   <option value={agent.id} selected={@form[:default_agent_id].value == agent.id}>
                     {agent.name}
@@ -252,7 +258,9 @@ defmodule SynkadeWeb.ProjectsLive do
             </div>
 
             <div class="form-control">
-              <label class="label"><span class="label-text">Prompt Template (Liquid, optional)</span></label>
+              <label class="label">
+                <span class="label-text">Prompt Template (Liquid, optional)</span>
+              </label>
               <textarea
                 class="textarea textarea-bordered w-full font-mono text-sm"
                 rows="6"

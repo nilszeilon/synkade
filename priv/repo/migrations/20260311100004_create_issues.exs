@@ -4,7 +4,10 @@ defmodule Synkade.Repo.Migrations.CreateIssues do
   def change do
     create table(:issues, primary_key: false) do
       add :id, :binary_id, primary_key: true
-      add :project_id, references(:projects, type: :binary_id, on_delete: :delete_all), null: false
+
+      add :project_id, references(:projects, type: :binary_id, on_delete: :delete_all),
+        null: false
+
       add :parent_id, references(:issues, type: :binary_id, on_delete: :nilify_all)
       add :title, :string, null: false
       add :description, :text

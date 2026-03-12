@@ -53,7 +53,10 @@ defmodule SynkadeWeb.GitHub.WebhookController do
       {:error, :no_webhook_secret}
     else
       signature = get_req_header(conn, "x-hub-signature-256") |> List.first() || ""
-      expected = "sha256=" <> (:crypto.mac(:hmac, :sha256, secret, raw_body) |> Base.encode16(case: :lower))
+
+      expected =
+        "sha256=" <>
+          (:crypto.mac(:hmac, :sha256, secret, raw_body) |> Base.encode16(case: :lower))
 
       if Plug.Crypto.secure_compare(signature, expected) do
         :ok

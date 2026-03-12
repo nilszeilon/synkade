@@ -113,7 +113,8 @@ defmodule SynkadeWeb.LogsLive do
 
   defp format_time(_), do: "--:--:--"
 
-  defp pad_ms({us, _precision}), do: us |> div(1000) |> Integer.to_string() |> String.pad_leading(3, "0")
+  defp pad_ms({us, _precision}),
+    do: us |> div(1000) |> Integer.to_string() |> String.pad_leading(3, "0")
 
   @impl true
   def render(assigns) do
@@ -164,8 +165,7 @@ defmodule SynkadeWeb.LogsLive do
           </button>
 
           <button phx-click="clear" class="btn btn-xs btn-ghost">
-            <.icon name="hero-trash" class="size-3" />
-            Clear
+            <.icon name="hero-trash" class="size-3" /> Clear
           </button>
         </div>
       </div>

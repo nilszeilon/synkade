@@ -7,7 +7,9 @@ defmodule SynkadeWeb.Api.AgentIssuesControllerTest do
   setup do
     {:ok, agent} = Settings.create_agent(%{name: "api-test-agent"})
     {:ok, token} = Settings.generate_agent_token(agent)
-    {:ok, project} = Settings.create_project(%{name: "api-test-project", default_agent_id: agent.id})
+
+    {:ok, project} =
+      Settings.create_project(%{name: "api-test-project", default_agent_id: agent.id})
 
     {:ok, issue} =
       Issues.create_issue(%{
@@ -127,7 +129,12 @@ defmodule SynkadeWeb.Api.AgentIssuesControllerTest do
   # --- Show ---
 
   describe "GET /api/v1/agent/issues/:id" do
-    test "returns issue with children", %{conn: conn, token: token, project: project, issue: issue} do
+    test "returns issue with children", %{
+      conn: conn,
+      token: token,
+      project: project,
+      issue: issue
+    } do
       {:ok, _child} =
         Issues.create_issue(%{
           title: "Child",

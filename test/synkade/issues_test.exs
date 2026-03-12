@@ -23,7 +23,10 @@ defmodule Synkade.IssuesTest do
 
     test "auto-computes depth from parent", %{project: project} do
       {:ok, parent} = Issues.create_issue(%{title: "Parent", project_id: project.id})
-      {:ok, child} = Issues.create_issue(%{title: "Child", project_id: project.id, parent_id: parent.id})
+
+      {:ok, child} =
+        Issues.create_issue(%{title: "Child", project_id: project.id, parent_id: parent.id})
+
       assert child.depth == 1
       assert child.parent_id == parent.id
     end
@@ -56,7 +59,10 @@ defmodule Synkade.IssuesTest do
 
     test "filters by parent_id", %{project: project} do
       {:ok, parent} = Issues.create_issue(%{title: "Parent", project_id: project.id})
-      {:ok, _} = Issues.create_issue(%{title: "Child", project_id: project.id, parent_id: parent.id})
+
+      {:ok, _} =
+        Issues.create_issue(%{title: "Child", project_id: project.id, parent_id: parent.id})
+
       {:ok, _} = Issues.create_issue(%{title: "Root", project_id: project.id})
 
       children = Issues.list_issues(project.id, parent_id: parent.id)
@@ -68,7 +74,9 @@ defmodule Synkade.IssuesTest do
   describe "list_root_issues/1" do
     test "lists only root issues with children preloaded", %{project: project} do
       {:ok, parent} = Issues.create_issue(%{title: "Root", project_id: project.id})
-      {:ok, _} = Issues.create_issue(%{title: "Child", project_id: project.id, parent_id: parent.id})
+
+      {:ok, _} =
+        Issues.create_issue(%{title: "Child", project_id: project.id, parent_id: parent.id})
 
       roots = Issues.list_root_issues(project.id)
       assert length(roots) == 1
@@ -82,7 +90,9 @@ defmodule Synkade.IssuesTest do
   describe "get_issue!/1" do
     test "returns issue with children preloaded", %{project: project} do
       {:ok, parent} = Issues.create_issue(%{title: "Parent", project_id: project.id})
-      {:ok, child} = Issues.create_issue(%{title: "Child", project_id: project.id, parent_id: parent.id})
+
+      {:ok, child} =
+        Issues.create_issue(%{title: "Child", project_id: project.id, parent_id: parent.id})
 
       fetched = Issues.get_issue!(parent.id)
       assert fetched.id == parent.id
@@ -118,50 +128,66 @@ defmodule Synkade.IssuesTest do
 
   describe "transition_state/2" do
     test "backlog -> queued", %{project: project} do
-      {:ok, issue} = Issues.create_issue(%{title: "Test", project_id: project.id, state: "backlog"})
+      {:ok, issue} =
+        Issues.create_issue(%{title: "Test", project_id: project.id, state: "backlog"})
+
       assert {:ok, updated} = Issues.transition_state(issue, "queued")
       assert updated.state == "queued"
     end
 
     test "queued -> in_progress", %{project: project} do
-      {:ok, issue} = Issues.create_issue(%{title: "Test", project_id: project.id, state: "queued"})
+      {:ok, issue} =
+        Issues.create_issue(%{title: "Test", project_id: project.id, state: "queued"})
+
       assert {:ok, updated} = Issues.transition_state(issue, "in_progress")
       assert updated.state == "in_progress"
     end
 
     test "in_progress -> awaiting_review", %{project: project} do
-      {:ok, issue} = Issues.create_issue(%{title: "Test", project_id: project.id, state: "in_progress"})
+      {:ok, issue} =
+        Issues.create_issue(%{title: "Test", project_id: project.id, state: "in_progress"})
+
       assert {:ok, updated} = Issues.transition_state(issue, "awaiting_review")
       assert updated.state == "awaiting_review"
     end
 
     test "in_progress -> done", %{project: project} do
-      {:ok, issue} = Issues.create_issue(%{title: "Test", project_id: project.id, state: "in_progress"})
+      {:ok, issue} =
+        Issues.create_issue(%{title: "Test", project_id: project.id, state: "in_progress"})
+
       assert {:ok, updated} = Issues.transition_state(issue, "done")
       assert updated.state == "done"
     end
 
     test "awaiting_review -> done", %{project: project} do
-      {:ok, issue} = Issues.create_issue(%{title: "Test", project_id: project.id, state: "awaiting_review"})
+      {:ok, issue} =
+        Issues.create_issue(%{title: "Test", project_id: project.id, state: "awaiting_review"})
+
       assert {:ok, updated} = Issues.transition_state(issue, "done")
       assert updated.state == "done"
     end
 
     test "any -> cancelled", %{project: project} do
       for state <- ~w(backlog queued in_progress awaiting_review done) do
-        {:ok, issue} = Issues.create_issue(%{title: "Test #{state}", project_id: project.id, state: state})
+        {:ok, issue} =
+          Issues.create_issue(%{title: "Test #{state}", project_id: project.id, state: state})
+
         assert {:ok, updated} = Issues.transition_state(issue, "cancelled")
         assert updated.state == "cancelled"
       end
     end
 
     test "rejects invalid transition", %{project: project} do
-      {:ok, issue} = Issues.create_issue(%{title: "Test", project_id: project.id, state: "backlog"})
+      {:ok, issue} =
+        Issues.create_issue(%{title: "Test", project_id: project.id, state: "backlog"})
+
       assert {:error, :invalid_transition} = Issues.transition_state(issue, "done")
     end
 
     test "cancelled has no transitions", %{project: project} do
-      {:ok, issue} = Issues.create_issue(%{title: "Test", project_id: project.id, state: "cancelled"})
+      {:ok, issue} =
+        Issues.create_issue(%{title: "Test", project_id: project.id, state: "cancelled"})
+
       assert {:error, :invalid_transition} = Issues.transition_state(issue, "backlog")
     end
   end
@@ -173,7 +199,9 @@ defmodule Synkade.IssuesTest do
     end
 
     test "complete_issue/1", %{project: project} do
-      {:ok, issue} = Issues.create_issue(%{title: "Test", project_id: project.id, state: "in_progress"})
+      {:ok, issue} =
+        Issues.create_issue(%{title: "Test", project_id: project.id, state: "in_progress"})
+
       assert {:ok, %{state: "done"}} = Issues.complete_issue(issue)
     end
 
@@ -192,8 +220,12 @@ defmodule Synkade.IssuesTest do
 
     test "returns chain for nested issue", %{project: project} do
       {:ok, root} = Issues.create_issue(%{title: "Root", project_id: project.id})
-      {:ok, child} = Issues.create_issue(%{title: "Child", project_id: project.id, parent_id: root.id})
-      {:ok, grandchild} = Issues.create_issue(%{title: "Grandchild", project_id: project.id, parent_id: child.id})
+
+      {:ok, child} =
+        Issues.create_issue(%{title: "Child", project_id: project.id, parent_id: root.id})
+
+      {:ok, grandchild} =
+        Issues.create_issue(%{title: "Grandchild", project_id: project.id, parent_id: child.id})
 
       grandchild = Issues.get_issue!(grandchild.id)
       chain = Issues.ancestor_chain(grandchild)
@@ -204,9 +236,19 @@ defmodule Synkade.IssuesTest do
 
   describe "list_queued_issues/1" do
     test "returns queued issues ordered by priority", %{project: project} do
-      {:ok, _} = Issues.create_issue(%{title: "Low", project_id: project.id, state: "queued", priority: 3})
-      {:ok, _} = Issues.create_issue(%{title: "High", project_id: project.id, state: "queued", priority: 1})
-      {:ok, _} = Issues.create_issue(%{title: "Backlog", project_id: project.id, state: "backlog"})
+      {:ok, _} =
+        Issues.create_issue(%{title: "Low", project_id: project.id, state: "queued", priority: 3})
+
+      {:ok, _} =
+        Issues.create_issue(%{
+          title: "High",
+          project_id: project.id,
+          state: "queued",
+          priority: 1
+        })
+
+      {:ok, _} =
+        Issues.create_issue(%{title: "Backlog", project_id: project.id, state: "backlog"})
 
       queued = Issues.list_queued_issues(project.id)
       assert length(queued) == 2
@@ -225,7 +267,9 @@ defmodule Synkade.IssuesTest do
     end
 
     test "sets assigned_agent_id when provided", %{project: project} do
-      {:ok, agent} = Synkade.Settings.create_agent(%{name: "researcher", model: "claude-sonnet-4-5-20250929"})
+      {:ok, agent} =
+        Synkade.Settings.create_agent(%{name: "researcher", model: "claude-sonnet-4-5-20250929"})
+
       {:ok, issue} = Issues.create_issue(%{title: "Research Y", project_id: project.id})
       {:ok, dispatched} = Issues.dispatch_issue(issue, "investigate Y", agent.id)
       assert dispatched.state == "queued"
@@ -236,7 +280,9 @@ defmodule Synkade.IssuesTest do
     end
 
     test "fails for invalid transition", %{project: project} do
-      {:ok, issue} = Issues.create_issue(%{title: "Done issue", project_id: project.id, state: "done"})
+      {:ok, issue} =
+        Issues.create_issue(%{title: "Done issue", project_id: project.id, state: "done"})
+
       assert {:error, :invalid_transition} = Issues.dispatch_issue(issue, "try again")
     end
   end

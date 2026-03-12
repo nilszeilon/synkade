@@ -23,7 +23,11 @@ defmodule Synkade.Issues do
   # --- CRUD ---
 
   def list_issues(project_id, opts \\ []) do
-    query = from(i in Issue, where: i.project_id == ^project_id, order_by: [asc: i.position, asc: i.inserted_at])
+    query =
+      from(i in Issue,
+        where: i.project_id == ^project_id,
+        order_by: [asc: i.position, asc: i.inserted_at]
+      )
 
     query =
       Enum.reduce(opts, query, fn
@@ -131,7 +135,11 @@ defmodule Synkade.Issues do
   def cancel_issue(%Issue{} = issue), do: transition_state(issue, "cancelled")
 
   def dispatch_issue(%Issue{} = issue, dispatch_message, assigned_agent_id \\ nil) do
-    with {:ok, updated} <- update_issue(issue, %{dispatch_message: dispatch_message, assigned_agent_id: assigned_agent_id}),
+    with {:ok, updated} <-
+           update_issue(issue, %{
+             dispatch_message: dispatch_message,
+             assigned_agent_id: assigned_agent_id
+           }),
          {:ok, queued} <- transition_state(updated, "queued") do
       {:ok, queued}
     end
@@ -160,7 +168,8 @@ defmodule Synkade.Issues do
 
   # --- Agent Child Creation ---
 
-  def create_children_from_agent(%Issue{} = parent, children_attrs_list) when is_list(children_attrs_list) do
+  def create_children_from_agent(%Issue{} = parent, children_attrs_list)
+      when is_list(children_attrs_list) do
     children_attrs_list
     |> Enum.with_index()
     |> Enum.map(fn {attrs, index} ->

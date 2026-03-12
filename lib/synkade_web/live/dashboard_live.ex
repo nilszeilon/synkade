@@ -183,6 +183,12 @@ defmodule SynkadeWeb.DashboardLive do
   end
 
   @impl true
+  def handle_event("reset", _params, socket) do
+    Orchestrator.reset_state()
+    {:noreply, socket}
+  end
+
+  @impl true
   def handle_event("move_card", params, socket) do
     %{
       "issue_id" => issue_id,
@@ -633,6 +639,9 @@ defmodule SynkadeWeb.DashboardLive do
             <button phx-click="refresh" class="btn btn-sm btn-primary">
               <span :if={@board_loading} class="loading loading-spinner loading-xs"></span> Refresh
             </button>
+            <button phx-click="reset" class="btn btn-sm btn-warning" title="Reset orchestrator state">
+              Reset Agent
+            </button>
           </div>
         </div>
 
@@ -865,12 +874,27 @@ defmodule SynkadeWeb.DashboardLive do
 
         <%= case @status do %>
           <% {:running, entry} -> %>
-            <div class="flex items-center gap-1 mt-1">
-              <span class="loading loading-spinner loading-xs text-info"></span>
-              <span class="text-xs text-info">
-                {if entry.agent_name, do: "#{entry.agent_name} — ", else: ""}Running (turn {entry.turn_count ||
-                  0})
-              </span>
+            <div class="mt-1 space-y-0.5">
+              <div class="flex items-center gap-1">
+                <span class="loading loading-spinner loading-xs text-info"></span>
+                <span class="text-xs text-info">
+                  {if entry[:agent_name], do: "#{entry.agent_name} — ", else: ""}Running
+                </span>
+                <span
+                  :if={entry.last_agent_timestamp}
+                  class="text-xs text-base-content/40 ml-auto"
+                  title={"Last activity: #{format_relative_time(entry.last_agent_timestamp)}"}
+                >
+                  {format_relative_time(entry.last_agent_timestamp)}
+                </span>
+              </div>
+              <p
+                :if={entry.last_agent_message && entry.last_agent_message != ""}
+                class="text-xs text-base-content/60 truncate"
+                title={entry.last_agent_message}
+              >
+                {entry.last_agent_message}
+              </p>
             </div>
           <% {:retry, entry} -> %>
             <div class="mt-1">
@@ -931,4 +955,18 @@ defmodule SynkadeWeb.DashboardLive do
   end
 
   defp format_duration(_), do: "0s"
+
+  defp format_relative_time(monotonic_ms) when is_integer(monotonic_ms) do
+    elapsed_ms = System.monotonic_time(:millisecond) - monotonic_ms
+    elapsed_s = div(elapsed_ms, 1000)
+
+    cond do
+      elapsed_s < 5 -> "just now"
+      elapsed_s < 60 -> "#{elapsed_s}s ago"
+      elapsed_s < 3600 -> "#{div(elapsed_s, 60)}m ago"
+      true -> "#{div(elapsed_s, 3600)}h ago"
+    end
+  end
+
+  defp format_relative_time(_), do: nil
 end

@@ -30,7 +30,9 @@ config :swoosh, :api_client, false
 # Cloak vault config for field encryption (test-only key)
 config :synkade, Synkade.Vault,
   ciphers: [
-    default: {Cloak.Ciphers.AES.GCM, tag: "AES.GCM.V1", key: Base.decode64!("dVBuNmtoYXhxNHd5N3FqZGtncjM2aGRrdmZ0cWh5YmE=")}
+    default:
+      {Cloak.Ciphers.AES.GCM,
+       tag: "AES.GCM.V1", key: Base.decode64!("dVBuNmtoYXhxNHd5N3FqZGtncjM2aGRrdmZ0cWh5YmE=")}
   ]
 
 # Print only warnings and errors during test

@@ -62,7 +62,9 @@ defmodule SynkadeWeb.ProjectsLiveTest do
     {:ok, view, _html} = live(conn, "/projects")
     assert render(view) =~ "to-delete"
 
-    view |> element(~s{button[phx-click="delete"][phx-value-id="#{project.id}"]}) |> render_click()
+    view
+    |> element(~s{button[phx-click="delete"][phx-value-id="#{project.id}"]})
+    |> render_click()
 
     html = render(view)
     assert html =~ "Project deleted"

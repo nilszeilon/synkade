@@ -54,8 +54,7 @@ defmodule SynkadeWeb.Layouts do
                 navigate="/"
                 class={[@active_tab == :dashboard && !@current_project && "active"]}
               >
-                <.icon name="hero-squares-2x2" class="size-4" />
-                Overview
+                <.icon name="hero-squares-2x2" class="size-4" /> Overview
               </.link>
             </li>
             <li>
@@ -63,8 +62,7 @@ defmodule SynkadeWeb.Layouts do
                 navigate="/issues"
                 class={[@active_tab == :issues && "active"]}
               >
-                <.icon name="hero-clipboard-document-list" class="size-4" />
-                Issues
+                <.icon name="hero-clipboard-document-list" class="size-4" /> Issues
               </.link>
             </li>
           </ul>
@@ -100,20 +98,17 @@ defmodule SynkadeWeb.Layouts do
           <ul class="menu menu-sm">
             <li>
               <.link navigate="/projects" class={[@active_tab == :projects && "active"]}>
-                <.icon name="hero-folder" class="size-4" />
-                Projects
+                <.icon name="hero-folder" class="size-4" /> Projects
               </.link>
             </li>
             <li>
               <.link navigate="/settings" class={[@active_tab == :settings && "active"]}>
-                <.icon name="hero-cog-6-tooth" class="size-4" />
-                Settings
+                <.icon name="hero-cog-6-tooth" class="size-4" /> Settings
               </.link>
             </li>
             <li>
               <.link navigate="/logs" class={[@active_tab == :logs && "active"]}>
-                <.icon name="hero-command-line" class="size-4" />
-                Logs
+                <.icon name="hero-command-line" class="size-4" /> Logs
               </.link>
             </li>
           </ul>

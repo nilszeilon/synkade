@@ -29,14 +29,22 @@ defmodule Synkade.Issues.IssueTest do
     end
 
     test "validates state inclusion" do
-      changeset = Issue.changeset(%Issue{}, %{title: "X", project_id: Ecto.UUID.generate(), state: "invalid"})
+      changeset =
+        Issue.changeset(%Issue{}, %{
+          title: "X",
+          project_id: Ecto.UUID.generate(),
+          state: "invalid"
+        })
+
       refute changeset.valid?
       assert errors_on(changeset).state
     end
 
     test "accepts all valid states" do
       for state <- ~w(backlog queued in_progress awaiting_review done cancelled) do
-        changeset = Issue.changeset(%Issue{}, %{title: "X", project_id: Ecto.UUID.generate(), state: state})
+        changeset =
+          Issue.changeset(%Issue{}, %{title: "X", project_id: Ecto.UUID.generate(), state: state})
+
         assert changeset.valid?, "Expected state #{state} to be valid"
       end
     end

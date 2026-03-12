@@ -251,7 +251,10 @@ defmodule SynkadeWeb.IssuesLive do
 
     case Issues.queue_issue(issue) do
       {:ok, _} ->
-        {:noreply, socket |> load_issues(socket.assigns.selected_project_id) |> put_flash(:info, "Issue queued")}
+        {:noreply,
+         socket
+         |> load_issues(socket.assigns.selected_project_id)
+         |> put_flash(:info, "Issue queued")}
 
       {:error, :invalid_transition} ->
         {:noreply, put_flash(socket, :error, "Cannot queue from current state")}
@@ -264,7 +267,10 @@ defmodule SynkadeWeb.IssuesLive do
 
     case Issues.transition_state(issue, "backlog") do
       {:ok, _} ->
-        {:noreply, socket |> load_issues(socket.assigns.selected_project_id) |> put_flash(:info, "Issue moved to backlog")}
+        {:noreply,
+         socket
+         |> load_issues(socket.assigns.selected_project_id)
+         |> put_flash(:info, "Issue moved to backlog")}
 
       {:error, :invalid_transition} ->
         {:noreply, put_flash(socket, :error, "Cannot move to backlog from current state")}
@@ -283,11 +289,14 @@ defmodule SynkadeWeb.IssuesLive do
 
       agent_id =
         case agent_name do
-          nil -> nil
-          name -> case Settings.get_agent_by_name(name) do
-            nil -> nil
-            agent -> agent.id
-          end
+          nil ->
+            nil
+
+          name ->
+            case Settings.get_agent_by_name(name) do
+              nil -> nil
+              agent -> agent.id
+            end
         end
 
       case Issues.dispatch_issue(issue, instruction, agent_id) do
@@ -297,7 +306,10 @@ defmodule SynkadeWeb.IssuesLive do
             |> assign(:selected_issue, nil)
             |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
             |> load_issues(socket.assigns.selected_project_id)
-            |> put_flash(:info, "Issue dispatched" <> if(agent_name, do: " to #{agent_name}", else: ""))
+            |> put_flash(
+              :info,
+              "Issue dispatched" <> if(agent_name, do: " to #{agent_name}", else: "")
+            )
 
           {:noreply, socket}
 
@@ -316,7 +328,10 @@ defmodule SynkadeWeb.IssuesLive do
 
     case Issues.cancel_issue(issue) do
       {:ok, _} ->
-        {:noreply, socket |> load_issues(socket.assigns.selected_project_id) |> put_flash(:info, "Issue cancelled")}
+        {:noreply,
+         socket
+         |> load_issues(socket.assigns.selected_project_id)
+         |> put_flash(:info, "Issue cancelled")}
 
       {:error, :invalid_transition} ->
         {:noreply, put_flash(socket, :error, "Cannot cancel from current state")}
@@ -385,6 +400,20 @@ defmodule SynkadeWeb.IssuesLive do
     end)
   end
 
+  defp format_relative_time(monotonic_ms) when is_integer(monotonic_ms) do
+    elapsed_ms = System.monotonic_time(:millisecond) - monotonic_ms
+    elapsed_s = div(elapsed_ms, 1000)
+
+    cond do
+      elapsed_s < 5 -> "just now"
+      elapsed_s < 60 -> "#{elapsed_s}s ago"
+      elapsed_s < 3600 -> "#{div(elapsed_s, 60)}m ago"
+      true -> "#{div(elapsed_s, 3600)}h ago"
+    end
+  end
+
+  defp format_relative_time(_), do: nil
+
   defp state_badge_class("backlog"), do: "badge-ghost"
   defp state_badge_class("queued"), do: "badge-info"
   defp state_badge_class("in_progress"), do: "badge-warning"
@@ -423,8 +452,8 @@ defmodule SynkadeWeb.IssuesLive do
             </button>
           </div>
         </div>
-
-        <!-- New issue form -->
+        
+    <!-- New issue form -->
         <div :if={@show_form} class="card bg-base-200 p-4 mb-4">
           <.form for={@form} phx-change="validate_issue" phx-submit="save_issue">
             <div class="flex flex-col gap-3">
@@ -455,7 +484,9 @@ defmodule SynkadeWeb.IssuesLive do
               </div>
               <div class="flex gap-2">
                 <button type="submit" class="btn btn-sm btn-primary">Create</button>
-                <button type="button" phx-click="cancel_form" class="btn btn-sm btn-ghost">Cancel</button>
+                <button type="button" phx-click="cancel_form" class="btn btn-sm btn-ghost">
+                  Cancel
+                </button>
               </div>
             </div>
           </.form>
@@ -476,8 +507,8 @@ defmodule SynkadeWeb.IssuesLive do
               />
             </div>
           </div>
-
-          <!-- Detail panel -->
+          
+    <!-- Detail panel -->
           <div :if={@selected_issue} class="w-[40%] flex-shrink-0">
             <.issue_detail
               issue={@selected_issue.issue}
@@ -486,6 +517,7 @@ defmodule SynkadeWeb.IssuesLive do
               agents={@agents}
               session_events={@session_events}
               session_id={@session_id}
+              running_entry={find_running_entry(@running, @selected_issue.issue.id)}
             />
           </div>
         </div>
@@ -529,7 +561,11 @@ defmodule SynkadeWeb.IssuesLive do
         </button>
         <span :if={!@has_children} class="w-6"></span>
 
-        <div class="flex-1 min-w-0 flex items-center gap-2" phx-click="select_issue" phx-value-id={@issue.id}>
+        <div
+          class="flex-1 min-w-0 flex items-center gap-2"
+          phx-click="select_issue"
+          phx-value-id={@issue.id}
+        >
           <span class="text-sm truncate">{@issue.title}</span>
           <span class={"badge badge-xs #{state_badge_class(@issue.state)} ml-auto flex-shrink-0"}>
             {@issue.state}
@@ -585,6 +621,7 @@ defmodule SynkadeWeb.IssuesLive do
   attr :agents, :list, required: true
   attr :session_events, :list, default: []
   attr :session_id, :string, default: nil
+  attr :running_entry, :any, default: nil
 
   defp issue_detail(assigns) do
     ~H"""
@@ -599,8 +636,36 @@ defmodule SynkadeWeb.IssuesLive do
         </div>
         <button phx-click="close_detail" class="btn btn-ghost btn-sm btn-circle">x</button>
       </div>
-
-      <!-- Scrollable thread -->
+      <!-- Agent status bar -->
+      <div
+        :if={@running_entry}
+        class="mx-4 mb-1 px-3 py-2 bg-info/10 rounded-lg flex items-center gap-2"
+      >
+        <span class="loading loading-spinner loading-xs text-info"></span>
+        <div class="flex-1 min-w-0">
+          <p
+            :if={@running_entry.last_agent_message && @running_entry.last_agent_message != ""}
+            class="text-xs text-base-content/70 truncate"
+            title={@running_entry.last_agent_message}
+          >
+            {@running_entry.last_agent_message}
+          </p>
+          <p
+            :if={!@running_entry.last_agent_message || @running_entry.last_agent_message == ""}
+            class="text-xs text-base-content/50"
+          >
+            Agent running...
+          </p>
+        </div>
+        <span
+          :if={@running_entry.last_agent_timestamp}
+          class="text-xs text-base-content/40 flex-shrink-0"
+        >
+          {format_relative_time(@running_entry.last_agent_timestamp)}
+        </span>
+      </div>
+      
+    <!-- Scrollable thread -->
       <div class="overflow-y-auto flex-1 px-4 py-2">
         <!-- Ancestor thread entries -->
         <div :for={ancestor <- @ancestors} class="border-l-2 border-base-300 pl-3 mb-3">
@@ -612,11 +677,13 @@ defmodule SynkadeWeb.IssuesLive do
             <pre class="text-xs bg-base-300 p-2 rounded overflow-auto max-h-40">{ancestor.agent_output}</pre>
           </div>
         </div>
-
-        <!-- Current issue -->
+        
+    <!-- Current issue -->
         <div class="border-l-2 border-primary pl-3 mb-3">
           <p class="text-sm font-semibold">{@issue.title}</p>
-          <p :if={@issue.description} class="text-xs whitespace-pre-wrap mt-1">{@issue.description}</p>
+          <p :if={@issue.description} class="text-xs whitespace-pre-wrap mt-1">
+            {@issue.description}
+          </p>
           <div :if={@issue.dispatch_message} class="mt-2">
             <p class="text-xs text-base-content/50 mb-1">Dispatch message</p>
             <p class="text-xs italic whitespace-pre-wrap">{@issue.dispatch_message}</p>
@@ -625,13 +692,18 @@ defmodule SynkadeWeb.IssuesLive do
             <pre class="text-xs bg-base-300 p-2 rounded overflow-auto max-h-40">{@issue.agent_output}</pre>
           </div>
         </div>
-
-        <!-- Live session panel (when issue is in_progress and has events) -->
-        <div :if={@issue.state == "in_progress" && (@session_events != [] || @session_id)} class="mb-3">
+        
+    <!-- Live session panel (when issue is in_progress and has events) -->
+        <div
+          :if={@issue.state == "in_progress" && (@session_events != [] || @session_id)}
+          class="mb-3"
+        >
           <div class="flex items-center justify-between mb-2">
             <p class="text-xs text-base-content/50 font-semibold">Agent Session</p>
             <div :if={@session_id} class="flex items-center gap-1">
-              <code class="text-xs text-base-content/40 font-mono">{String.slice(@session_id, 0..11)}...</code>
+              <code class="text-xs text-base-content/40 font-mono">
+                {String.slice(@session_id, 0..11)}...
+              </code>
               <button
                 phx-click="copy_resume"
                 class="btn btn-ghost btn-xs"
@@ -652,8 +724,8 @@ defmodule SynkadeWeb.IssuesLive do
             Waiting for agent events...
           </p>
         </div>
-
-        <!-- Children list -->
+        
+    <!-- Children list -->
         <div :if={@issue.children != [] and is_list(@issue.children)} class="mb-3">
           <p class="text-xs text-base-content/50 mb-1">Children ({length(@issue.children)})</p>
           <div :for={child <- @issue.children} class="flex items-center gap-2 py-1">
@@ -664,22 +736,34 @@ defmodule SynkadeWeb.IssuesLive do
             >
               {child.title}
             </span>
-            <span class={"badge badge-xs #{state_badge_class(child.state)} ml-auto"}>{child.state}</span>
+            <span class={"badge badge-xs #{state_badge_class(child.state)} ml-auto"}>
+              {child.state}
+            </span>
           </div>
         </div>
-
-        <!-- GitHub links -->
+        
+    <!-- GitHub links -->
         <div :if={@issue.github_issue_url || @issue.github_pr_url} class="mb-3 flex gap-2">
-          <a :if={@issue.github_issue_url} href={@issue.github_issue_url} target="_blank" class="link link-primary text-xs">
+          <a
+            :if={@issue.github_issue_url}
+            href={@issue.github_issue_url}
+            target="_blank"
+            class="link link-primary text-xs"
+          >
             GitHub Issue
           </a>
-          <a :if={@issue.github_pr_url} href={@issue.github_pr_url} target="_blank" class="link link-primary text-xs">
+          <a
+            :if={@issue.github_pr_url}
+            href={@issue.github_pr_url}
+            target="_blank"
+            class="link link-primary text-xs"
+          >
             Pull Request
           </a>
         </div>
       </div>
-
-      <!-- Dispatch input + actions -->
+      
+    <!-- Dispatch input + actions -->
       <div class="p-4 pt-2 border-t border-base-300 flex-shrink-0">
         <div :if={@issue.state == "backlog"} class="mb-3">
           <.form for={@dispatch_form} phx-submit="dispatch_issue">
@@ -749,6 +833,7 @@ defmodule SynkadeWeb.IssuesLive do
         "tool_result" -> "badge-info"
         "result" -> "badge-success"
         "error" -> "badge-error"
+        "stderr" -> "badge-warning"
         _ -> "badge-ghost"
       end
 
@@ -767,7 +852,9 @@ defmodule SynkadeWeb.IssuesLive do
     ~H"""
     <div class="flex items-start gap-1.5 leading-tight">
       <span class={"badge badge-xs #{@badge_class} flex-shrink-0 mt-0.5"}>{@event.type}</span>
-      <span :if={@display_message != ""} class="text-base-content/70 break-all">{@display_message}</span>
+      <span :if={@display_message != ""} class="text-base-content/70 break-all">
+        {@display_message}
+      </span>
     </div>
     """
   end

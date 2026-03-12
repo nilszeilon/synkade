@@ -254,7 +254,11 @@ defmodule SynkadeWeb.SettingsLive do
 
         <.form for={@form} phx-change="validate" phx-submit="save">
           <div class={if @active_tab != "github", do: "hidden"}>
-            <.github_tab form={@form} connection_status={@connection_status} connection_testing={@connection_testing} />
+            <.github_tab
+              form={@form}
+              connection_status={@connection_status}
+              connection_testing={@connection_testing}
+            />
           </div>
 
           <div class={if @active_tab != "execution", do: "hidden"}>
@@ -267,7 +271,12 @@ defmodule SynkadeWeb.SettingsLive do
         </.form>
 
         <div class={if @active_tab != "agents", do: "hidden"}>
-          <.agents_tab agents={@agents} agent_editing={@agent_editing} agent_form={@agent_form} agent_token_visible={@agent_token_visible} />
+          <.agents_tab
+            agents={@agents}
+            agent_editing={@agent_editing}
+            agent_form={@agent_form}
+            agent_token_visible={@agent_token_visible}
+          />
         </div>
       </div>
     </Layouts.app>
@@ -306,7 +315,12 @@ defmodule SynkadeWeb.SettingsLive do
       </div>
 
       <div class="flex items-center gap-4 mt-4">
-        <button type="button" class="btn btn-outline btn-sm" phx-click="test_connection" disabled={@connection_testing}>
+        <button
+          type="button"
+          class="btn btn-outline btn-sm"
+          phx-click="test_connection"
+          disabled={@connection_testing}
+        >
           <%= if @connection_testing do %>
             <span class="loading loading-spinner loading-xs"></span> Testing...
           <% else %>
@@ -340,7 +354,9 @@ defmodule SynkadeWeb.SettingsLive do
       <% else %>
         <div class="flex items-center justify-between mb-4">
           <p class="text-sm text-base-content/60">Manage agent configurations for your projects.</p>
-          <button type="button" phx-click="new_agent" class="btn btn-primary btn-sm">New Agent</button>
+          <button type="button" phx-click="new_agent" class="btn btn-primary btn-sm">
+            New Agent
+          </button>
         </div>
 
         <%= if @agents == [] do %>
@@ -425,7 +441,12 @@ defmodule SynkadeWeb.SettingsLive do
                           Generate Token
                         </button>
                       <% end %>
-                      <button type="button" phx-click="edit_agent" phx-value-id={agent.id} class="btn btn-ghost btn-xs">
+                      <button
+                        type="button"
+                        phx-click="edit_agent"
+                        phx-value-id={agent.id}
+                        class="btn btn-ghost btn-xs"
+                      >
                         Edit
                       </button>
                       <button
@@ -477,17 +498,32 @@ defmodule SynkadeWeb.SettingsLive do
 
             <div class="form-control">
               <label class="label"><span class="label-text">Kind</span></label>
-              <select class="select select-bordered w-full" name={@form[:kind].name} id={@form[:kind].id}>
-                <option value="claude" selected={(@form[:kind].value || "claude") == "claude"}>Claude</option>
+              <select
+                class="select select-bordered w-full"
+                name={@form[:kind].name}
+                id={@form[:kind].id}
+              >
+                <option value="claude" selected={(@form[:kind].value || "claude") == "claude"}>
+                  Claude
+                </option>
                 <option value="codex" selected={@form[:kind].value == "codex"}>Codex</option>
+                <option value="opencode" selected={@form[:kind].value == "opencode"}>OpenCode</option>
               </select>
             </div>
 
             <div class="form-control">
               <label class="label"><span class="label-text">Auth Mode</span></label>
-              <select class="select select-bordered w-full" name={@form[:auth_mode].name} id={@form[:auth_mode].id}>
-                <option value="api_key" selected={(@form[:auth_mode].value || "api_key") == "api_key"}>API Key</option>
-                <option value="oauth" selected={@form[:auth_mode].value == "oauth"}>OAuth Token</option>
+              <select
+                class="select select-bordered w-full"
+                name={@form[:auth_mode].name}
+                id={@form[:auth_mode].id}
+              >
+                <option value="api_key" selected={(@form[:auth_mode].value || "api_key") == "api_key"}>
+                  API Key
+                </option>
+                <option value="oauth" selected={@form[:auth_mode].value == "oauth"}>
+                  OAuth Token
+                </option>
               </select>
             </div>
 
@@ -544,7 +580,9 @@ defmodule SynkadeWeb.SettingsLive do
             </div>
 
             <div class="form-control">
-              <label class="label"><span class="label-text">Allowed Tools (comma-separated)</span></label>
+              <label class="label">
+                <span class="label-text">Allowed Tools (comma-separated)</span>
+              </label>
               <input
                 type="text"
                 class="input input-bordered w-full"
@@ -583,9 +621,17 @@ defmodule SynkadeWeb.SettingsLive do
     <div class="space-y-4">
       <div class="form-control">
         <label class="label"><span class="label-text">Execution Backend</span></label>
-        <select class="select select-bordered w-full" name={@form[:execution_backend].name} id={@form[:execution_backend].id}>
-          <option value="local" selected={(@form[:execution_backend].value || "local") == "local"}>Local</option>
-          <option value="sprites" selected={@form[:execution_backend].value == "sprites"}>Sprites</option>
+        <select
+          class="select select-bordered w-full"
+          name={@form[:execution_backend].name}
+          id={@form[:execution_backend].id}
+        >
+          <option value="local" selected={(@form[:execution_backend].value || "local") == "local"}>
+            Local
+          </option>
+          <option value="sprites" selected={@form[:execution_backend].value == "sprites"}>
+            Sprites
+          </option>
         </select>
       </div>
 

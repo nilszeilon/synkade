@@ -42,7 +42,12 @@ defmodule SynkadeWeb.DashboardLiveTest do
       },
       retry_attempts: %{},
       awaiting_review: %{},
-      agent_totals: %{input_tokens: 2000, output_tokens: 3000, total_tokens: 5000, runtime_seconds: 42.0},
+      agent_totals: %{
+        input_tokens: 2000,
+        output_tokens: 3000,
+        total_tokens: 5000,
+        runtime_seconds: 42.0
+      },
       agent_totals_by_project: %{},
       activity_log: [],
       projects: %{},
