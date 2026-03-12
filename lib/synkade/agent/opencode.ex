@@ -103,9 +103,9 @@ defmodule Synkade.Agent.OpenCode do
     bash_command =
       Enum.map_join([command | args], " ", &shell_escape/1)
 
-    script_path = System.find_executable("script")
+    script_path = System.find_executable("script") || "/usr/bin/script"
 
-    Logger.info("OpenCode: starting agent in #{workspace_path}")
+    Logger.info("OpenCode: starting agent in #{workspace_path}, script=#{script_path}")
 
     port =
       Port.open(
@@ -130,9 +130,13 @@ defmodule Synkade.Agent.OpenCode do
       started_at: System.monotonic_time(:millisecond)
     }
 
+    Logger.info("OpenCode: port opened, os_pid=#{inspect(port_os_pid(port))}")
+
     {:ok, session}
   rescue
-    e -> {:error, Exception.message(e)}
+    e ->
+      Logger.error("OpenCode: failed to start agent: #{Exception.message(e)}")
+      {:error, Exception.message(e)}
   end
 
   defp shell_escape(arg) do

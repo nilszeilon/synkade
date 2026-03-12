@@ -88,9 +88,9 @@ defmodule Synkade.Agent.ClaudeCode do
     bash_command =
       Enum.map_join([command | args], " ", &shell_escape/1)
 
-    script_path = System.find_executable("script")
+    script_path = System.find_executable("script") || "/usr/bin/script"
 
-    Logger.info("ClaudeCode: starting agent in #{workspace_path}")
+    Logger.info("ClaudeCode: starting agent in #{workspace_path}, script=#{script_path}")
 
     port =
       Port.open(
