@@ -31,23 +31,60 @@ defmodule Synkade.Workspace.Manager do
         }
 
         if created_now do
-          hooks_config = Config.get_section(config, "hooks")
-          hook_script = hooks_config["after_create"]
-          timeout = hooks_config["timeout_ms"] || 60_000
-
-          case Hooks.run_hook(hook_script, path, timeout_ms: timeout) do
-            :ok ->
-              {:ok, workspace}
-
+          with :ok <- maybe_clone_repo(config, path),
+               :ok <- run_after_create_hook(config, path) do
+            {:ok, workspace}
+          else
             {:error, reason} ->
-              # Abort workspace creation on hook failure
               File.rm_rf!(path)
-              {:error, {:hook_failed, :after_create, reason}}
+              {:error, reason}
           end
         else
           {:ok, workspace}
         end
       end
+    end
+  end
+
+  defp maybe_clone_repo(config, path) do
+    repo = Config.get(config, "tracker", "repo")
+
+    if repo && repo != "" do
+      api_key = Config.get(config, "tracker", "api_key")
+      clone_repo(repo, api_key, path)
+    else
+      :ok
+    end
+  end
+
+  defp clone_repo(repo, api_key, path) do
+    url =
+      if api_key && api_key != "" do
+        "https://#{api_key}@github.com/#{repo}.git"
+      else
+        "https://github.com/#{repo}.git"
+      end
+
+    Logger.info("Cloning #{repo} into #{path}")
+
+    case System.cmd("git", ["clone", url, "."], cd: path, stderr_to_stdout: true) do
+      {_output, 0} ->
+        :ok
+
+      {output, exit_code} ->
+        Logger.error("git clone failed (exit #{exit_code}): #{output}")
+        {:error, {:clone_failed, output}}
+    end
+  end
+
+  defp run_after_create_hook(config, path) do
+    hooks_config = Config.get_section(config, "hooks")
+    hook_script = hooks_config["after_create"]
+    timeout = hooks_config["timeout_ms"] || 60_000
+
+    case Hooks.run_hook(hook_script, path, timeout_ms: timeout) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:hook_failed, :after_create, reason}}
     end
   end
 
