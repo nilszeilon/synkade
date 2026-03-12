@@ -3,7 +3,7 @@ defmodule Synkade.Orchestrator.State do
 
   @type t :: %__MODULE__{
           projects: %{String.t() => map()},
-          poll_interval_ms: pos_integer(),
+          reconcile_interval_ms: pos_integer(),
           max_concurrent_agents: pos_integer(),
           running: %{String.t() => map()},
           claimed: MapSet.t(String.t()),
@@ -22,7 +22,7 @@ defmodule Synkade.Orchestrator.State do
         }
 
   defstruct projects: %{},
-            poll_interval_ms: 30_000,
+            reconcile_interval_ms: 30_000,
             max_concurrent_agents: 10,
             running: %{},
             claimed: MapSet.new(),

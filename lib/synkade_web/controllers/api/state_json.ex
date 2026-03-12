@@ -8,7 +8,7 @@ defmodule SynkadeWeb.Api.StateJSON do
       claimed: state.claimed,
       agent_totals: state.agent_totals,
       agent_totals_by_project: state.agent_totals_by_project,
-      poll_interval_ms: state.poll_interval_ms,
+      reconcile_interval_ms: state.reconcile_interval_ms,
       max_concurrent_agents: state.max_concurrent_agents,
       config_error: state.config_error
     }

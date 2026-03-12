@@ -117,6 +117,9 @@ defmodule Synkade.Workflow.Config do
     to_pos_integer(get(config, "polling", "interval_ms"), 30_000)
   end
 
+  @spec reconcile_interval_ms(map()) :: pos_integer()
+  def reconcile_interval_ms(config), do: poll_interval_ms(config)
+
   @spec max_concurrent_agents(map()) :: pos_integer()
   def max_concurrent_agents(config) do
     to_pos_integer(get(config, "agent", "max_concurrent_agents"), 10)

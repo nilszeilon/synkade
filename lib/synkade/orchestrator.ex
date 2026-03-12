@@ -62,8 +62,9 @@ defmodule Synkade.Orchestrator do
     # Load initial config
     state = load_config(state)
 
-    # Schedule immediate first tick
-    send(self(), :poll_tick)
+    # Dispatch immediately (reactive), start periodic reconciliation
+    send(self(), :dispatch)
+    schedule_reconcile(state.reconcile_interval_ms)
 
     {:ok, state}
   end
@@ -72,7 +73,7 @@ defmodule Synkade.Orchestrator do
   def handle_call(:get_state, _from, state) do
     snapshot = %{
       projects: state.projects,
-      poll_interval_ms: state.poll_interval_ms,
+      reconcile_interval_ms: state.reconcile_interval_ms,
       max_concurrent_agents: state.max_concurrent_agents,
       running: state.running,
       claimed: MapSet.to_list(state.claimed),
@@ -100,7 +101,7 @@ defmodule Synkade.Orchestrator do
 
   @impl true
   def handle_cast(:refresh, state) do
-    send(self(), :poll_tick)
+    send(self(), :dispatch)
     {:noreply, state}
   end
 
@@ -193,9 +194,38 @@ defmodule Synkade.Orchestrator do
   end
 
   @impl true
-  def handle_info(:poll_tick, state) do
-    state = do_poll_tick(state)
-    schedule_tick(state.poll_interval_ms)
+  def handle_info(:dispatch, state) do
+    state =
+      if map_size(state.projects) == 0 do
+        load_config(state)
+      else
+        dispatch_all_projects(state)
+      end
+
+    broadcast_state(state)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:reconcile, state) do
+    running_before = map_size(state.running)
+
+    # 1. Reconcile stalled/terminal entries
+    state = Reconciler.reconcile(state)
+
+    # 2. Handle stopped sessions
+    state = handle_stopped_sessions(state)
+
+    running_after = map_size(state.running)
+
+    broadcast_state(state)
+
+    # If reconciler freed slots, trigger a dispatch to fill them
+    if running_after < running_before do
+      send(self(), :dispatch)
+    end
+
+    schedule_reconcile(state.reconcile_interval_ms)
     {:noreply, state}
   end
 
@@ -226,7 +256,7 @@ defmodule Synkade.Orchestrator do
   @impl true
   def handle_info({:issues_updated}, state) do
     # Issues changed in DB — trigger a dispatch cycle
-    send(self(), :poll_tick)
+    send(self(), :dispatch)
     {:noreply, state}
   end
 
@@ -238,8 +268,8 @@ defmodule Synkade.Orchestrator do
 
     broadcast_state(state)
 
-    # Attempt re-dispatch on next tick
-    send(self(), :poll_tick)
+    # Attempt re-dispatch
+    send(self(), :dispatch)
 
     {:noreply, state}
   end
@@ -378,31 +408,6 @@ defmodule Synkade.Orchestrator do
     state
   end
 
-  defp do_poll_tick(state) do
-    # 1. Reconcile
-    state = Reconciler.reconcile(state)
-
-    # 2. Handle stopped sessions
-    state = handle_stopped_sessions(state)
-
-    # 3. Validate config
-    require Logger
-
-    Logger.warning(
-      "do_poll_tick: projects count=#{map_size(state.projects)}, config_error=#{inspect(state.config_error)}"
-    )
-
-    state =
-      if map_size(state.projects) == 0 do
-        load_config(state)
-      else
-        # 4. Fetch candidates and dispatch
-        dispatch_all_projects(state)
-      end
-
-    broadcast_state(state)
-    state
-  end
 
   defp handle_stopped_sessions(state) do
     # Handle stopped running sessions
@@ -700,7 +705,7 @@ defmodule Synkade.Orchestrator do
           state
           | config_error: nil,
             projects: projects_map,
-            poll_interval_ms: Config.poll_interval_ms(first_config),
+            reconcile_interval_ms: Config.reconcile_interval_ms(first_config),
             max_concurrent_agents: Config.max_concurrent_agents(first_config)
         }
     end
@@ -748,8 +753,8 @@ defmodule Synkade.Orchestrator do
     }
   end
 
-  defp schedule_tick(interval_ms) do
-    Process.send_after(self(), :poll_tick, interval_ms)
+  defp schedule_reconcile(interval_ms) do
+    Process.send_after(self(), :reconcile, interval_ms)
   end
 
   defp broadcast_state(state) do

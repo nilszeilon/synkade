@@ -6,6 +6,7 @@ defmodule Synkade.Workflow.ConfigTest do
   describe "defaults" do
     test "returns default poll interval" do
       assert Config.poll_interval_ms(%{}) == 30_000
+      assert Config.reconcile_interval_ms(%{}) == 30_000
     end
 
     test "returns default max concurrent agents" do
@@ -48,11 +49,13 @@ defmodule Synkade.Workflow.ConfigTest do
     test "respects configured poll interval" do
       config = %{"polling" => %{"interval_ms" => 5000}}
       assert Config.poll_interval_ms(config) == 5000
+      assert Config.reconcile_interval_ms(config) == 5000
     end
 
     test "respects string integer poll interval" do
       config = %{"polling" => %{"interval_ms" => "10000"}}
       assert Config.poll_interval_ms(config) == 10_000
+      assert Config.reconcile_interval_ms(config) == 10_000
     end
 
     test "respects configured active_states" do
