@@ -73,6 +73,29 @@ defmodule Synkade.Prompt.Renderer do
   ```
 
   Alternatively, you can output children using SYNKADE:CHILDREN markers (see below).
+
+  ### Status Reporting
+
+  Report your status periodically so Synkade knows you're still working:
+
+  ```bash
+  # Report working status (send every 2-3 minutes during long tasks)
+  curl -s -X POST -H "Authorization: Bearer $SYNKADE_API_TOKEN" -H "Content-Type: application/json" \\
+    -d '{"issue_id":"{{ issue.id }}","status":"working","message":"Brief description of current step"}' \\
+    "$SYNKADE_API_URL/heartbeat"
+
+  # Report an error
+  curl -s -X POST -H "Authorization: Bearer $SYNKADE_API_TOKEN" -H "Content-Type: application/json" \\
+    -d '{"issue_id":"{{ issue.id }}","status":"error","message":"What went wrong"}' \\
+    "$SYNKADE_API_URL/heartbeat"
+
+  # Report being blocked
+  curl -s -X POST -H "Authorization: Bearer $SYNKADE_API_TOKEN" -H "Content-Type: application/json" \\
+    -d '{"issue_id":"{{ issue.id }}","status":"blocked","message":"What is blocking progress"}' \\
+    "$SYNKADE_API_URL/heartbeat"
+  ```
+
+  Valid statuses: `working`, `error`, `blocked`. Send a heartbeat every 2-3 minutes during long-running tasks to prevent stall detection from killing your session.
   """
 
   @spec render(

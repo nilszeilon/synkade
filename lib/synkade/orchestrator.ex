@@ -37,6 +37,16 @@ defmodule Synkade.Orchestrator do
     GenServer.cast(server, :refresh)
   end
 
+  @doc "Reset the orchestrator state (clears running/claimed workers)."
+  def reset_state(server \\ __MODULE__) do
+    GenServer.cast(server, :reset_state)
+  end
+
+  @doc "Record an agent heartbeat for a running issue."
+  def heartbeat(server \\ __MODULE__, issue_id, status, message) do
+    GenServer.cast(server, {:agent_heartbeat, issue_id, status, message})
+  end
+
   # --- Callbacks ---
 
   @impl true
@@ -95,6 +105,34 @@ defmodule Synkade.Orchestrator do
   end
 
   @impl true
+  def handle_cast(:reset_state, state) do
+    state = %{state | running: %{}, claimed: MapSet.new()}
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:agent_heartbeat, issue_id, status, message}, state) do
+    # Find running entry by issue_id
+    state =
+      case Enum.find(state.running, fn {_key, entry} -> entry.issue_id == issue_id end) do
+        {key, entry} ->
+          entry = %{
+            entry
+            | last_agent_timestamp: System.monotonic_time(:millisecond),
+              last_agent_message: "[#{status}] #{message || ""}"
+          }
+
+          put_in(state.running[key], entry)
+
+        nil ->
+          state
+      end
+
+    broadcast_state(state)
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_cast({:agent_event, project_name, issue_id, event}, state) do
     key = State.composite_key(project_name, issue_id)
 
@@ -149,11 +187,104 @@ defmodule Synkade.Orchestrator do
   end
 
   @impl true
-  def handle_cast({:worker_exit, project_name, issue_id, result}, state) do
+  def handle_info({:process_worker_exit, project_name, issue_id, result}, state) do
+    state = handle_worker_exit(state, project_name, issue_id, result)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:poll_tick, state) do
+    state = do_poll_tick(state)
+    schedule_tick(state.poll_interval_ms)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:settings_updated, _settings}, state) do
+    Logger.info("Orchestrator: applying updated DB settings")
+    state = load_config(state)
+    broadcast_state(state)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:projects_updated}, state) do
+    Logger.info("Orchestrator: applying updated project config")
+    state = load_config(state)
+    broadcast_state(state)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:agents_updated}, state) do
+    Logger.info("Orchestrator: applying updated agent config")
+    state = load_config(state)
+    broadcast_state(state)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:issues_updated}, state) do
+    # Issues changed in DB — trigger a dispatch cycle
+    send(self(), :poll_tick)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:retry_timer, project_name, issue_id}, state) do
+    key = State.composite_key(project_name, issue_id)
+
+    state = %{state | retry_attempts: Map.delete(state.retry_attempts, key)}
+
+    broadcast_state(state)
+
+    # Attempt re-dispatch on next tick
+    send(self(), :poll_tick)
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({ref, result}, state) when is_reference(ref) do
+    # Task completion - find which issue this was for
+    # Use send_after to let in-flight :agent_event casts drain first
+    require Logger
+    Logger.warning("handle_info: task completed ref=#{inspect(ref)}, result=#{inspect(result)}")
+    Process.demonitor(ref, [:flush])
+
+    case find_task_entry(state, ref) do
+      {_key, entry} ->
+        Process.send_after(
+          self(),
+          {:process_worker_exit, entry.project_name, entry.issue_id, result},
+          50
+        )
+
+        {:noreply, state}
+
+      nil ->
+        {:noreply, state}
+    end
+  end
+
+  @impl true
+  def handle_info({:DOWN, _ref, :process, _pid, _reason}, state) do
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(_msg, state) do
+    {:noreply, state}
+  end
+
+  # --- Private ---
+
+  defp handle_worker_exit(state, project_name, issue_id, result) do
     key = State.composite_key(project_name, issue_id)
     entry = Map.get(state.running, key)
 
     state = %{state | running: Map.delete(state.running, key)}
+    state = %{state | claimed: MapSet.delete(state.claimed, key)}
 
     state =
       if entry do
@@ -244,87 +375,8 @@ defmodule Synkade.Orchestrator do
       end
 
     broadcast_state(state)
-    {:noreply, state}
+    state
   end
-
-  @impl true
-  def handle_info(:poll_tick, state) do
-    state = do_poll_tick(state)
-    schedule_tick(state.poll_interval_ms)
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info({:settings_updated, _settings}, state) do
-    Logger.info("Orchestrator: applying updated DB settings")
-    state = load_config(state)
-    broadcast_state(state)
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info({:projects_updated}, state) do
-    Logger.info("Orchestrator: applying updated project config")
-    state = load_config(state)
-    broadcast_state(state)
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info({:agents_updated}, state) do
-    Logger.info("Orchestrator: applying updated agent config")
-    state = load_config(state)
-    broadcast_state(state)
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info({:issues_updated}, state) do
-    # Issues changed in DB — trigger a dispatch cycle
-    send(self(), :poll_tick)
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info({:retry_timer, project_name, issue_id}, state) do
-    key = State.composite_key(project_name, issue_id)
-
-    state = %{state | retry_attempts: Map.delete(state.retry_attempts, key)}
-
-    broadcast_state(state)
-
-    # Attempt re-dispatch on next tick
-    send(self(), :poll_tick)
-
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info({ref, result}, state) when is_reference(ref) do
-    # Task completion - find which issue this was for
-    Process.demonitor(ref, [:flush])
-
-    case find_task_entry(state, ref) do
-      {_key, entry} ->
-        GenServer.cast(self(), {:worker_exit, entry.project_name, entry.issue_id, result})
-        {:noreply, state}
-
-      nil ->
-        {:noreply, state}
-    end
-  end
-
-  @impl true
-  def handle_info({:DOWN, _ref, :process, _pid, _reason}, state) do
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info(_msg, state) do
-    {:noreply, state}
-  end
-
-  # --- Private ---
 
   defp do_poll_tick(state) do
     # 1. Reconcile
@@ -334,6 +386,12 @@ defmodule Synkade.Orchestrator do
     state = handle_stopped_sessions(state)
 
     # 3. Validate config
+    require Logger
+
+    Logger.warning(
+      "do_poll_tick: projects count=#{map_size(state.projects)}, config_error=#{inspect(state.config_error)}"
+    )
+
     state =
       if map_size(state.projects) == 0 do
         load_config(state)
@@ -413,6 +471,9 @@ defmodule Synkade.Orchestrator do
   defp dispatch_project(state, project) do
     db_project_id = project[:db_id]
 
+    require Logger
+    Logger.warning("dispatch_project: project=#{project.name}, db_id=#{inspect(db_project_id)}")
+
     if db_project_id do
       db_issues =
         try do
@@ -420,6 +481,10 @@ defmodule Synkade.Orchestrator do
         catch
           _, _ -> []
         end
+
+      Logger.warning(
+        "dispatch_project: project=#{project.name}, queued_issues_count=#{length(db_issues)}"
+      )
 
       tracker_issues =
         Enum.map(db_issues, fn db_issue ->
@@ -431,8 +496,13 @@ defmodule Synkade.Orchestrator do
         |> Dispatch.filter_candidates(state, project)
         |> Dispatch.sort_candidates()
 
+      Logger.warning(
+        "dispatch_project: project=#{project.name}, candidates_count=#{length(candidates)}"
+      )
+
       dispatch_candidates(state, project, candidates, db_issues)
     else
+      Logger.warning("dispatch_project: no db_project_id for #{project.name}")
       state
     end
   end
@@ -477,6 +547,11 @@ defmodule Synkade.Orchestrator do
 
     # Transition DB issue to in_progress
     db_issue = Enum.find(db_issues, fn di -> di.id == issue.id end)
+    require Logger
+
+    Logger.warning(
+      "DISPATCH_ISSUE_CHECK: issue.id=#{inspect(issue.id)}, db_issue found=#{not is_nil(db_issue)}, project=#{project.name}"
+    )
 
     if db_issue do
       try do

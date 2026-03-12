@@ -7,13 +7,24 @@ defmodule Synkade.Orchestrator.Dispatch do
   @doc "Filter candidates that are eligible for dispatch."
   @spec filter_candidates([map()], State.t(), map()) :: [map()]
   def filter_candidates(issues, state, _project) do
+    require Logger
+
     issues
-    |> Enum.filter(fn issue ->
-      has_required_fields?(issue) and
-        not running?(issue, state) and
-        not claimed?(issue, state) and
-        not blocked?(issue)
+    |> Enum.map(fn issue ->
+      result =
+        has_required_fields?(issue) and
+          not running?(issue, state) and
+          not claimed?(issue, state) and
+          not blocked?(issue)
+
+      Logger.warning(
+        "filter_candidates: issue=#{issue.identifier}, has_fields=#{has_required_fields?(issue)}, running=#{running?(issue, state)}, claimed=#{claimed?(issue, state)}, blocked=#{blocked?(issue)}, result=#{result}"
+      )
+
+      {issue, result}
     end)
+    |> Enum.filter(fn {_issue, result} -> result end)
+    |> Enum.map(fn {issue, _result} -> issue end)
   end
 
   @doc "Sort candidates by priority (asc), created_at (asc), identifier (asc)."

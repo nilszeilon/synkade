@@ -36,6 +36,7 @@ defmodule SynkadeWeb.Router do
     get "/projects", StateController, :projects
     get "/projects/:name", StateController, :project
     post "/refresh", StateController, :refresh
+    post "/reset", StateController, :reset
   end
 
   scope "/api/v1/agent", SynkadeWeb.Api do
@@ -46,6 +47,7 @@ defmodule SynkadeWeb.Router do
     get "/issues/:id", AgentIssuesController, :show
     patch "/issues/:id", AgentIssuesController, :update
     post "/issues/:id/children", AgentIssuesController, :create_children
+    post "/heartbeat", AgentHeartbeatController, :create
   end
 
   scope "/github", SynkadeWeb.GitHub do

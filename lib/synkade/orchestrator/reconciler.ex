@@ -15,6 +15,7 @@ defmodule Synkade.Orchestrator.Reconciler do
     |> detect_stalls()
     |> refresh_issue_states()
     |> check_pr_statuses()
+    |> cleanup_stale_claimed()
   end
 
   @doc "Detect stalled sessions based on last agent event timestamp."
@@ -122,6 +123,59 @@ defmodule Synkade.Orchestrator.Reconciler do
         acc
       end
     end)
+  end
+
+  @doc "Clean up claimed issues that are no longer in progress in the DB."
+  @spec cleanup_stale_claimed(State.t()) :: State.t()
+  def cleanup_stale_claimed(state) do
+    stale_keys =
+      state.claimed
+      |> Enum.filter(fn key ->
+        case parse_claimed_key(key) do
+          {_project_name, issue_id} ->
+            case Issues.get_issue(issue_id) do
+              nil -> true
+              db_issue -> db_issue.state != "in_progress"
+            end
+
+          nil ->
+            true
+        end
+      end)
+
+    if stale_keys != [] do
+      Logger.info("Cleaning up stale claimed entries: #{inspect(stale_keys)}")
+    end
+
+    state = %{state | claimed: MapSet.difference(state.claimed, MapSet.new(stale_keys))}
+
+    # Clean up stale running entries - if task is no longer alive, remove from running
+    stale_running =
+      state.running
+      |> Enum.filter(fn {_key, entry} ->
+        task_pid = Map.get(entry, :task_pid)
+
+        if task_pid do
+          not Process.alive?(task_pid)
+        else
+          # No task_pid means we can't verify, check if we have any events
+          entry.agent_total_tokens == 0 and entry.last_agent_event == nil
+        end
+      end)
+      |> Enum.map(fn {key, _entry} -> key end)
+
+    if stale_running != [] do
+      Logger.warning("Cleaning up stale running entries: #{inspect(stale_running)}")
+    end
+
+    %{state | running: Map.drop(state.running, stale_running)}
+  end
+
+  defp parse_claimed_key(key) do
+    case String.split(key, ":", parts: 2) do
+      [project_name, issue_id] -> {project_name, issue_id}
+      _ -> nil
+    end
   end
 
   defp get_stall_timeout(state, project_name) do

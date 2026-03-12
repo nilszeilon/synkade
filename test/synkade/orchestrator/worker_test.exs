@@ -70,7 +70,8 @@ defmodule Synkade.Orchestrator.WorkerTest do
         events: [
           %Event{
             type: "result",
-            message: "I've created a pull request at https://github.com/org/repo/pull/123 for your review."
+            message:
+              "I've created a pull request at https://github.com/org/repo/pull/123 for your review."
           }
         ]
       }

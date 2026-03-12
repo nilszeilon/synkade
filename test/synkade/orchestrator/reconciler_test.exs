@@ -32,19 +32,21 @@ defmodule Synkade.Orchestrator.ReconcilerTest do
   describe "check_pr_statuses/1" do
     test "marks merged PR for stop" do
       name = :reconciler_merged
-      state = make_state(name, %{
-        "api:42" => %{
-          project_name: "api",
-          issue_id: "42",
-          identifier: "acme/api#42",
-          pr_url: "https://github.com/acme/api/pull/10",
-          pr_number: "10",
-          env_ref: nil,
-          session_id: nil,
-          created_at: 0,
-          agent_total_tokens: 100
-        }
-      })
+
+      state =
+        make_state(name, %{
+          "api:42" => %{
+            project_name: "api",
+            issue_id: "42",
+            identifier: "acme/api#42",
+            pr_url: "https://github.com/acme/api/pull/10",
+            pr_number: "10",
+            env_ref: nil,
+            session_id: nil,
+            created_at: 0,
+            agent_total_tokens: 100
+          }
+        })
 
       Req.Test.stub(name, fn conn ->
         Req.Test.json(conn, %{"state" => "closed", "merged" => true})
@@ -56,19 +58,21 @@ defmodule Synkade.Orchestrator.ReconcilerTest do
 
     test "marks closed (unmerged) PR for stop" do
       name = :reconciler_closed
-      state = make_state(name, %{
-        "api:42" => %{
-          project_name: "api",
-          issue_id: "42",
-          identifier: "acme/api#42",
-          pr_url: "https://github.com/acme/api/pull/10",
-          pr_number: "10",
-          env_ref: nil,
-          session_id: nil,
-          created_at: 0,
-          agent_total_tokens: 100
-        }
-      })
+
+      state =
+        make_state(name, %{
+          "api:42" => %{
+            project_name: "api",
+            issue_id: "42",
+            identifier: "acme/api#42",
+            pr_url: "https://github.com/acme/api/pull/10",
+            pr_number: "10",
+            env_ref: nil,
+            session_id: nil,
+            created_at: 0,
+            agent_total_tokens: 100
+          }
+        })
 
       Req.Test.stub(name, fn conn ->
         Req.Test.json(conn, %{"state" => "closed", "merged" => false})
@@ -80,19 +84,21 @@ defmodule Synkade.Orchestrator.ReconcilerTest do
 
     test "leaves open PR unchanged" do
       name = :reconciler_open
-      state = make_state(name, %{
-        "api:42" => %{
-          project_name: "api",
-          issue_id: "42",
-          identifier: "acme/api#42",
-          pr_url: "https://github.com/acme/api/pull/10",
-          pr_number: "10",
-          env_ref: nil,
-          session_id: nil,
-          created_at: 0,
-          agent_total_tokens: 100
-        }
-      })
+
+      state =
+        make_state(name, %{
+          "api:42" => %{
+            project_name: "api",
+            issue_id: "42",
+            identifier: "acme/api#42",
+            pr_url: "https://github.com/acme/api/pull/10",
+            pr_number: "10",
+            env_ref: nil,
+            session_id: nil,
+            created_at: 0,
+            agent_total_tokens: 100
+          }
+        })
 
       Req.Test.stub(name, fn conn ->
         Req.Test.json(conn, %{"state" => "open", "merged" => false})
@@ -104,19 +110,21 @@ defmodule Synkade.Orchestrator.ReconcilerTest do
 
     test "marks not found PR for stop" do
       name = :reconciler_not_found
-      state = make_state(name, %{
-        "api:42" => %{
-          project_name: "api",
-          issue_id: "42",
-          identifier: "acme/api#42",
-          pr_url: "https://github.com/acme/api/pull/999",
-          pr_number: "999",
-          env_ref: nil,
-          session_id: nil,
-          created_at: 0,
-          agent_total_tokens: 100
-        }
-      })
+
+      state =
+        make_state(name, %{
+          "api:42" => %{
+            project_name: "api",
+            issue_id: "42",
+            identifier: "acme/api#42",
+            pr_url: "https://github.com/acme/api/pull/999",
+            pr_number: "999",
+            env_ref: nil,
+            session_id: nil,
+            created_at: 0,
+            agent_total_tokens: 100
+          }
+        })
 
       Req.Test.stub(name, fn conn ->
         conn
@@ -130,19 +138,21 @@ defmodule Synkade.Orchestrator.ReconcilerTest do
 
     test "handles API error gracefully" do
       name = :reconciler_error
-      state = make_state(name, %{
-        "api:42" => %{
-          project_name: "api",
-          issue_id: "42",
-          identifier: "acme/api#42",
-          pr_url: "https://github.com/acme/api/pull/10",
-          pr_number: "10",
-          env_ref: nil,
-          session_id: nil,
-          created_at: 0,
-          agent_total_tokens: 100
-        }
-      })
+
+      state =
+        make_state(name, %{
+          "api:42" => %{
+            project_name: "api",
+            issue_id: "42",
+            identifier: "acme/api#42",
+            pr_url: "https://github.com/acme/api/pull/10",
+            pr_number: "10",
+            env_ref: nil,
+            session_id: nil,
+            created_at: 0,
+            agent_total_tokens: 100
+          }
+        })
 
       Req.Test.stub(name, fn conn ->
         conn

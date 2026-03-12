@@ -53,7 +53,9 @@ defmodule Synkade.Orchestrator.DispatchTest do
     end
 
     test "filters out blocked issues" do
-      blocked = make_issue(%{id: "1", blocked_by: [%{id: "10", identifier: "#10", state: "open"}]})
+      blocked =
+        make_issue(%{id: "1", blocked_by: [%{id: "10", identifier: "#10", state: "open"}]})
+
       unblocked = make_issue(%{id: "2", blocked_by: []})
       state = %State{}
       project = make_project()
@@ -64,10 +66,11 @@ defmodule Synkade.Orchestrator.DispatchTest do
     end
 
     test "allows issues with closed blockers" do
-      issue = make_issue(%{
-        id: "1",
-        blocked_by: [%{id: "10", identifier: "#10", state: "closed"}]
-      })
+      issue =
+        make_issue(%{
+          id: "1",
+          blocked_by: [%{id: "10", identifier: "#10", state: "closed"}]
+        })
 
       state = %State{}
       project = make_project()
