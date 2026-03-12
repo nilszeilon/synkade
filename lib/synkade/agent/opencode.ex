@@ -1,4 +1,4 @@
-defmodule Synkade.Agent.ClaudeCode do
+defmodule Synkade.Agent.OpenCode do
   @moduledoc false
   @behaviour Synkade.Agent.Behaviour
 
@@ -7,6 +7,8 @@ defmodule Synkade.Agent.ClaudeCode do
 
   require Logger
 
+  @port_line_bytes 1_048_576
+
   @impl true
   def start_session(config, prompt, workspace_path) do
     args = build_args(config, prompt, [])
@@ -14,8 +16,8 @@ defmodule Synkade.Agent.ClaudeCode do
   end
 
   @impl true
-  def continue_session(config, session_id, prompt, workspace_path) do
-    args = build_args(config, prompt, ["--resume", session_id])
+  def continue_session(config, _session_id, prompt, workspace_path) do
+    args = build_args(config, prompt, ["--continue"])
     run_agent(config, args, workspace_path)
   end
 
@@ -38,29 +40,42 @@ defmodule Synkade.Agent.ClaudeCode do
 
   @impl true
   def build_args(config, prompt, extra_args) do
-    allowed_tools =
-      Config.get(config, "agent", "allowed_tools") ||
-        ["Read", "Edit", "Write", "Bash", "Glob", "Grep"]
-
     model = Config.get(config, "agent", "model")
-    append_prompt = Config.get(config, "agent", "append_system_prompt")
-    max_tokens = Config.get(config, "agent", "max_tokens")
 
-    args = [
-      "-p",
-      prompt,
-      "--output-format",
-      "stream-json",
-      "--verbose",
-      "--allowedTools",
-      Enum.join(allowed_tools, ",")
-    ]
+    args = ["run", "--format", "json"]
 
     args = if model, do: args ++ ["--model", model], else: args
-    args = if append_prompt, do: args ++ ["--append-system-prompt", append_prompt], else: args
-    args = if max_tokens, do: args ++ ["--max-tokens", to_string(max_tokens)], else: args
-    args = args ++ extra_args
+    args = args ++ extra_args ++ [prompt]
     args
+  end
+
+  @impl true
+  def build_env(config) do
+    env =
+      case Config.get(config, "agent", "api_key") do
+        nil -> []
+        "" -> []
+        key -> [{~c"OPENROUTER_API_KEY", String.to_charlist(key)}]
+      end
+
+    env =
+      case resolve_github_token(config) do
+        nil -> env
+        token -> [{~c"GITHUB_TOKEN", String.to_charlist(token)} | env]
+      end
+
+    env =
+      case Config.get(config, "agent", "synkade_api_url") do
+        nil -> env
+        "" -> env
+        url -> [{~c"SYNKADE_API_URL", String.to_charlist(url)} | env]
+      end
+
+    case Config.get(config, "agent", "synkade_api_token") do
+      nil -> env
+      "" -> env
+      token -> [{~c"SYNKADE_API_TOKEN", String.to_charlist(token)} | env]
+    end
   end
 
   @impl true
@@ -74,23 +89,23 @@ defmodule Synkade.Agent.ClaudeCode do
     end
   end
 
-  @port_line_bytes 1_048_576
-
   # --- Private ---
 
   defp run_agent(config, args, workspace_path) do
+    env = build_env(config)
+    require Logger
+    Logger.warning("run_agent: args=#{inspect(args)}, workspace=#{inspect(workspace_path)}")
+
     command = Config.agent_command(config)
     turn_timeout = Config.get(config, "agent", "turn_timeout_ms") || 3_600_000
 
-    # Use script wrapper to create a pseudo-terminal, forcing line-buffered
-    # output from the CLI. Without this, stdout is block-buffered when
-    # connected to an Erlang port pipe, and no data ever arrives.
-    full_command =
-      Enum.map_join([command | args], " ", &shell_escape/1)
+    # Use bash -lc wrapper (like Symphony does) to ensure proper shell environment
+    # This is critical for getting line-buffered output from the agent
+    full_command = Enum.join([command | args], " ")
 
-    wrapped_command = "script -q /dev/null bash -lc #{shell_escape(full_command)}"
+    Logger.warning("run_agent: running via script: #{full_command}")
 
-    Logger.info("ClaudeCode: starting agent in #{workspace_path}")
+    wrapped_command = "script -q /dev/null bash -lc '#{full_command}'"
 
     port =
       Port.open(
@@ -100,10 +115,12 @@ defmodule Synkade.Agent.ClaudeCode do
           :exit_status,
           :stderr_to_stdout,
           {:cd, String.to_charlist(workspace_path)},
-          {:env, build_env(config)},
+          {:env, env},
           {:line, @port_line_bytes}
         ]
       )
+
+    Logger.warning("run_agent: port opened, os_pid=#{inspect(port_os_pid(port))}")
 
     session = %{
       session_id: nil,
@@ -117,50 +134,6 @@ defmodule Synkade.Agent.ClaudeCode do
     {:ok, session}
   rescue
     e -> {:error, Exception.message(e)}
-  end
-
-  defp shell_escape(arg) do
-    "'" <> String.replace(arg, "'", "'\\''") <> "'"
-  end
-
-  @impl true
-  def build_env(config) do
-    agent_env =
-      case Config.get(config, "agent", "auth_mode") do
-        "oauth" ->
-          case Config.get(config, "agent", "oauth_token") do
-            nil -> []
-            "" -> []
-            token -> [{~c"CLAUDE_CODE_OAUTH_TOKEN", String.to_charlist(token)}]
-          end
-
-        _ ->
-          case Config.get(config, "agent", "api_key") do
-            nil -> []
-            "" -> []
-            key -> [{~c"ANTHROPIC_API_KEY", String.to_charlist(key)}]
-          end
-      end
-
-    agent_env =
-      case resolve_github_token(config) do
-        nil -> agent_env
-        token -> [{~c"GITHUB_TOKEN", String.to_charlist(token)} | agent_env]
-      end
-
-    # Inject Synkade API credentials for runtime issue management
-    agent_env =
-      case Config.get(config, "agent", "synkade_api_url") do
-        nil -> agent_env
-        "" -> agent_env
-        url -> [{~c"SYNKADE_API_URL", String.to_charlist(url)} | agent_env]
-      end
-
-    case Config.get(config, "agent", "synkade_api_token") do
-      nil -> agent_env
-      "" -> agent_env
-      token -> [{~c"SYNKADE_API_TOKEN", String.to_charlist(token)} | agent_env]
-    end
   end
 
   defp resolve_github_token(config) do
@@ -187,7 +160,7 @@ defmodule Synkade.Agent.ClaudeCode do
   defp build_event(data) do
     %Event{
       type: data["type"] || "unknown",
-      session_id: extract_session_id(data),
+      session_id: data["session_id"],
       message: extract_message(data),
       input_tokens: get_in(data, ["usage", "input_tokens"]) || 0,
       output_tokens: get_in(data, ["usage", "output_tokens"]) || 0,
@@ -197,10 +170,6 @@ defmodule Synkade.Agent.ClaudeCode do
       timestamp: DateTime.utc_now(),
       raw: data
     }
-  end
-
-  defp extract_session_id(data) do
-    data["session_id"] || get_in(data, ["metadata", "session_id"])
   end
 
   defp extract_message(%{"type" => "assistant", "message" => msg}), do: msg

@@ -28,7 +28,7 @@ defmodule Synkade.Execution.Backend do
               {:ok, session()} | {:error, term()}
 
   @callback await_event(session(), timeout_ms :: non_neg_integer()) ::
-              {:data, binary()} | {:exit, integer()} | :timeout
+              {:data, binary()} | {:partial, binary()} | {:exit, integer()} | :timeout
 
   @callback stop_agent(session()) :: :ok
 
@@ -36,5 +36,5 @@ defmodule Synkade.Execution.Backend do
 
   @callback destroy_env(config :: map(), env_ref()) :: :ok
 
-  @callback parse_event(binary()) :: {:ok, Event.t()} | :skip
+  @callback parse_event(config :: map(), binary()) :: {:ok, Event.t()} | :skip
 end

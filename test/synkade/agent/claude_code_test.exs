@@ -115,12 +115,13 @@ defmodule Synkade.Agent.ClaudeCodeTest do
 
   describe "parse_event/1" do
     test "parses assistant event" do
-      json = Jason.encode!(%{
-        "type" => "assistant",
-        "message" => "I'll fix this bug.",
-        "session_id" => "sess_123",
-        "usage" => %{"input_tokens" => 100, "output_tokens" => 50}
-      })
+      json =
+        Jason.encode!(%{
+          "type" => "assistant",
+          "message" => "I'll fix this bug.",
+          "session_id" => "sess_123",
+          "usage" => %{"input_tokens" => 100, "output_tokens" => 50}
+        })
 
       assert {:ok, %Event{} = event} = ClaudeCode.parse_event(json)
       assert event.type == "assistant"
@@ -132,11 +133,12 @@ defmodule Synkade.Agent.ClaudeCodeTest do
     end
 
     test "parses result event" do
-      json = Jason.encode!(%{
-        "type" => "result",
-        "result" => "Task completed successfully.",
-        "usage" => %{"input_tokens" => 200, "output_tokens" => 100}
-      })
+      json =
+        Jason.encode!(%{
+          "type" => "result",
+          "result" => "Task completed successfully.",
+          "usage" => %{"input_tokens" => 200, "output_tokens" => 100}
+        })
 
       assert {:ok, %Event{} = event} = ClaudeCode.parse_event(json)
       assert event.type == "result"
@@ -144,10 +146,11 @@ defmodule Synkade.Agent.ClaudeCodeTest do
     end
 
     test "extracts session_id from metadata" do
-      json = Jason.encode!(%{
-        "type" => "system",
-        "metadata" => %{"session_id" => "sess_456"}
-      })
+      json =
+        Jason.encode!(%{
+          "type" => "system",
+          "metadata" => %{"session_id" => "sess_456"}
+        })
 
       assert {:ok, event} = ClaudeCode.parse_event(json)
       assert event.session_id == "sess_456"

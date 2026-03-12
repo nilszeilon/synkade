@@ -16,7 +16,9 @@ defmodule Synkade.Orchestrator.Worker do
     prompt_template = project.prompt_template
     max_turns = Config.max_turns(config)
 
-    Logger.info("Worker starting for #{project_name}:#{issue.identifier} (attempt #{inspect(attempt)})")
+    Logger.info(
+      "Worker starting for #{project_name}:#{issue.identifier} (attempt #{inspect(attempt)})"
+    )
 
     with {:ok, env_ref} <- BackendClient.setup_env(config, project_name, issue.identifier),
          :ok <- report_env(orchestrator, project_name, issue.id, env_ref),
@@ -71,11 +73,20 @@ defmodule Synkade.Orchestrator.Worker do
   end
 
   defp start_or_continue(config, nil, prompt, env_ref, _session_id) do
-    BackendClient.start_agent(config, prompt, env_ref)
+    Logger.warning(
+      "WORKER: start_or_continue calling start_agent for prompt: #{String.slice(prompt, 0..50)}..."
+    )
+
+    result = BackendClient.start_agent(config, prompt, env_ref)
+    Logger.warning("WORKER: start_agent result: #{inspect(result)}")
+    result
   end
 
   defp start_or_continue(config, _attempt, prompt, env_ref, nil) do
-    BackendClient.start_agent(config, prompt, env_ref)
+    Logger.warning("WORKER: start_or_continue (with attempt) calling start_agent...")
+    result = BackendClient.start_agent(config, prompt, env_ref)
+    Logger.warning("WORKER: start_agent result: #{inspect(result)}")
+    result
   end
 
   defp start_or_continue(config, _attempt, prompt, env_ref, session_id) do
@@ -85,8 +96,22 @@ defmodule Synkade.Orchestrator.Worker do
   defp event_loop(orchestrator, project, issue, session, config, max_turns, turn) do
     turn_timeout = Config.get(config, "agent", "turn_timeout_ms") || 3_600_000
 
+    Logger.warning(
+      "EVENT_LOOP: starting for #{project.name}:#{issue.identifier}, timeout=#{turn_timeout}ms, session_id=#{inspect(session.session_id)}, port=#{inspect(session.backend_data.port)}"
+    )
+
     case BackendClient.await_event(config, session, turn_timeout) do
+      {:partial, chunk} ->
+        pending = Map.get(session, :pending_line, "")
+        session = Map.put(session, :pending_line, pending <> chunk)
+        event_loop(orchestrator, project, issue, session, config, max_turns, turn)
+
       {:data, data} ->
+        # Prepend any buffered partial line
+        pending = Map.get(session, :pending_line, "")
+        data = if pending != "", do: pending <> data, else: data
+        session = Map.put(session, :pending_line, "")
+
         {session, events} = process_data(config, data, session)
 
         for event <- events do
@@ -136,7 +161,9 @@ defmodule Synkade.Orchestrator.Worker do
         active = Config.active_states(project.config) |> Enum.map(&normalize_state/1)
 
         if current_state && normalize_state(current_state) in active do
-          continuation_prompt = "Continue working on this issue. Check the current state and proceed."
+          continuation_prompt =
+            "Continue working on this issue. Check the current state and proceed."
+
           session_id = session.session_id
 
           case start_or_continue(config, turn, continuation_prompt, session.env_ref, session_id) do
@@ -173,7 +200,19 @@ defmodule Synkade.Orchestrator.Worker do
           {sess, events ++ [event]}
 
         :skip ->
-          {sess, events}
+          trimmed = String.trim(line)
+
+          if trimmed != "" do
+            stderr_event = %Synkade.Agent.Event{
+              type: "stderr",
+              message: trimmed,
+              timestamp: DateTime.utc_now()
+            }
+
+            {sess, events ++ [stderr_event]}
+          else
+            {sess, events}
+          end
       end
     end)
   end

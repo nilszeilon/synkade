@@ -2,9 +2,10 @@ defmodule Synkade.Execution.Local do
   @moduledoc false
   @behaviour Synkade.Execution.Backend
 
+  require Logger
+
   alias Synkade.Workspace.{Manager, Hooks}
   alias Synkade.Agent.Client, as: AgentClient
-  alias Synkade.Agent.ClaudeCode
   alias Synkade.Workflow.Config
 
   @impl true
@@ -67,15 +68,30 @@ defmodule Synkade.Execution.Local do
   @impl true
   def await_event(session, timeout_ms) do
     port = session.backend_data.port
+    require Logger
+    Logger.warning("await_event: waiting on port=#{inspect(port)}, timeout=#{timeout_ms}")
 
     receive do
-      {^port, {:data, data}} ->
-        {:data, data}
+      {^port, {:data, {:eol, chunk}}} ->
+        Logger.info(
+          "Received eol data from agent port: #{String.slice(to_string(chunk), 0..200)}"
+        )
+
+        {:data, to_string(chunk)}
+
+      {^port, {:data, {:noeol, chunk}}} ->
+        Logger.info(
+          "Received noeol data from agent port: #{String.slice(to_string(chunk), 0..200)}"
+        )
+
+        {:partial, to_string(chunk)}
 
       {^port, {:exit_status, code}} ->
+        Logger.warning("Agent port exit status: #{code}")
         {:exit, code}
     after
       timeout_ms ->
+        Logger.warning("await_event: timeout after #{timeout_ms}ms")
         :timeout
     end
   end
@@ -92,7 +108,9 @@ defmodule Synkade.Execution.Local do
     timeout = hooks["timeout_ms"] || 60_000
 
     case Hooks.run_hook(hooks["after_run"], workspace.path, timeout_ms: timeout) do
-      :ok -> :ok
+      :ok ->
+        :ok
+
       {:error, reason} ->
         require Logger
         Logger.warning("after_run hook failed: #{reason}")
@@ -106,7 +124,7 @@ defmodule Synkade.Execution.Local do
   end
 
   @impl true
-  def parse_event(line) do
-    ClaudeCode.parse_event(line)
+  def parse_event(config, line) do
+    AgentClient.parse_event(config, line)
   end
 end

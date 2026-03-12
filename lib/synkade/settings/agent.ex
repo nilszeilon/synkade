@@ -28,7 +28,7 @@ defmodule Synkade.Settings.Agent do
     |> cast(attrs, @fields)
     |> validate_required([:name])
     |> unique_constraint(:name)
-    |> validate_inclusion(:kind, ["claude", "codex"])
+    |> validate_inclusion(:kind, ["claude", "codex", "opencode"])
     |> validate_inclusion(:auth_mode, ["api_key", "oauth"])
     |> validate_number(:max_turns, greater_than: 0)
   end

@@ -2,7 +2,7 @@ defmodule Synkade.Execution.Sprites do
   @moduledoc false
   @behaviour Synkade.Execution.Backend
 
-  alias Synkade.Agent.ClaudeCode
+  alias Synkade.Agent.Client, as: AgentClient
   alias Synkade.Workflow.Config
 
   require Logger
@@ -70,7 +70,7 @@ defmodule Synkade.Execution.Sprites do
 
   @impl true
   def start_agent(config, prompt, env_ref) do
-    args = ClaudeCode.build_args(config, prompt, [])
+    args = AgentClient.build_args(config, prompt, [])
     command = Config.agent_command(config)
     env_vars = build_env_list(config)
 
@@ -93,7 +93,7 @@ defmodule Synkade.Execution.Sprites do
 
   @impl true
   def continue_agent(config, session_id, prompt, env_ref) do
-    args = ClaudeCode.build_args(config, prompt, ["--resume", session_id])
+    args = AgentClient.build_args(config, prompt, ["--resume", session_id])
     command = Config.agent_command(config)
     env_vars = build_env_list(config)
 
@@ -159,7 +159,9 @@ defmodule Synkade.Execution.Sprites do
   @impl true
   def destroy_env(_config, env_ref) do
     case Sprites.destroy(env_ref.sprite) do
-      :ok -> :ok
+      :ok ->
+        :ok
+
       {:error, reason} ->
         Logger.warning("Failed to destroy sprite #{env_ref.sprite_name}: #{inspect(reason)}")
         :ok
@@ -167,8 +169,8 @@ defmodule Synkade.Execution.Sprites do
   end
 
   @impl true
-  def parse_event(line) do
-    ClaudeCode.parse_event(line)
+  def parse_event(config, line) do
+    AgentClient.parse_event(config, line)
   end
 
   # --- Private ---
@@ -191,7 +193,7 @@ defmodule Synkade.Execution.Sprites do
 
   @doc false
   def build_env_list(config) do
-    ClaudeCode.build_env(config)
+    AgentClient.build_env(config)
     |> Enum.map(fn {key, value} ->
       {to_string(key), to_string(value)}
     end)

@@ -4,7 +4,8 @@ defmodule Synkade.Agent.Client do
   alias Synkade.Workflow.Config
 
   @adapters %{
-    "claude" => Synkade.Agent.ClaudeCode
+    "claude" => Synkade.Agent.ClaudeCode,
+    "opencode" => Synkade.Agent.OpenCode
   }
 
   def start_session(config, prompt, workspace_path) do
@@ -20,6 +21,21 @@ defmodule Synkade.Agent.Client do
   def stop_session(config, session) do
     adapter = adapter_for(config)
     adapter.stop_session(session)
+  end
+
+  def build_args(config, prompt, extra_args) do
+    adapter = adapter_for(config)
+    adapter.build_args(config, prompt, extra_args)
+  end
+
+  def build_env(config) do
+    adapter = adapter_for(config)
+    adapter.build_env(config)
+  end
+
+  def parse_event(config, line) do
+    adapter = adapter_for(config)
+    adapter.parse_event(line)
   end
 
   defp adapter_for(config) do

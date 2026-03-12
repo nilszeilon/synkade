@@ -172,6 +172,5 @@ defmodule Synkade.Workflow.ConfigTest do
       assert {:error, errors} = Config.validate(config)
       assert Enum.any?(errors, &String.contains?(&1, "execution.backend"))
     end
-
   end
 end

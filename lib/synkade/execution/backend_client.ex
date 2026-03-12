@@ -46,6 +46,6 @@ defmodule Synkade.Execution.BackendClient do
   end
 
   def parse_event(config, line) do
-    backend_for(config).parse_event(line)
+    backend_for(config).parse_event(config, line)
   end
 end

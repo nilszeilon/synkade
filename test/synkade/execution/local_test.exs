@@ -88,7 +88,7 @@ defmodule Synkade.Execution.LocalTest do
 
   describe "await_event/2" do
     test "receives port data messages" do
-      port = Port.open({:spawn, "echo hello"}, [:binary, :exit_status])
+      port = Port.open({:spawn, "echo hello"}, [:binary, :exit_status, {:line, 1_048_576}])
 
       session = %{
         session_id: nil,
@@ -103,7 +103,7 @@ defmodule Synkade.Execution.LocalTest do
     end
 
     test "receives exit status" do
-      port = Port.open({:spawn, "true"}, [:binary, :exit_status])
+      port = Port.open({:spawn, "true"}, [:binary, :exit_status, {:line, 1_048_576}])
       # Drain data messages first
       receive do
         {^port, {:data, _}} -> :ok
@@ -124,7 +124,7 @@ defmodule Synkade.Execution.LocalTest do
 
     test "returns timeout when no messages" do
       # Create a port that won't send anything quickly
-      port = Port.open({:spawn, "sleep 10"}, [:binary, :exit_status])
+      port = Port.open({:spawn, "sleep 10"}, [:binary, :exit_status, {:line, 1_048_576}])
 
       session = %{
         session_id: nil,
@@ -145,16 +145,18 @@ defmodule Synkade.Execution.LocalTest do
     end
   end
 
-  describe "parse_event/1" do
+  describe "parse_event/2" do
     test "parses valid JSON event" do
+      config = %{"agent" => %{"kind" => "claude"}}
       line = Jason.encode!(%{"type" => "assistant", "message" => "hello"})
-      assert {:ok, event} = Local.parse_event(line)
+      assert {:ok, event} = Local.parse_event(config, line)
       assert event.type == "assistant"
       assert event.message == "hello"
     end
 
     test "skips invalid JSON" do
-      assert :skip = Local.parse_event("not json")
+      config = %{"agent" => %{"kind" => "claude"}}
+      assert :skip = Local.parse_event(config, "not json")
     end
   end
 end

@@ -134,15 +134,17 @@ defmodule Synkade.Execution.SpritesTest do
     end
   end
 
-  describe "parse_event/1" do
-    test "delegates to ClaudeCode.parse_event" do
+  describe "parse_event/2" do
+    test "delegates to agent adapter parse_event" do
+      config = %{"agent" => %{"kind" => "claude"}}
       line = Jason.encode!(%{"type" => "result", "result" => "done"})
-      assert {:ok, event} = Sprites.parse_event(line)
+      assert {:ok, event} = Sprites.parse_event(config, line)
       assert event.type == "result"
     end
 
     test "skips invalid JSON" do
-      assert :skip = Sprites.parse_event("not json")
+      config = %{"agent" => %{"kind" => "claude"}}
+      assert :skip = Sprites.parse_event(config, "not json")
     end
   end
 end

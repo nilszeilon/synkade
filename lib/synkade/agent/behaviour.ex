@@ -22,4 +22,11 @@ defmodule Synkade.Agent.Behaviour do
               {:ok, session()} | {:error, term()}
 
   @callback stop_session(session()) :: :ok
+
+  @callback build_args(config :: map(), prompt :: String.t(), extra_args :: [String.t()]) ::
+              [String.t()]
+
+  @callback build_env(config :: map()) :: [{charlist(), charlist()}]
+
+  @callback parse_event(line :: binary()) :: {:ok, Event.t()} | :skip
 end
