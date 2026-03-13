@@ -179,7 +179,8 @@ defmodule Synkade.Orchestrator do
             env_ref: entry && entry.env_ref,
             session_id: entry && entry.session_id,
             created_at: System.monotonic_time(:millisecond),
-            agent_total_tokens: (entry && entry.agent_total_tokens) || 0
+            agent_total_tokens: (entry && entry.agent_total_tokens) || 0,
+            agent_name: entry && entry.agent_name
           }
 
           Logger.info("PR created for #{key}: #{pr_url}")
@@ -198,7 +199,8 @@ defmodule Synkade.Orchestrator do
               self(),
               project_name,
               issue_id,
-              (entry && entry.identifier) || issue_id
+              (entry && entry.identifier) || issue_id,
+              entry && entry.agent_name
             )
 
           %{state | retry_attempts: Map.put(state.retry_attempts, key, retry)}
@@ -216,7 +218,8 @@ defmodule Synkade.Orchestrator do
               (entry && entry.identifier) || issue_id,
               attempt,
               max_backoff,
-              inspect(result)
+              inspect(result),
+              entry && entry.agent_name
             )
 
           %{state | retry_attempts: Map.put(state.retry_attempts, key, retry)}
@@ -233,7 +236,8 @@ defmodule Synkade.Orchestrator do
               (entry && entry.identifier) || issue_id,
               attempt,
               max_backoff,
-              inspect(reason)
+              inspect(reason),
+              entry && entry.agent_name
             )
 
           %{state | retry_attempts: Map.put(state.retry_attempts, key, retry)}
@@ -482,8 +486,8 @@ defmodule Synkade.Orchestrator do
       end
     end
 
-    # Resolve per-issue agent override
-    effective_project = resolve_issue_agent_override(project, db_issue)
+    # Resolve per-issue agent override and get agent name
+    {effective_project, agent_name} = resolve_issue_agent(project, db_issue)
 
     # Launch worker task
     orchestrator = self()
@@ -514,7 +518,8 @@ defmodule Synkade.Orchestrator do
       turn_count: 0,
       stalled: false,
       should_stop: nil,
-      events: []
+      events: [],
+      agent_name: agent_name
     }
 
     state = %{state | running: Map.put(state.running, key, entry)}
@@ -744,12 +749,16 @@ defmodule Synkade.Orchestrator do
     end
   end
 
-  defp resolve_issue_agent_override(project, nil), do: project
+  defp resolve_issue_agent(project, nil) do
+    agent = get_default_agent(project)
+    {add_agent_config(project, agent), agent_name(agent)}
+  end
 
-  defp resolve_issue_agent_override(project, db_issue) do
+  defp resolve_issue_agent(project, db_issue) do
     case db_issue.assigned_agent_id do
       nil ->
-        project
+        agent = get_default_agent(project)
+        {add_agent_config(project, agent), agent_name(agent)}
 
       agent_id ->
         try do
@@ -758,11 +767,37 @@ defmodule Synkade.Orchestrator do
           db_project = Settings.get_project!(project.db_id)
           config = ConfigAdapter.resolve_project_config(setting, db_project, agent)
 
-          %{project | config: config, prompt_template: db_project.prompt_template || agent.system_prompt}
+          {%{
+             project
+             | config: config,
+               prompt_template: db_project.prompt_template || agent.system_prompt
+           }, agent.name}
         catch
-          _, _ -> project
+          _, _ ->
+            agent = get_default_agent(project)
+            {add_agent_config(project, agent), agent_name(agent)}
         end
     end
+  end
+
+  defp get_default_agent(project) do
+    try do
+      db_agents = Settings.list_agents()
+      agents_by_id = Map.new(db_agents, fn a -> {a.id, a} end)
+      db_project = Settings.get_project!(project.db_id)
+      agents_by_id[db_project.default_agent_id] || List.first(db_agents)
+    catch
+      _, _ -> nil
+    end
+  end
+
+  defp agent_name(nil), do: nil
+  defp agent_name(agent), do: agent.name
+
+  defp add_agent_config(project, nil), do: project
+
+  defp add_agent_config(project, agent) do
+    %{project | config: Map.put(project.config, "agent_name", agent.name)}
   end
 
   defp complete_db_issue_with_output(nil, _output, _children), do: :ok

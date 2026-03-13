@@ -40,40 +40,45 @@ defmodule SynkadeWeb.Api.StateJSON do
       max_concurrent_agents: project.max_concurrent_agents,
       running: format_running(running_for_project),
       retry_queue: format_retries(retries_for_project),
-      totals: Map.get(state.agent_totals_by_project, project.name, %{
-        input_tokens: 0,
-        output_tokens: 0,
-        total_tokens: 0,
-        runtime_seconds: 0.0
-      })
+      totals:
+        Map.get(state.agent_totals_by_project, project.name, %{
+          input_tokens: 0,
+          output_tokens: 0,
+          total_tokens: 0,
+          runtime_seconds: 0.0
+        })
     }
   end
 
   defp format_running(running) do
     Map.new(running, fn {key, entry} ->
-      {key, %{
-        project_name: entry.project_name,
-        issue_id: entry.issue_id,
-        identifier: entry.identifier,
-        issue_state: entry.issue_state,
-        session_id: entry.session_id,
-        turn_count: entry.turn_count,
-        agent_total_tokens: entry.agent_total_tokens,
-        last_agent_event: entry.last_agent_event,
-        last_agent_message: entry.last_agent_message
-      }}
+      {key,
+       %{
+         project_name: entry.project_name,
+         issue_id: entry.issue_id,
+         identifier: entry.identifier,
+         issue_state: entry.issue_state,
+         session_id: entry.session_id,
+         turn_count: entry.turn_count,
+         agent_total_tokens: entry.agent_total_tokens,
+         last_agent_event: entry.last_agent_event,
+         last_agent_message: entry.last_agent_message,
+         agent_name: entry.agent_name
+       }}
     end)
   end
 
   defp format_retries(retries) do
     Map.new(retries, fn {key, entry} ->
-      {key, %{
-        project_name: entry.project_name,
-        issue_id: entry.issue_id,
-        identifier: entry.identifier,
-        attempt: entry.attempt,
-        error: entry.error
-      }}
+      {key,
+       %{
+         project_name: entry.project_name,
+         issue_id: entry.issue_id,
+         identifier: entry.identifier,
+         attempt: entry.attempt,
+         error: entry.error,
+         agent_name: entry.agent_name
+       }}
     end)
   end
 
