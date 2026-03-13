@@ -105,6 +105,15 @@ defmodule Synkade.Orchestrator.Reconciler do
 
             {:ok, %{state: "closed"}} ->
               Logger.info("PR closed for #{key}")
+
+              try do
+                db_issue_id = Map.get(entry, :db_issue_id) || entry.issue_id
+                db_issue = Issues.get_issue(db_issue_id)
+                if db_issue, do: Issues.transition_state(db_issue, "done")
+              catch
+                _, _ -> :ok
+              end
+
               put_in(inner_acc.awaiting_review[key], Map.put(entry, :should_stop, :pr_closed))
 
             {:ok, %{state: "open"}} ->

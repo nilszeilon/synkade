@@ -15,7 +15,7 @@ defmodule Synkade.Issues do
     "backlog" => ~w(queued cancelled),
     "queued" => ~w(in_progress backlog cancelled),
     "in_progress" => ~w(awaiting_review done cancelled),
-    "awaiting_review" => ~w(done cancelled),
+    "awaiting_review" => ~w(queued done cancelled),
     "done" => ~w(cancelled),
     "cancelled" => []
   }

@@ -38,3 +38,6 @@ npm-debug.log
 # Internal spec (not for distribution).
 SPEC.md
 
+# Sprite instance config (user-specific).
+.sprite
+

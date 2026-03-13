@@ -554,6 +554,16 @@ defmodule SynkadeWeb.IssuesLive do
           <span class={"badge badge-xs #{state_badge_class(@issue.state)} ml-auto flex-shrink-0"}>
             {@issue.state}
           </span>
+          <a
+            :if={@issue.github_pr_url}
+            href={@issue.github_pr_url}
+            target="_blank"
+            class="flex-shrink-0 text-xs link link-primary"
+            title="View Pull Request"
+            onclick="event.stopPropagation()"
+          >
+            PR
+          </a>
         </div>
 
         <div class="opacity-0 group-hover:opacity-100 flex gap-1 flex-shrink-0">
@@ -764,6 +774,26 @@ defmodule SynkadeWeb.IssuesLive do
               <button type="submit" class="btn btn-sm btn-primary">Go</button>
             </div>
             <datalist id="agent-names">
+              <option :for={agent <- @agents} value={"@#{agent.name} "} />
+            </datalist>
+          </.form>
+        </div>
+
+        <div :if={@issue.state == "awaiting_review" && @issue.github_pr_url} class="mb-3">
+          <.form for={@dispatch_form} phx-submit="dispatch_issue">
+            <div class="flex gap-2">
+              <input
+                type="text"
+                name="dispatch[message]"
+                value={@dispatch_form[:message].value}
+                placeholder="@agent merge PR to main..."
+                class="input input-bordered input-sm flex-1"
+                list="agent-names-merge"
+                autocomplete="off"
+              />
+              <button type="submit" class="btn btn-sm btn-primary">Merge</button>
+            </div>
+            <datalist id="agent-names-merge">
               <option :for={agent <- @agents} value={"@#{agent.name} "} />
             </datalist>
           </.form>
