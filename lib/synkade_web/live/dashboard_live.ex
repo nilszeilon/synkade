@@ -205,12 +205,6 @@ defmodule SynkadeWeb.DashboardLive do
   end
 
   @impl true
-  def handle_event("reset", _params, socket) do
-    Orchestrator.reset_state()
-    {:noreply, socket}
-  end
-
-  @impl true
   def handle_event("move_card", params, socket) do
     %{
       "issue_id" => issue_id,
@@ -672,15 +666,6 @@ defmodule SynkadeWeb.DashboardLive do
           </h1>
           <div class="flex items-center gap-3">
             <div class="flex items-center gap-4 text-sm">
-              <span class="badge badge-info badge-sm gap-1">
-                {map_size(@filtered_running)} running
-              </span>
-              <span class="badge badge-warning badge-sm gap-1">
-                {map_size(@filtered_awaiting)} review
-              </span>
-              <span class="badge badge-error badge-sm gap-1">
-                {map_size(@filtered_retries)} retries
-              </span>
               <span class="text-base-content/60">
                 {format_number(@display_totals.total_tokens)} tokens
               </span>
@@ -691,9 +676,6 @@ defmodule SynkadeWeb.DashboardLive do
             <button phx-click="refresh" class="btn btn-sm btn-primary">
               <span :if={@current_project && @board_loading} class="loading loading-spinner loading-xs"></span>
               Refresh
-            </button>
-            <button phx-click="reset" class="btn btn-sm btn-warning" title="Reset orchestrator state">
-              Reset Agent
             </button>
           </div>
         </div>

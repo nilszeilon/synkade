@@ -38,11 +38,6 @@ defmodule Synkade.Orchestrator do
     GenServer.cast(server, :refresh)
   end
 
-  @doc "Reset the orchestrator state (clears running/claimed workers)."
-  def reset_state(server \\ __MODULE__) do
-    GenServer.cast(server, :reset_state)
-  end
-
   @doc "Record an agent heartbeat for a running issue."
   def heartbeat(server \\ __MODULE__, issue_id, status, message) do
     GenServer.cast(server, {:agent_heartbeat, issue_id, status, message})
@@ -103,12 +98,6 @@ defmodule Synkade.Orchestrator do
   @impl true
   def handle_cast(:refresh, state) do
     send(self(), :dispatch)
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_cast(:reset_state, state) do
-    state = %{state | running: %{}, claimed: MapSet.new()}
     {:noreply, state}
   end
 

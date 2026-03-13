@@ -30,8 +30,4 @@ defmodule SynkadeWeb.Api.StateController do
     json(conn, %{status: "ok"})
   end
 
-  def reset(conn, _params) do
-    Orchestrator.reset_state()
-    json(conn, %{status: "ok"})
-  end
 end
