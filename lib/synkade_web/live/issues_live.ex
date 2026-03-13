@@ -23,12 +23,13 @@ defmodule SynkadeWeb.IssuesLive do
       |> assign(:projects, orc_state.projects)
       |> assign(:running, orc_state.running)
       |> assign(:db_projects, projects)
-      |> assign(:selected_project_id, nil)
       |> assign(:state_filter, nil)
+      |> assign(:project_names, Map.new(projects, &{&1.id, &1.name}))
       |> assign(:issues, [])
       |> assign(:selected_issue, nil)
       |> assign(:show_form, false)
       |> assign(:form, nil)
+      |> assign(:form_project_id, nil)
       |> assign(:collapsed, MapSet.new())
       |> assign(:agents, Settings.list_agents())
       |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
@@ -41,24 +42,12 @@ defmodule SynkadeWeb.IssuesLive do
 
   @impl true
   def handle_params(params, _uri, socket) do
-    project_id = params["project_id"]
     filter = params["filter"]
-
-    project_id =
-      project_id ||
-        case socket.assigns.db_projects do
-          [first | _] -> first.id
-          [] -> nil
-        end
-
-    filter = if filter in ["backlog", "active", "done"], do: filter, else: nil
-    project_changed = project_id != socket.assigns.selected_project_id
+    filter = if filter == "done", do: "done", else: nil
 
     socket =
       socket
-      |> assign(:selected_project_id, project_id)
       |> assign(:state_filter, filter)
-      |> then(fn s -> if project_changed, do: assign(s, :selected_issue, nil), else: s end)
       |> load_issues()
 
     {:noreply, socket}
@@ -117,14 +106,9 @@ defmodule SynkadeWeb.IssuesLive do
   end
 
   @impl true
-  def handle_event("select_project", %{"id" => project_id}, socket) do
-    {:noreply, push_patch(socket, to: issues_path(project_id, socket.assigns.state_filter))}
-  end
-
-  @impl true
   def handle_event("set_filter", %{"filter" => filter}, socket) do
     filter = if filter == "", do: nil, else: filter
-    {:noreply, push_patch(socket, to: issues_path(socket.assigns.selected_project_id, filter))}
+    {:noreply, push_patch(socket, to: issues_path(filter))}
   end
 
   @impl true
@@ -191,6 +175,14 @@ defmodule SynkadeWeb.IssuesLive do
   @impl true
   def handle_event("new_issue", params, socket) do
     parent_id = params["parent_id"]
+
+    project_id =
+      params["project_id"] ||
+        case socket.assigns.db_projects do
+          [first | _] -> first.id
+          [] -> nil
+        end
+
     changeset = Issues.change_issue(%Issue{}, %{parent_id: parent_id})
 
     socket =
@@ -198,6 +190,7 @@ defmodule SynkadeWeb.IssuesLive do
       |> assign(:show_form, true)
       |> assign(:form, to_form(changeset))
       |> assign(:form_parent_id, parent_id)
+      |> assign(:form_project_id, project_id)
 
     {:noreply, socket}
   end
@@ -219,9 +212,11 @@ defmodule SynkadeWeb.IssuesLive do
 
   @impl true
   def handle_event("save_issue", %{"issue" => params}, socket) do
+    project_id = params["project_id"] || socket.assigns.form_project_id
+
     params =
       params
-      |> Map.put("project_id", socket.assigns.selected_project_id)
+      |> Map.put("project_id", project_id)
       |> maybe_put_parent(socket.assigns[:form_parent_id])
 
     case Issues.create_issue(params) do
@@ -366,28 +361,22 @@ defmodule SynkadeWeb.IssuesLive do
   # --- Private ---
 
   defp load_issues(socket) do
-    project_id = socket.assigns.selected_project_id
+    states =
+      case socket.assigns.state_filter do
+        "done" -> ~w(done cancelled)
+        _ -> ~w(backlog queued in_progress awaiting_review)
+      end
 
-    if project_id do
-      issues =
-        case socket.assigns.state_filter do
-          nil -> Issues.list_root_issues(project_id)
-          "backlog" -> Issues.list_issues_filtered(project_id, ["backlog"])
-          "active" -> Issues.list_issues_filtered(project_id, ~w(queued in_progress awaiting_review))
-          "done" -> Issues.list_issues_filtered(project_id, ~w(done cancelled))
-          _ -> Issues.list_root_issues(project_id)
-        end
+    issues =
+      Enum.flat_map(socket.assigns.db_projects, fn project ->
+        Issues.list_issues_filtered(project.id, states)
+      end)
 
-      assign(socket, :issues, issues)
-    else
-      assign(socket, :issues, [])
-    end
+    assign(socket, :issues, issues)
   end
 
-  defp issues_path(project_id, filter) do
-    params = if project_id, do: %{"project_id" => project_id}, else: %{}
-    params = if filter, do: Map.put(params, "filter", filter), else: params
-    "/issues?" <> URI.encode_query(params)
+  defp issues_path(filter) do
+    if filter, do: "/issues?" <> URI.encode_query(%{"filter" => filter}), else: "/issues"
   end
 
   defp maybe_put_parent(params, nil), do: params
@@ -453,45 +442,42 @@ defmodule SynkadeWeb.IssuesLive do
         <div class="flex items-center justify-between mb-4">
           <h1 class="text-2xl font-bold">Issues</h1>
           <div class="flex items-center gap-2">
-            <form phx-change="select_project">
-              <select class="select select-sm select-bordered" name="id">
-                <option
-                  :for={p <- @db_projects}
-                  value={p.id}
-                  selected={p.id == @selected_project_id}
-                >
-                  {p.name}
-                </option>
-              </select>
-            </form>
+            <div class="flex items-center gap-1">
+              <button
+                :for={
+                  {label, value} <- [
+                    {"Open", nil},
+                    {"Done", "done"}
+                  ]
+                }
+                phx-click="set_filter"
+                phx-value-filter={value || ""}
+                class={["btn btn-xs", if(@state_filter == value, do: "btn-primary", else: "btn-ghost")]}
+              >
+                {label}
+              </button>
+            </div>
             <button phx-click="new_issue" class="btn btn-sm btn-primary">
               New Issue
             </button>
           </div>
         </div>
 
-        <div class="flex items-center gap-1 mb-4">
-          <button
-            :for={
-              {label, value} <- [
-                {"All", nil},
-                {"Backlog", "backlog"},
-                {"Active", "active"},
-                {"Done", "done"}
-              ]
-            }
-            phx-click="set_filter"
-            phx-value-filter={value || ""}
-            class={["btn btn-xs", if(@state_filter == value, do: "btn-primary", else: "btn-ghost")]}
-          >
-            {label}
-          </button>
-        </div>
-        
-    <!-- New issue form -->
+        <!-- New issue form -->
         <div :if={@show_form} class="card bg-base-200 p-4 mb-4">
           <.form for={@form} phx-change="validate_issue" phx-submit="save_issue">
             <div class="flex flex-col gap-3">
+              <div :if={length(@db_projects) > 1} class="form-control">
+                <select name="issue[project_id]" class="select select-bordered select-sm">
+                  <option
+                    :for={p <- @db_projects}
+                    value={p.id}
+                    selected={p.id == @form_project_id}
+                  >
+                    {p.name}
+                  </option>
+                </select>
+              </div>
               <div class="form-control">
                 <textarea
                   name="issue[body]"
@@ -512,32 +498,22 @@ defmodule SynkadeWeb.IssuesLive do
         </div>
 
         <div class="flex gap-4">
-          <!-- Issue tree -->
+          <!-- Issue list -->
           <div class={["flex-1 min-w-0", @selected_issue && "max-w-[60%]"]}>
             <div :if={@issues == []} class="text-base-content/50 text-sm py-8 text-center">
-              No issues yet. Create one to get started.
+              No issues
             </div>
 
-            <%= if @state_filter == nil do %>
-              <div :for={issue <- @issues} class="mb-1">
-                <.issue_tree_row
-                  issue={issue}
-                  depth={0}
-                  collapsed={@collapsed}
-                  selected_id={@selected_issue && @selected_issue.issue.id}
-                />
-              </div>
-            <% else %>
-              <div :for={issue <- @issues} class="mb-1">
-                <.issue_flat_row
-                  issue={issue}
-                  selected_id={@selected_issue && @selected_issue.issue.id}
-                />
-              </div>
-            <% end %>
+            <div :for={issue <- @issues} class="mb-1">
+              <.issue_flat_row
+                issue={issue}
+                project_name={Map.get(@project_names, issue.project_id)}
+                selected_id={@selected_issue && @selected_issue.issue.id}
+              />
+            </div>
           </div>
-          
-    <!-- Detail panel -->
+
+          <!-- Detail panel -->
           <div :if={@selected_issue} class="w-[40%] flex-shrink-0">
             <.issue_detail
               issue={@selected_issue.issue}
@@ -556,105 +532,7 @@ defmodule SynkadeWeb.IssuesLive do
   end
 
   attr :issue, :map, required: true
-  attr :depth, :integer, required: true
-  attr :collapsed, :any, required: true
-  attr :selected_id, :string, default: nil
-
-  defp issue_tree_row(assigns) do
-    has_children = assigns.issue.children != [] and is_list(assigns.issue.children)
-    is_collapsed = MapSet.member?(assigns.collapsed, assigns.issue.id)
-
-    assigns =
-      assigns
-      |> assign(:has_children, has_children)
-      |> assign(:is_collapsed, is_collapsed)
-
-    ~H"""
-    <div>
-      <div
-        class={[
-          "flex items-center gap-2 py-1.5 px-2 rounded cursor-pointer hover:bg-base-200 group",
-          @issue.id == @selected_id && "bg-base-200"
-        ]}
-        style={"padding-left: #{@depth * 24 + 8}px"}
-      >
-        <button
-          :if={@has_children}
-          phx-click="toggle_collapse"
-          phx-value-id={@issue.id}
-          class="btn btn-ghost btn-xs btn-circle"
-        >
-          <span class={["text-xs", @is_collapsed && "rotate-[-90deg]"]}>
-            &#9660;
-          </span>
-        </button>
-        <span :if={!@has_children} class="w-6"></span>
-
-        <div
-          class="flex-1 min-w-0 flex items-center gap-2"
-          phx-click="select_issue"
-          phx-value-id={@issue.id}
-        >
-          <span class="text-sm truncate">{Issue.title(@issue)}</span>
-          <span class={"badge badge-xs #{state_badge_class(@issue.state)} ml-auto flex-shrink-0"}>
-            {@issue.state}
-          </span>
-          <a
-            :if={@issue.github_pr_url}
-            href={@issue.github_pr_url}
-            target="_blank"
-            class="flex-shrink-0 text-xs link link-primary"
-            title="View Pull Request"
-            onclick="event.stopPropagation()"
-          >
-            PR
-          </a>
-        </div>
-
-        <div class="opacity-0 group-hover:opacity-100 flex gap-1 flex-shrink-0">
-          <button
-            :if={@issue.state == "backlog"}
-            phx-click="queue_issue"
-            phx-value-id={@issue.id}
-            class="btn btn-ghost btn-xs"
-            title="Queue"
-          >
-            Queue
-          </button>
-          <button
-            :if={@issue.state == "queued"}
-            phx-click="unqueue_issue"
-            phx-value-id={@issue.id}
-            class="btn btn-ghost btn-xs"
-            title="Move to backlog"
-          >
-            Unqueue
-          </button>
-          <button
-            phx-click="new_issue"
-            phx-value-parent_id={@issue.id}
-            class="btn btn-ghost btn-xs"
-            title="Add child"
-          >
-            +
-          </button>
-        </div>
-      </div>
-
-      <div :if={@has_children && !@is_collapsed}>
-        <.issue_tree_row
-          :for={child <- @issue.children}
-          issue={child}
-          depth={@depth + 1}
-          collapsed={@collapsed}
-          selected_id={@selected_id}
-        />
-      </div>
-    </div>
-    """
-  end
-
-  attr :issue, :map, required: true
+  attr :project_name, :string, default: nil
   attr :selected_id, :string, default: nil
 
   defp issue_flat_row(assigns) do
@@ -667,6 +545,9 @@ defmodule SynkadeWeb.IssuesLive do
       phx-click="select_issue"
       phx-value-id={@issue.id}
     >
+      <span :if={@project_name} class="text-xs text-base-content/50 w-24 truncate flex-shrink-0">
+        {@project_name}
+      </span>
       <span class="text-sm truncate flex-1 min-w-0">{Issue.title(@issue)}</span>
       <span class={"badge badge-xs #{state_badge_class(@issue.state)} flex-shrink-0"}>
         {@issue.state}
@@ -734,8 +615,8 @@ defmodule SynkadeWeb.IssuesLive do
           {format_relative_time(@running_entry.last_agent_timestamp)}
         </span>
       </div>
-      
-    <!-- Scrollable thread -->
+
+      <!-- Scrollable thread -->
       <div class="overflow-y-auto flex-1 px-4 py-2">
         <!-- Ancestor thread entries -->
         <div :for={ancestor <- @ancestors} class="border-l-2 border-base-300 pl-3 mb-3">
@@ -747,8 +628,8 @@ defmodule SynkadeWeb.IssuesLive do
             <pre class="text-xs bg-base-300 p-2 rounded overflow-auto max-h-40">{ancestor.agent_output}</pre>
           </div>
         </div>
-        
-    <!-- Current issue -->
+
+        <!-- Current issue -->
         <div class="border-l-2 border-primary pl-3 mb-3">
           <p class="text-sm font-semibold">{Issue.title(@issue)}</p>
           <p :if={@issue.body} class="text-xs whitespace-pre-wrap mt-1">
@@ -762,8 +643,8 @@ defmodule SynkadeWeb.IssuesLive do
             <pre class="text-xs bg-base-300 p-2 rounded overflow-auto max-h-40">{@issue.agent_output}</pre>
           </div>
         </div>
-        
-    <!-- Live session panel (when issue is in_progress and has events) -->
+
+        <!-- Live session panel (when issue is in_progress and has events) -->
         <div
           :if={@issue.state == "in_progress" && (@session_events != [] || @session_id)}
           class="mb-3"
@@ -794,8 +675,8 @@ defmodule SynkadeWeb.IssuesLive do
             Waiting for agent events...
           </p>
         </div>
-        
-    <!-- Children list -->
+
+        <!-- Children list -->
         <div :if={@issue.children != [] and is_list(@issue.children)} class="mb-3">
           <p class="text-xs text-base-content/50 mb-1">Children ({length(@issue.children)})</p>
           <div :for={child <- @issue.children} class="flex items-center gap-2 py-1">
@@ -811,8 +692,8 @@ defmodule SynkadeWeb.IssuesLive do
             </span>
           </div>
         </div>
-        
-    <!-- GitHub links -->
+
+        <!-- GitHub links -->
         <div :if={@issue.github_issue_url || @issue.github_pr_url} class="mb-3 flex gap-2">
           <a
             :if={@issue.github_issue_url}
@@ -832,8 +713,8 @@ defmodule SynkadeWeb.IssuesLive do
           </a>
         </div>
       </div>
-      
-    <!-- Dispatch input + actions -->
+
+      <!-- Dispatch input + actions -->
       <div class="p-4 pt-2 border-t border-base-300 flex-shrink-0">
         <div :if={@issue.state == "backlog"} class="mb-3">
           <.form for={@dispatch_form} phx-submit="dispatch_issue">
