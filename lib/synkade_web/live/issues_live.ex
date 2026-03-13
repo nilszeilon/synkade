@@ -24,6 +24,7 @@ defmodule SynkadeWeb.IssuesLive do
       |> assign(:running, orc_state.running)
       |> assign(:db_projects, projects)
       |> assign(:selected_project_id, nil)
+      |> assign(:state_filter, nil)
       |> assign(:issues, [])
       |> assign(:selected_issue, nil)
       |> assign(:show_form, false)
@@ -41,37 +42,31 @@ defmodule SynkadeWeb.IssuesLive do
   @impl true
   def handle_params(params, _uri, socket) do
     project_id = params["project_id"]
+    filter = params["filter"]
+
+    project_id =
+      project_id ||
+        case socket.assigns.db_projects do
+          [first | _] -> first.id
+          [] -> nil
+        end
+
+    filter = if filter in ["backlog", "active", "done"], do: filter, else: nil
+    project_changed = project_id != socket.assigns.selected_project_id
 
     socket =
-      if project_id do
-        socket
-        |> assign(:selected_project_id, project_id)
-        |> load_issues(project_id)
-      else
-        case socket.assigns.db_projects do
-          [first | _] ->
-            socket
-            |> assign(:selected_project_id, first.id)
-            |> load_issues(first.id)
-
-          [] ->
-            socket
-        end
-      end
+      socket
+      |> assign(:selected_project_id, project_id)
+      |> assign(:state_filter, filter)
+      |> then(fn s -> if project_changed, do: assign(s, :selected_issue, nil), else: s end)
+      |> load_issues()
 
     {:noreply, socket}
   end
 
   @impl true
   def handle_info({:issues_updated}, socket) do
-    socket =
-      if socket.assigns.selected_project_id do
-        load_issues(socket, socket.assigns.selected_project_id)
-      else
-        socket
-      end
-
-    {:noreply, socket}
+    {:noreply, load_issues(socket)}
   end
 
   @impl true
@@ -123,13 +118,13 @@ defmodule SynkadeWeb.IssuesLive do
 
   @impl true
   def handle_event("select_project", %{"id" => project_id}, socket) do
-    socket =
-      socket
-      |> assign(:selected_project_id, project_id)
-      |> assign(:selected_issue, nil)
-      |> load_issues(project_id)
+    {:noreply, push_patch(socket, to: issues_path(project_id, socket.assigns.state_filter))}
+  end
 
-    {:noreply, socket}
+  @impl true
+  def handle_event("set_filter", %{"filter" => filter}, socket) do
+    filter = if filter == "", do: nil, else: filter
+    {:noreply, push_patch(socket, to: issues_path(socket.assigns.selected_project_id, filter))}
   end
 
   @impl true
@@ -235,7 +230,7 @@ defmodule SynkadeWeb.IssuesLive do
           socket
           |> assign(:show_form, false)
           |> assign(:form, nil)
-          |> load_issues(socket.assigns.selected_project_id)
+          |> load_issues()
           |> put_flash(:info, "Issue created")
 
         {:noreply, socket}
@@ -253,7 +248,7 @@ defmodule SynkadeWeb.IssuesLive do
       {:ok, _} ->
         {:noreply,
          socket
-         |> load_issues(socket.assigns.selected_project_id)
+         |> load_issues()
          |> put_flash(:info, "Issue queued")}
 
       {:error, :invalid_transition} ->
@@ -269,7 +264,7 @@ defmodule SynkadeWeb.IssuesLive do
       {:ok, _} ->
         {:noreply,
          socket
-         |> load_issues(socket.assigns.selected_project_id)
+         |> load_issues()
          |> put_flash(:info, "Issue moved to backlog")}
 
       {:error, :invalid_transition} ->
@@ -305,7 +300,7 @@ defmodule SynkadeWeb.IssuesLive do
             socket
             |> assign(:selected_issue, nil)
             |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
-            |> load_issues(socket.assigns.selected_project_id)
+            |> load_issues()
             |> put_flash(
               :info,
               "Issue dispatched" <> if(agent_name, do: " to #{agent_name}", else: "")
@@ -330,7 +325,7 @@ defmodule SynkadeWeb.IssuesLive do
       {:ok, _} ->
         {:noreply,
          socket
-         |> load_issues(socket.assigns.selected_project_id)
+         |> load_issues()
          |> put_flash(:info, "Issue cancelled")}
 
       {:error, :invalid_transition} ->
@@ -347,7 +342,7 @@ defmodule SynkadeWeb.IssuesLive do
         socket =
           socket
           |> assign(:selected_issue, nil)
-          |> load_issues(socket.assigns.selected_project_id)
+          |> load_issues()
           |> put_flash(:info, "Issue deleted")
 
         {:noreply, socket}
@@ -370,9 +365,29 @@ defmodule SynkadeWeb.IssuesLive do
 
   # --- Private ---
 
-  defp load_issues(socket, project_id) do
-    issues = Issues.list_root_issues(project_id)
-    assign(socket, :issues, issues)
+  defp load_issues(socket) do
+    project_id = socket.assigns.selected_project_id
+
+    if project_id do
+      issues =
+        case socket.assigns.state_filter do
+          nil -> Issues.list_root_issues(project_id)
+          "backlog" -> Issues.list_issues_filtered(project_id, ["backlog"])
+          "active" -> Issues.list_issues_filtered(project_id, ~w(queued in_progress awaiting_review))
+          "done" -> Issues.list_issues_filtered(project_id, ~w(done cancelled))
+          _ -> Issues.list_root_issues(project_id)
+        end
+
+      assign(socket, :issues, issues)
+    else
+      assign(socket, :issues, [])
+    end
+  end
+
+  defp issues_path(project_id, filter) do
+    params = if project_id, do: %{"project_id" => project_id}, else: %{}
+    params = if filter, do: Map.put(params, "filter", filter), else: params
+    "/issues?" <> URI.encode_query(params)
   end
 
   defp maybe_put_parent(params, nil), do: params
@@ -438,19 +453,39 @@ defmodule SynkadeWeb.IssuesLive do
         <div class="flex items-center justify-between mb-4">
           <h1 class="text-2xl font-bold">Issues</h1>
           <div class="flex items-center gap-2">
-            <select
-              phx-change="select_project"
-              class="select select-sm select-bordered"
-              name="id"
-            >
-              <option :for={p <- @db_projects} value={p.id} selected={p.id == @selected_project_id}>
-                {p.name}
-              </option>
-            </select>
+            <form phx-change="select_project">
+              <select class="select select-sm select-bordered" name="id">
+                <option
+                  :for={p <- @db_projects}
+                  value={p.id}
+                  selected={p.id == @selected_project_id}
+                >
+                  {p.name}
+                </option>
+              </select>
+            </form>
             <button phx-click="new_issue" class="btn btn-sm btn-primary">
               New Issue
             </button>
           </div>
+        </div>
+
+        <div class="flex items-center gap-1 mb-4">
+          <button
+            :for={
+              {label, value} <- [
+                {"All", nil},
+                {"Backlog", "backlog"},
+                {"Active", "active"},
+                {"Done", "done"}
+              ]
+            }
+            phx-click="set_filter"
+            phx-value-filter={value || ""}
+            class={["btn btn-xs", if(@state_filter == value, do: "btn-primary", else: "btn-ghost")]}
+          >
+            {label}
+          </button>
         </div>
         
     <!-- New issue form -->
@@ -482,14 +517,24 @@ defmodule SynkadeWeb.IssuesLive do
             <div :if={@issues == []} class="text-base-content/50 text-sm py-8 text-center">
               No issues yet. Create one to get started.
             </div>
-            <div :for={issue <- @issues} class="mb-1">
-              <.issue_tree_row
-                issue={issue}
-                depth={0}
-                collapsed={@collapsed}
-                selected_id={@selected_issue && @selected_issue.issue.id}
-              />
-            </div>
+
+            <%= if @state_filter == nil do %>
+              <div :for={issue <- @issues} class="mb-1">
+                <.issue_tree_row
+                  issue={issue}
+                  depth={0}
+                  collapsed={@collapsed}
+                  selected_id={@selected_issue && @selected_issue.issue.id}
+                />
+              </div>
+            <% else %>
+              <div :for={issue <- @issues} class="mb-1">
+                <.issue_flat_row
+                  issue={issue}
+                  selected_id={@selected_issue && @selected_issue.issue.id}
+                />
+              </div>
+            <% end %>
           </div>
           
     <!-- Detail panel -->
@@ -605,6 +650,37 @@ defmodule SynkadeWeb.IssuesLive do
           selected_id={@selected_id}
         />
       </div>
+    </div>
+    """
+  end
+
+  attr :issue, :map, required: true
+  attr :selected_id, :string, default: nil
+
+  defp issue_flat_row(assigns) do
+    ~H"""
+    <div
+      class={[
+        "flex items-center gap-2 py-1.5 px-2 rounded cursor-pointer hover:bg-base-200 group",
+        @issue.id == @selected_id && "bg-base-200"
+      ]}
+      phx-click="select_issue"
+      phx-value-id={@issue.id}
+    >
+      <span class="text-sm truncate flex-1 min-w-0">{Issue.title(@issue)}</span>
+      <span class={"badge badge-xs #{state_badge_class(@issue.state)} flex-shrink-0"}>
+        {@issue.state}
+      </span>
+      <a
+        :if={@issue.github_pr_url}
+        href={@issue.github_pr_url}
+        target="_blank"
+        class="flex-shrink-0 text-xs link link-primary"
+        title="View Pull Request"
+        onclick="event.stopPropagation()"
+      >
+        PR
+      </a>
     </div>
     """
   end

@@ -49,6 +49,14 @@ defmodule Synkade.Issues do
     |> Repo.all()
   end
 
+  def list_issues_filtered(project_id, states) when is_list(states) do
+    from(i in Issue,
+      where: i.project_id == ^project_id and i.state in ^states,
+      order_by: [asc: i.position, asc: i.inserted_at]
+    )
+    |> Repo.all()
+  end
+
   def list_children(issue_id) do
     from(i in Issue,
       where: i.parent_id == ^issue_id,
