@@ -60,7 +60,10 @@ defmodule SynkadeWeb.IssuesLive do
 
   @impl true
   def handle_info({:state_changed, snapshot}, socket) do
-    socket = assign(socket, :running, snapshot.running)
+    socket =
+      socket
+      |> assign(:running, snapshot.running)
+      |> assign(:projects, snapshot.projects)
 
     # Update session_id from running entry, or unsubscribe if no longer running
     socket =
@@ -89,6 +92,16 @@ defmodule SynkadeWeb.IssuesLive do
   @impl true
   def handle_info({:agents_updated}, socket) do
     {:noreply, assign(socket, :agents, Settings.list_agents())}
+  end
+
+  @impl true
+  def handle_info({:projects_updated}, socket) do
+    projects = Settings.list_projects()
+
+    {:noreply,
+     socket
+     |> assign(:db_projects, projects)
+     |> assign(:project_names, Map.new(projects, &{&1.id, &1.name}))}
   end
 
   @impl true

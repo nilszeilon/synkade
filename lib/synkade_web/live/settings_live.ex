@@ -9,6 +9,7 @@ defmodule SynkadeWeb.SettingsLive do
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic())
+      Phoenix.PubSub.subscribe(Synkade.PubSub, Orchestrator.pubsub_topic())
     end
 
     setting = Settings.get_settings()
@@ -242,6 +243,14 @@ defmodule SynkadeWeb.SettingsLive do
   @impl true
   def handle_info({:projects_updated}, socket) do
     {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:state_changed, snapshot}, socket) do
+    {:noreply,
+     socket
+     |> assign(:projects, snapshot.projects)
+     |> assign(:running, snapshot.running)}
   end
 
   @impl true

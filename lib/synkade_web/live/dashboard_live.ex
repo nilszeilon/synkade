@@ -201,11 +201,6 @@ defmodule SynkadeWeb.DashboardLive do
   end
 
   @impl true
-  def handle_info({:projects_updated}, socket) do
-    {:noreply, socket}
-  end
-
-  @impl true
   def handle_info(_msg, socket) do
     {:noreply, socket}
   end

@@ -9,6 +9,7 @@ defmodule SynkadeWeb.ProjectsLive do
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic())
+      Phoenix.PubSub.subscribe(Synkade.PubSub, Orchestrator.pubsub_topic())
     end
 
     orc_state = Orchestrator.get_state()
@@ -118,6 +119,19 @@ defmodule SynkadeWeb.ProjectsLive do
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Failed to update project.")}
     end
+  end
+
+  @impl true
+  def handle_info({:agents_updated}, socket) do
+    {:noreply, assign(socket, :agents, Settings.list_agents())}
+  end
+
+  @impl true
+  def handle_info({:state_changed, snapshot}, socket) do
+    {:noreply,
+     socket
+     |> assign(:projects, snapshot.projects)
+     |> assign(:running, snapshot.running)}
   end
 
   @impl true
