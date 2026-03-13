@@ -96,61 +96,75 @@ defmodule Synkade.Orchestrator.Worker do
   defp event_loop(orchestrator, project, issue, session, config, max_turns, turn) do
     turn_timeout = Config.get(config, "agent", "turn_timeout_ms") || 3_600_000
 
-    Logger.warning(
-      "EVENT_LOOP: starting for #{project.name}:#{issue.identifier}, timeout=#{turn_timeout}ms, session_id=#{inspect(session.session_id)}, port=#{inspect(session.backend_data.port)}"
-    )
+    if turn > max_turns do
+      Logger.warning("Max turns reached for #{project.name}:#{issue.identifier}, stopping agent")
+      BackendClient.stop_agent(config, session)
+      {:ok, :max_turns_reached, session}
+    else
+      Logger.warning(
+        "EVENT_LOOP: starting for #{project.name}:#{issue.identifier}, timeout=#{turn_timeout}ms, session_id=#{inspect(session.session_id)}, port=#{inspect(session.backend_data.port)}"
+      )
 
-    case BackendClient.await_event(config, session, turn_timeout) do
-      {:partial, chunk} ->
-        pending = Map.get(session, :pending_line, "")
-        session = Map.put(session, :pending_line, pending <> chunk)
-        event_loop(orchestrator, project, issue, session, config, max_turns, turn)
+      case BackendClient.await_event(config, session, turn_timeout) do
+        {:partial, chunk} ->
+          pending = Map.get(session, :pending_line, "")
+          session = Map.put(session, :pending_line, pending <> chunk)
+          event_loop(orchestrator, project, issue, session, config, max_turns, turn)
 
-      {:data, data} ->
-        # Prepend any buffered partial line
-        pending = Map.get(session, :pending_line, "")
-        data = if pending != "", do: pending <> data, else: data
-        session = Map.put(session, :pending_line, "")
+        {:data, data} ->
+          # Prepend any buffered partial line
+          pending = Map.get(session, :pending_line, "")
+          data = if pending != "", do: pending <> data, else: data
+          session = Map.put(session, :pending_line, "")
 
-        {session, events} = process_data(config, data, session)
+          {session, events} = process_data(config, data, session)
 
-        for event <- events do
-          GenServer.cast(orchestrator, {:agent_event, project.name, issue.id, event})
-        end
+          for event <- events do
+            GenServer.cast(orchestrator, {:agent_event, project.name, issue.id, event})
+          end
 
-        event_loop(orchestrator, project, issue, session, config, max_turns, turn)
+          event_loop(orchestrator, project, issue, session, config, max_turns, turn)
 
-      {:exit, 0} ->
-        Logger.info("Agent exited normally for #{project.name}:#{issue.identifier}")
+        {:exit, 0} ->
+          Logger.info("Agent exited normally for #{project.name}:#{issue.identifier}")
 
-        case extract_pr_url(session) do
-          {:ok, pr_url} ->
-            {:ok, {:pr_created, pr_url}, session}
+          case extract_pr_url(session) do
+            {:ok, pr_url} ->
+              {:ok, {:pr_created, pr_url}, session}
 
-          :none ->
-            # Capture agent output and check for child declarations
-            agent_output = collect_agent_output(session)
-            children = ChildParser.parse(agent_output)
+            :none ->
+              # Capture agent output and check for child declarations
+              agent_output = collect_agent_output(session)
+              children = ChildParser.parse(agent_output)
 
-            if agent_output != "" or children != [] do
-              {:ok, {:completed_with_output, agent_output, children}, session}
-            else
-              if turn < max_turns do
-                check_and_continue(orchestrator, project, issue, session, config, max_turns, turn)
+              if agent_output != "" or children != [] do
+                {:ok, {:completed_with_output, agent_output, children}, session}
               else
-                {:ok, :max_turns_reached, session}
+                if turn < max_turns do
+                  check_and_continue(
+                    orchestrator,
+                    project,
+                    issue,
+                    session,
+                    config,
+                    max_turns,
+                    turn
+                  )
+                else
+                  {:ok, :max_turns_reached, session}
+                end
               end
-            end
-        end
+          end
 
-      {:exit, code} ->
-        Logger.warning("Agent exited with code #{code} for #{project.name}:#{issue.identifier}")
-        {:error, {:agent_exit, code}, session}
+        {:exit, code} ->
+          Logger.warning("Agent exited with code #{code} for #{project.name}:#{issue.identifier}")
+          {:error, {:agent_exit, code}, session}
 
-      :timeout ->
-        Logger.warning("Agent turn timed out for #{project.name}:#{issue.identifier}")
-        BackendClient.stop_agent(config, session)
-        {:error, :turn_timeout, session}
+        :timeout ->
+          Logger.warning("Agent turn timed out for #{project.name}:#{issue.identifier}")
+          BackendClient.stop_agent(config, session)
+          {:error, :turn_timeout, session}
+      end
     end
   end
 
