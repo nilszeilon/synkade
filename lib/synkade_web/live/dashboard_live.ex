@@ -173,6 +173,11 @@ defmodule SynkadeWeb.DashboardLive do
   end
 
   @impl true
+  def handle_info({:theme_updated, theme}, socket) do
+    {:noreply, push_event(socket, "set-theme", %{theme: theme})}
+  end
+
+  @impl true
   def handle_info({:settings_updated, _settings}, socket) do
     {:noreply, socket}
   end
@@ -715,7 +720,7 @@ defmodule SynkadeWeb.DashboardLive do
           >
             <%= for col <- @board_columns do %>
               <div
-                class="kanban-column flex-shrink-0 w-72 bg-base-200 rounded-lg p-3"
+                class="kanban-column flex-shrink-0 w-72 bg-base-200 border border-base-300 p-3"
                 data-column={col["id"]}
                 data-droppable={to_string(draggable?(col["id"]))}
               >
@@ -763,7 +768,7 @@ defmodule SynkadeWeb.DashboardLive do
           <.issue_modal :if={@modal} modal={@modal} agents={@agents} />
         <% else %>
           <%!-- Overview: Token Usage Chart --%>
-          <div class="card bg-base-200 p-4">
+          <div class="card bg-base-200 border border-base-300 p-4">
             <h2 class="text-lg font-semibold mb-3">Token Usage — Last 30 Days</h2>
             <.token_chart
               days={@chart_days}
@@ -889,7 +894,7 @@ defmodule SynkadeWeb.DashboardLive do
     ~H"""
     <div
       class={[
-        "kanban-card card card-compact bg-base-100 shadow-sm",
+        "kanban-card card card-compact bg-base-100 border border-base-300",
         if(@draggable, do: "cursor-grab active:cursor-grabbing", else: "cursor-default"),
         @clickable && "hover:ring-1 hover:ring-primary/30"
       ]}

@@ -39,6 +39,25 @@ defmodule Synkade.Settings do
     end
   end
 
+  @doc "Saves the theme preference."
+  def save_theme(theme) when is_binary(theme) do
+    setting = get_settings() || %Setting{}
+
+    result =
+      setting
+      |> Setting.theme_changeset(%{theme: theme})
+      |> Repo.insert_or_update()
+
+    case result do
+      {:ok, setting} ->
+        broadcast_theme_updated(setting.theme)
+        {:ok, setting}
+
+      error ->
+        error
+    end
+  end
+
   @doc "Returns a changeset for the settings form."
   def change_settings(setting \\ nil, attrs \\ %{}) do
     (setting || get_settings() || %Setting{})
@@ -239,6 +258,14 @@ defmodule Synkade.Settings do
       error ->
         error
     end
+  end
+
+  defp broadcast_theme_updated(theme) do
+    Phoenix.PubSub.broadcast(
+      Synkade.PubSub,
+      @pubsub_topic,
+      {:theme_updated, theme}
+    )
   end
 
   defp broadcast_update(settings) do

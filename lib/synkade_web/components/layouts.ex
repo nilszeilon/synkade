@@ -37,22 +37,25 @@ defmodule SynkadeWeb.Layouts do
   def app(assigns) do
     ~H"""
     <div class="flex min-h-screen">
-      <aside class="w-60 h-screen fixed bg-base-200 flex flex-col border-r border-base-300">
+      <aside class="w-56 h-screen fixed bg-base-200 flex flex-col border-r border-base-300">
         <%!-- Logo --%>
-        <div class="p-4">
+        <div class="p-4 border-b border-base-300">
           <a href="/" class="flex items-center gap-2">
-            <img src={~p"/images/logo.svg"} width="36" />
-            <span class="text-sm font-semibold">Synkade</span>
+            <img src={~p"/images/logo.svg"} width="28" />
+            <span class="ops-label text-primary text-xs tracking-widest">Synkade</span>
           </a>
         </div>
 
         <%!-- Navigation --%>
-        <nav class="flex-1 overflow-y-auto px-2">
+        <nav class="flex-1 overflow-y-auto px-2 pt-3">
           <ul class="menu menu-sm">
             <li>
               <.link
                 navigate="/"
-                class={[@active_tab == :dashboard && !@current_project && "active"]}
+                class={[
+                  "ops-label",
+                  @active_tab == :dashboard && !@current_project && "active"
+                ]}
               >
                 <.icon name="hero-squares-2x2" class="size-4" /> Overview
               </.link>
@@ -60,17 +63,17 @@ defmodule SynkadeWeb.Layouts do
             <li>
               <.link
                 navigate="/issues"
-                class={[@active_tab == :issues && "active"]}
+                class={["ops-label", @active_tab == :issues && "active"]}
               >
                 <.icon name="hero-clipboard-document-list" class="size-4" /> Issues
               </.link>
             </li>
           </ul>
 
-          <div class="divider my-1 px-2"></div>
+          <div class="divider my-1 px-2 before:bg-base-300 after:bg-base-300"></div>
 
           <div class="px-3 mb-1">
-            <span class="text-xs font-semibold uppercase text-base-content/50">Projects</span>
+            <span class="ops-label text-primary/70">Projects</span>
           </div>
           <ul class="menu menu-sm">
             <li :for={{name, _project} <- @projects}>
@@ -78,7 +81,7 @@ defmodule SynkadeWeb.Layouts do
                 patch={"/?project=#{name}"}
                 class={[@current_project == name && "active"]}
               >
-                <span class="truncate">{name}</span>
+                <span class="truncate text-xs">{name}</span>
                 <span
                   :if={running_count(@running, name) > 0}
                   class="badge badge-sm badge-primary"
@@ -88,7 +91,7 @@ defmodule SynkadeWeb.Layouts do
               </.link>
             </li>
             <li :if={map_size(@projects) == 0}>
-              <span class="text-base-content/40 text-xs">No projects loaded</span>
+              <span class="text-base-content/30 text-xs">No projects loaded</span>
             </li>
           </ul>
         </nav>
@@ -97,23 +100,26 @@ defmodule SynkadeWeb.Layouts do
         <div class="mt-auto border-t border-base-300 p-2">
           <ul class="menu menu-sm">
             <li>
-              <.link navigate="/projects" class={[@active_tab == :projects && "active"]}>
+              <.link
+                navigate="/projects"
+                class={["ops-label", @active_tab == :projects && "active"]}
+              >
                 <.icon name="hero-folder" class="size-4" /> Projects
               </.link>
             </li>
             <li>
-              <.link navigate="/settings" class={[@active_tab == :settings && "active"]}>
+              <.link
+                navigate="/settings"
+                class={["ops-label", @active_tab == :settings && "active"]}
+              >
                 <.icon name="hero-cog-6-tooth" class="size-4" /> Settings
               </.link>
             </li>
           </ul>
-          <div class="px-2 pt-2">
-            <.theme_toggle />
-          </div>
         </div>
       </aside>
 
-      <main class="ml-60 flex-1 overflow-y-auto min-h-screen">
+      <main class="ml-56 flex-1 overflow-y-auto min-h-screen">
         <.flash_group flash={@flash} />
         {render_slot(@inner_block)}
       </main>
@@ -168,40 +174,4 @@ defmodule SynkadeWeb.Layouts do
     """
   end
 
-  @doc """
-  Provides dark vs light theme toggle based on themes defined in app.css.
-
-  See <head> in root.html.heex which applies the theme before page load.
-  """
-  def theme_toggle(assigns) do
-    ~H"""
-    <div class="card relative flex flex-row items-center border-2 border-base-300 bg-base-300 rounded-full">
-      <div class="absolute w-1/3 h-full rounded-full border-1 border-base-200 bg-base-100 brightness-200 left-0 [[data-theme=light]_&]:left-1/3 [[data-theme=dark]_&]:left-2/3 transition-[left]" />
-
-      <button
-        class="flex p-2 cursor-pointer w-1/3"
-        phx-click={JS.dispatch("phx:set-theme")}
-        data-phx-theme="system"
-      >
-        <.icon name="hero-computer-desktop-micro" class="size-4 opacity-75 hover:opacity-100" />
-      </button>
-
-      <button
-        class="flex p-2 cursor-pointer w-1/3"
-        phx-click={JS.dispatch("phx:set-theme")}
-        data-phx-theme="light"
-      >
-        <.icon name="hero-sun-micro" class="size-4 opacity-75 hover:opacity-100" />
-      </button>
-
-      <button
-        class="flex p-2 cursor-pointer w-1/3"
-        phx-click={JS.dispatch("phx:set-theme")}
-        data-phx-theme="dark"
-      >
-        <.icon name="hero-moon-micro" class="size-4 opacity-75 hover:opacity-100" />
-      </button>
-    </div>
-    """
-  end
 end

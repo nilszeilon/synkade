@@ -7,6 +7,10 @@ defmodule SynkadeWeb.ProjectsLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic())
+    end
+
     orc_state = Orchestrator.get_state()
 
     {:ok,
@@ -114,6 +118,16 @@ defmodule SynkadeWeb.ProjectsLive do
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Failed to update project.")}
     end
+  end
+
+  @impl true
+  def handle_info({:theme_updated, theme}, socket) do
+    {:noreply, push_event(socket, "set-theme", %{theme: theme})}
+  end
+
+  @impl true
+  def handle_info(_msg, socket) do
+    {:noreply, socket}
   end
 
   @impl true

@@ -125,6 +125,11 @@ window.addEventListener("phx:copy", (event) => {
   }
 })
 
+// Theme switching via LiveView push_event
+window.addEventListener("phx:set-theme", (event) => {
+  document.documentElement.setAttribute("data-theme", event.detail.theme)
+})
+
 // Show progress bar on live navigation and form submits
 topbar.config({barColors: {0: "#29d"}, shadowColor: "rgba(0, 0, 0, .3)"})
 window.addEventListener("phx:page-loading-start", _info => topbar.show(300))

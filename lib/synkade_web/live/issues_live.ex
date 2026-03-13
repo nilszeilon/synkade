@@ -82,6 +82,11 @@ defmodule SynkadeWeb.IssuesLive do
   end
 
   @impl true
+  def handle_info({:theme_updated, theme}, socket) do
+    {:noreply, push_event(socket, "set-theme", %{theme: theme})}
+  end
+
+  @impl true
   def handle_info({:agents_updated}, socket) do
     {:noreply, assign(socket, :agents, Settings.list_agents())}
   end

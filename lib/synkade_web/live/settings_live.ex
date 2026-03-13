@@ -7,9 +7,14 @@ defmodule SynkadeWeb.SettingsLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic())
+    end
+
     setting = Settings.get_settings()
     changeset = Settings.change_settings(setting)
     orc_state = Orchestrator.get_state()
+    current_theme = (setting && setting.theme) || "ops"
 
     {:ok,
      socket
@@ -20,6 +25,7 @@ defmodule SynkadeWeb.SettingsLive do
      |> assign(:projects, orc_state.projects)
      |> assign(:running, orc_state.running)
      |> assign(:active_tab, "github")
+     |> assign(:current_theme, current_theme)
      |> assign(:connection_status, nil)
      |> assign(:connection_testing, false)
      |> assign(:agents, Settings.list_agents())
@@ -202,6 +208,43 @@ defmodule SynkadeWeb.SettingsLive do
   end
 
   @impl true
+  def handle_event("set_theme", %{"theme" => theme}, socket) do
+    case Settings.save_theme(theme) do
+      {:ok, _setting} ->
+        {:noreply,
+         socket
+         |> assign(:current_theme, theme)
+         |> push_event("set-theme", %{theme: theme})}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Failed to save theme.")}
+    end
+  end
+
+  @impl true
+  def handle_info({:theme_updated, theme}, socket) do
+    {:noreply,
+     socket
+     |> assign(:current_theme, theme)
+     |> push_event("set-theme", %{theme: theme})}
+  end
+
+  @impl true
+  def handle_info({:settings_updated, _settings}, socket) do
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:agents_updated}, socket) do
+    {:noreply, assign(socket, :agents, Settings.list_agents())}
+  end
+
+  @impl true
+  def handle_info({:projects_updated}, socket) do
+    {:noreply, socket}
+  end
+
+  @impl true
   def handle_info({:connection_result, result}, socket) do
     status =
       case result do
@@ -228,6 +271,14 @@ defmodule SynkadeWeb.SettingsLive do
         <div role="tablist" class="tabs tabs-boxed mb-6">
           <button
             role="tab"
+            class={"tab #{if @active_tab == "appearance", do: "tab-active"}"}
+            phx-click="switch_tab"
+            phx-value-tab="appearance"
+          >
+            Appearance
+          </button>
+          <button
+            role="tab"
             class={"tab #{if @active_tab == "github", do: "tab-active"}"}
             phx-click="switch_tab"
             phx-value-tab="github"
@@ -250,6 +301,10 @@ defmodule SynkadeWeb.SettingsLive do
           >
             Execution
           </button>
+        </div>
+
+        <div class={if @active_tab != "appearance", do: "hidden"}>
+          <.appearance_tab current_theme={@current_theme} />
         </div>
 
         <.form for={@form} phx-change="validate" phx-submit="save">
@@ -280,6 +335,69 @@ defmodule SynkadeWeb.SettingsLive do
         </div>
       </div>
     </Layouts.app>
+    """
+  end
+
+  @theme_meta %{
+    "ops" => %{
+      label: "Ops",
+      desc: "Terminal green + amber",
+      swatches: ["oklch(87.82% 0.246 145.09)", "oklch(74.5% 0.155 80)", "oklch(10% 0 0)"]
+    },
+    "copper" => %{
+      label: "Copper",
+      desc: "Warm peach + copper accents",
+      swatches: ["oklch(85% 0.08 55)", "oklch(70% 0.14 50)", "oklch(12% 0.01 50)"]
+    },
+    "midnight" => %{
+      label: "Midnight",
+      desc: "Cool cyan + blue on navy",
+      swatches: ["oklch(85% 0.10 200)", "oklch(70% 0.16 240)", "oklch(12% 0.02 250)"]
+    },
+    "phantom" => %{
+      label: "Phantom",
+      desc: "Lavender + violet/magenta",
+      swatches: ["oklch(85% 0.08 300)", "oklch(68% 0.18 310)", "oklch(12% 0.02 300)"]
+    },
+    "ember" => %{
+      label: "Ember",
+      desc: "Warm sand + fire accents",
+      swatches: ["oklch(85% 0.06 70)", "oklch(68% 0.20 30)", "oklch(12% 0.015 30)"]
+    }
+  }
+
+  attr :current_theme, :string, required: true
+
+  defp appearance_tab(assigns) do
+    assigns = assign(assigns, :themes, @theme_meta)
+
+    ~H"""
+    <div>
+      <p class="text-sm text-base-content/60 mb-4">Choose a theme. All themes keep the ops console aesthetic.</p>
+      <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <button
+          :for={{id, meta} <- @themes}
+          type="button"
+          phx-click="set_theme"
+          phx-value-theme={id}
+          class={[
+            "card bg-base-200 border p-4 text-left transition-all",
+            if(@current_theme == id, do: "border-primary ring-1 ring-primary", else: "border-base-300 hover:border-base-content/30")
+          ]}
+        >
+          <div class="flex gap-1.5 mb-2">
+            <span
+              :for={color <- meta.swatches}
+              class="inline-block w-5 h-5 border border-base-300"
+              style={"background:#{color}"}
+            >
+            </span>
+          </div>
+          <p class="font-semibold text-sm">{meta.label}</p>
+          <p class="text-xs text-base-content/50">{meta.desc}</p>
+        </button>
+      </div>
+    </div>
     """
   end
 

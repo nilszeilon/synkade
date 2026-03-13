@@ -8,6 +8,7 @@ defmodule SynkadeWeb.Router do
     plug :put_root_layout, html: {SynkadeWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+    plug SynkadeWeb.Plugs.Theme
   end
 
   pipeline :api do
