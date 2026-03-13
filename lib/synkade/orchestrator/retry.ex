@@ -6,14 +6,32 @@ defmodule Synkade.Orchestrator.Retry do
   @doc "Calculate backoff delay for a given attempt."
   @spec backoff_delay_ms(pos_integer(), pos_integer()) :: pos_integer()
   def backoff_delay_ms(attempt, max_backoff_ms) do
-    delay = 10_000 * :math.pow(2, attempt - 1) |> trunc()
+    delay = (10_000 * :math.pow(2, attempt - 1)) |> trunc()
     min(delay, max_backoff_ms)
   end
 
   @doc "Schedule an exponential backoff retry."
-  @spec schedule_retry(pid(), String.t(), String.t(), String.t(), pos_integer(), pos_integer(), String.t() | nil) ::
+  @spec schedule_retry(
+          pid(),
+          String.t(),
+          String.t(),
+          String.t(),
+          pos_integer(),
+          pos_integer(),
+          String.t() | nil,
+          String.t() | nil
+        ) ::
           map()
-  def schedule_retry(orchestrator, project_name, issue_id, identifier, attempt, max_backoff_ms, error \\ nil) do
+  def schedule_retry(
+        orchestrator,
+        project_name,
+        issue_id,
+        identifier,
+        attempt,
+        max_backoff_ms,
+        error \\ nil,
+        agent_name \\ nil
+      ) do
     delay = backoff_delay_ms(attempt, max_backoff_ms)
     timer_ref = Process.send_after(orchestrator, {:retry_timer, project_name, issue_id}, delay)
 
@@ -24,13 +42,15 @@ defmodule Synkade.Orchestrator.Retry do
       attempt: attempt,
       due_at_ms: System.monotonic_time(:millisecond) + delay,
       timer_handle: timer_ref,
-      error: error
+      error: error,
+      agent_name: agent_name
     }
   end
 
   @doc "Schedule a continuation retry (short delay)."
-  @spec schedule_continuation(pid(), String.t(), String.t(), String.t()) :: map()
-  def schedule_continuation(orchestrator, project_name, issue_id, identifier) do
+  @spec schedule_continuation(pid(), String.t(), String.t(), String.t(), String.t() | nil) ::
+          map()
+  def schedule_continuation(orchestrator, project_name, issue_id, identifier, agent_name \\ nil) do
     timer_ref =
       Process.send_after(
         orchestrator,
@@ -45,7 +65,8 @@ defmodule Synkade.Orchestrator.Retry do
       attempt: 1,
       due_at_ms: System.monotonic_time(:millisecond) + @continuation_delay_ms,
       timer_handle: timer_ref,
-      error: nil
+      error: nil,
+      agent_name: agent_name
     }
   end
 

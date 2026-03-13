@@ -35,7 +35,12 @@ defmodule SynkadeWeb.DashboardLive do
       |> assign(:projects, state.projects)
       |> assign(:config_error, state.config_error)
       |> assign(:board_columns, @board_columns)
-      |> assign(:board_issues, %{"backlog" => [], "queue" => [], "in_progress" => [], "human_review" => []})
+      |> assign(:board_issues, %{
+        "backlog" => [],
+        "queue" => [],
+        "in_progress" => [],
+        "human_review" => []
+      })
       |> assign(:board_loading, true)
       |> assign(:board_error, nil)
       |> assign(:modal, nil)
@@ -101,7 +106,12 @@ defmodule SynkadeWeb.DashboardLive do
       case project do
         nil ->
           socket
-          |> assign(:board_issues, %{"backlog" => [], "queue" => [], "in_progress" => [], "human_review" => []})
+          |> assign(:board_issues, %{
+            "backlog" => [],
+            "queue" => [],
+            "in_progress" => [],
+            "human_review" => []
+          })
           |> assign(:board_loading, false)
           |> assign(:board_error, "No project configured")
 
@@ -131,7 +141,10 @@ defmodule SynkadeWeb.DashboardLive do
 
           # Merge, deduplicating by id
           tracker_ids = MapSet.new(tracker_issues, & &1.id)
-          merged = tracker_issues ++ Enum.reject(db_issues, fn i -> MapSet.member?(tracker_ids, i.id) end)
+
+          merged =
+            tracker_issues ++
+              Enum.reject(db_issues, fn i -> MapSet.member?(tracker_ids, i.id) end)
 
           board_issues =
             categorize_by_state(
@@ -191,7 +204,9 @@ defmodule SynkadeWeb.DashboardLive do
           case Issues.transition_state(db_issue, new_state) do
             {:ok, _} ->
               project = resolve_project(socket)
-              dispatch_labels = if project, do: Config.tracker_labels(project.config) || [], else: []
+
+              dispatch_labels =
+                if project, do: Config.tracker_labels(project.config) || [], else: []
 
               # Optimistic update
               socket = move_card_in_assigns(socket, issue_id, from_col, to_col, dispatch_labels)
@@ -278,7 +293,11 @@ defmodule SynkadeWeb.DashboardLive do
 
         db_id ->
           attrs = %{title: title, project_id: db_id}
-          attrs = if String.trim(description) != "", do: Map.put(attrs, :description, String.trim(description)), else: attrs
+
+          attrs =
+            if String.trim(description) != "",
+              do: Map.put(attrs, :description, String.trim(description)),
+              else: attrs
 
           case Issues.create_issue(attrs) do
             {:ok, _issue} ->
@@ -305,7 +324,11 @@ defmodule SynkadeWeb.DashboardLive do
       case Issues.update_issue(issue, attrs) do
         {:ok, updated} ->
           send(self(), :load_board)
-          {:noreply, socket |> assign(:modal, %{mode: :view, issue: updated, dispatch_message: ""}) |> put_flash(:info, "Issue updated")}
+
+          {:noreply,
+           socket
+           |> assign(:modal, %{mode: :view, issue: updated, dispatch_message: ""})
+           |> put_flash(:info, "Issue updated")}
 
         {:error, _} ->
           {:noreply, put_flash(socket, :error, "Failed to update issue")}
@@ -325,7 +348,9 @@ defmodule SynkadeWeb.DashboardLive do
 
       agent_id =
         case agent_name do
-          nil -> nil
+          nil ->
+            nil
+
           name ->
             case Settings.get_agent_by_name(name) do
               nil -> nil
@@ -340,7 +365,10 @@ defmodule SynkadeWeb.DashboardLive do
           {:noreply,
            socket
            |> assign(:modal, nil)
-           |> put_flash(:info, "Issue dispatched" <> if(agent_name, do: " to #{agent_name}", else: ""))}
+           |> put_flash(
+             :info,
+             "Issue dispatched" <> if(agent_name, do: " to #{agent_name}", else: "")
+           )}
 
         {:error, :invalid_transition} ->
           {:noreply, put_flash(socket, :error, "Cannot dispatch from current state")}
@@ -397,7 +425,14 @@ defmodule SynkadeWeb.DashboardLive do
       end
   end
 
-  defp categorize_by_state(issues, project_name, dispatch_labels, running, retry_attempts, awaiting_review) do
+  defp categorize_by_state(
+         issues,
+         project_name,
+         dispatch_labels,
+         running,
+         retry_attempts,
+         awaiting_review
+       ) do
     base = %{"backlog" => [], "queue" => [], "in_progress" => [], "human_review" => []}
 
     Enum.reduce(issues, base, fn issue, acc ->
@@ -527,7 +562,8 @@ defmodule SynkadeWeb.DashboardLive do
   def render(assigns) do
     filtered_running =
       if assigns.current_project,
-        do: Map.filter(assigns.running, fn {_k, e} -> e.project_name == assigns.current_project end),
+        do:
+          Map.filter(assigns.running, fn {_k, e} -> e.project_name == assigns.current_project end),
         else: assigns.running
 
     filtered_retries =
@@ -595,8 +631,7 @@ defmodule SynkadeWeb.DashboardLive do
               </span>
             </div>
             <button phx-click="refresh" class="btn btn-sm btn-primary">
-              <span :if={@board_loading} class="loading loading-spinner loading-xs"></span>
-              Refresh
+              <span :if={@board_loading} class="loading loading-spinner loading-xs"></span> Refresh
             </button>
           </div>
         </div>
@@ -612,8 +647,8 @@ defmodule SynkadeWeb.DashboardLive do
             <span>{@board_error}</span>
           </div>
         <% end %>
-
-        <!-- Kanban Board -->
+        
+    <!-- Kanban Board -->
         <div
           id="kanban-board"
           phx-hook="KanbanDrag"
@@ -656,7 +691,9 @@ defmodule SynkadeWeb.DashboardLive do
                     issue={issue}
                     column={col["id"]}
                     draggable={draggable?(col["id"])}
-                    status={issue_status(issue, @filtered_running, @filtered_retries, @filtered_awaiting)}
+                    status={
+                      issue_status(issue, @filtered_running, @filtered_retries, @filtered_awaiting)
+                    }
                     clickable={col["id"] == "backlog" && is_db_issue?(issue.id)}
                   />
                 <% end %>
@@ -665,8 +702,8 @@ defmodule SynkadeWeb.DashboardLive do
           <% end %>
         </div>
       </div>
-
-      <!-- Modal -->
+      
+    <!-- Modal -->
       <.issue_modal :if={@modal} modal={@modal} agents={@agents} />
     </Layouts.app>
     """
@@ -707,7 +744,6 @@ defmodule SynkadeWeb.DashboardLive do
                 <button type="submit" class="btn btn-primary">Create</button>
               </div>
             </form>
-
           <% :edit -> %>
             <h3 class="font-bold text-lg mb-4">Edit Issue</h3>
             <form phx-submit="save_edit_issue">
@@ -732,24 +768,28 @@ defmodule SynkadeWeb.DashboardLive do
                 <button type="submit" class="btn btn-primary">Save</button>
               </div>
             </form>
-
           <% :view -> %>
             <div class="flex items-start justify-between mb-2">
               <h3 class="font-bold text-lg">{@modal.issue.title}</h3>
               <button phx-click="close_modal" class="btn btn-ghost btn-sm btn-circle">x</button>
             </div>
-            <p :if={@modal.issue.description} class="text-sm whitespace-pre-wrap mb-4 text-base-content/70">
+            <p
+              :if={@modal.issue.description}
+              class="text-sm whitespace-pre-wrap mb-4 text-base-content/70"
+            >
               {@modal.issue.description}
             </p>
             <p :if={!@modal.issue.description} class="text-sm text-base-content/40 italic mb-4">
               No description
             </p>
-
-            <!-- Dispatch input for backlog issues -->
+            
+    <!-- Dispatch input for backlog issues -->
             <div :if={@modal.issue.state == "backlog"} class="mb-4">
               <.form for={to_form(%{"message" => ""}, as: :dispatch)} phx-submit="dispatch_issue">
                 <div class="form-control">
-                  <label class="label"><span class="label-text text-xs">Dispatch to agent</span></label>
+                  <label class="label">
+                    <span class="label-text text-xs">Dispatch to agent</span>
+                  </label>
                   <div class="flex gap-2">
                     <input
                       type="text"
@@ -827,24 +867,37 @@ defmodule SynkadeWeb.DashboardLive do
           <% {:running, entry} -> %>
             <div class="flex items-center gap-1 mt-1">
               <span class="loading loading-spinner loading-xs text-info"></span>
-              <span class="text-xs text-info">Running (turn {entry.turn_count || 0})</span>
+              <span class="text-xs text-info">
+                {if entry.agent_name, do: "#{entry.agent_name} — ", else: ""}Running (turn {entry.turn_count ||
+                  0})
+              </span>
             </div>
           <% {:retry, entry} -> %>
             <div class="mt-1">
               <span class="badge badge-error badge-xs">Retry #{entry.attempt || 0}</span>
+              <span :if={entry.agent_name} class="text-xs text-base-content/50 ml-1">
+                {entry.agent_name}
+              </span>
             </div>
           <% {:review, entry} -> %>
             <div class="mt-1">
               <a href={entry.pr_url} target="_blank" class="link link-primary text-xs">
                 PR #{entry.pr_number}
               </a>
+              <span :if={entry.agent_name} class="text-xs text-base-content/50 ml-1">
+                {entry.agent_name}
+              </span>
             </div>
           <% _ -> %>
         <% end %>
 
         <%= if @issue.url do %>
           <div class="mt-1">
-            <a href={@issue.url} target="_blank" class="text-xs text-base-content/40 hover:text-base-content/60">
+            <a
+              href={@issue.url}
+              target="_blank"
+              class="text-xs text-base-content/40 hover:text-base-content/60"
+            >
               View issue
             </a>
           </div>
