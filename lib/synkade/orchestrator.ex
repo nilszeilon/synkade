@@ -10,6 +10,7 @@ defmodule Synkade.Orchestrator do
   alias Synkade.Settings
   alias Synkade.Settings.ConfigAdapter
   alias Synkade.Issues
+  alias Synkade.TokenUsage
 
   @pubsub_topic "orchestrator:updates"
   @max_events_per_issue 500
@@ -597,6 +598,8 @@ defmodule Synkade.Orchestrator do
         Worker.run(orchestrator, effective_project, issue, attempt)
       end)
 
+    model = Config.get(effective_project.config, "agent", "model") || "unknown"
+
     entry = %{
       project_name: project.name,
       issue_id: issue.id,
@@ -619,7 +622,8 @@ defmodule Synkade.Orchestrator do
       stalled: false,
       should_stop: nil,
       events: [],
-      agent_name: agent_name
+      agent_name: agent_name,
+      model: model
     }
 
     state = %{state | running: Map.put(state.running, key, entry)}
@@ -764,6 +768,17 @@ defmodule Synkade.Orchestrator do
         total_tokens: project_totals.total_tokens + entry.agent_total_tokens,
         runtime_seconds: project_totals.runtime_seconds + runtime_seconds
     }
+
+    # Persist token usage to DB
+    model = Map.get(entry, :model, "unknown")
+
+    if entry.agent_input_tokens > 0 or entry.agent_output_tokens > 0 do
+      try do
+        TokenUsage.record_usage(model, entry.agent_input_tokens, entry.agent_output_tokens)
+      catch
+        _, _ -> :ok
+      end
+    end
 
     %{
       state

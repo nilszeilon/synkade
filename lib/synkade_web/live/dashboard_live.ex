@@ -1,7 +1,7 @@
 defmodule SynkadeWeb.DashboardLive do
   use SynkadeWeb, :live_view
 
-  alias Synkade.{Issues, Orchestrator, Settings}
+  alias Synkade.{Issues, Orchestrator, Settings, TokenUsage}
   alias Synkade.Issues.DispatchParser
   alias Synkade.Tracker.Client, as: TrackerClient
   alias Synkade.Workflow.Config
@@ -24,7 +24,7 @@ defmodule SynkadeWeb.DashboardLive do
 
     socket =
       socket
-      |> assign(:page_title, "Board")
+      |> assign(:page_title, "Overview")
       |> assign(:active_tab, :dashboard)
       |> assign(:current_project, nil)
       |> assign(:running, state.running)
@@ -45,10 +45,7 @@ defmodule SynkadeWeb.DashboardLive do
       |> assign(:board_error, nil)
       |> assign(:modal, nil)
       |> assign(:agents, Settings.list_agents())
-
-    if connected?(socket) do
-      send(self(), :load_board)
-    end
+      |> assign_chart_data()
 
     {:ok, socket}
   end
@@ -57,7 +54,7 @@ defmodule SynkadeWeb.DashboardLive do
   def handle_params(params, _uri, socket) do
     socket = assign(socket, :current_project, params["project"])
 
-    if connected?(socket) do
+    if connected?(socket) && params["project"] do
       send(self(), :load_board)
     end
 
@@ -75,15 +72,20 @@ defmodule SynkadeWeb.DashboardLive do
       |> assign(:agent_totals_by_project, snapshot.agent_totals_by_project)
       |> assign(:projects, snapshot.projects)
       |> assign(:config_error, snapshot.config_error)
+      |> assign_chart_data()
 
-    # Re-categorize issues with updated orchestrator state
-    project = resolve_project(socket)
-
+    # Re-categorize board issues if on a project page
     socket =
-      if project do
-        dispatch_labels = Config.tracker_labels(project.config) || []
-        board_issues = recategorize_from_assigns(socket, project.name, dispatch_labels)
-        assign(socket, :board_issues, board_issues)
+      if socket.assigns.current_project do
+        project = resolve_project(socket)
+
+        if project do
+          dispatch_labels = Config.tracker_labels(project.config) || []
+          board_issues = recategorize_from_assigns(socket, project.name, dispatch_labels)
+          assign(socket, :board_issues, board_issues)
+        else
+          socket
+        end
       else
         socket
       end
@@ -171,6 +173,16 @@ defmodule SynkadeWeb.DashboardLive do
   end
 
   @impl true
+  def handle_info({:settings_updated, _settings}, socket) do
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:projects_updated}, socket) do
+    {:noreply, socket}
+  end
+
+  @impl true
   def handle_info(_msg, socket) do
     {:noreply, socket}
   end
@@ -178,8 +190,13 @@ defmodule SynkadeWeb.DashboardLive do
   @impl true
   def handle_event("refresh", _params, socket) do
     Orchestrator.refresh()
-    send(self(), :load_board)
-    {:noreply, assign(socket, :board_loading, true)}
+
+    if socket.assigns.current_project do
+      send(self(), :load_board)
+      {:noreply, assign(socket, :board_loading, true)}
+    else
+      {:noreply, assign_chart_data(socket)}
+    end
   end
 
   @impl true
@@ -199,7 +216,6 @@ defmodule SynkadeWeb.DashboardLive do
     allowed_transitions = [{"backlog", "queue"}, {"queue", "backlog"}]
 
     if {from_col, to_col} in allowed_transitions do
-      # Persist state transition to DB
       new_state = if to_col == "queue", do: "queued", else: "backlog"
 
       case Issues.get_issue(issue_id) do
@@ -214,10 +230,8 @@ defmodule SynkadeWeb.DashboardLive do
               dispatch_labels =
                 if project, do: Config.tracker_labels(project.config) || [], else: []
 
-              # Optimistic update
               socket = move_card_in_assigns(socket, issue_id, from_col, to_col, dispatch_labels)
 
-              # Async label update on tracker
               if project do
                 config = project.config
                 project_name = project.name
@@ -387,6 +401,54 @@ defmodule SynkadeWeb.DashboardLive do
     end
   end
 
+  # --- Chart data ---
+
+  defp assign_chart_data(socket) do
+    usage =
+      try do
+        TokenUsage.daily_usage(30)
+      catch
+        _, _ -> []
+      end
+
+    today = Date.utc_today()
+    dates = for i <- 29..0//-1, do: Date.add(today, -i)
+
+    models =
+      usage
+      |> Enum.map(& &1.model)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    usage_map =
+      Map.new(usage, fn row -> {{row.date, row.model}, row} end)
+
+    days =
+      Enum.map(dates, fn date ->
+        model_data =
+          Enum.map(models, fn model ->
+            row = Map.get(usage_map, {date, model}, %{input_tokens: 0, output_tokens: 0})
+            %{model: model, input: row.input_tokens, output: row.output_tokens}
+          end)
+
+        total_input = Enum.sum(Enum.map(model_data, & &1.input))
+        total_output = Enum.sum(Enum.map(model_data, & &1.output))
+
+        %{date: date, models: model_data, total_input: total_input, total_output: total_output}
+      end)
+
+    max_output = days |> Enum.map(& &1.total_output) |> Enum.max(fn -> 0 end)
+    max_input = days |> Enum.map(& &1.total_input) |> Enum.max(fn -> 0 end)
+    max_val = max(max_output, max_input)
+    y_max = max(max_val, 1000)
+
+    socket
+    |> assign(:chart_days, days)
+    |> assign(:chart_models, models)
+    |> assign(:chart_y_max, y_max)
+    |> assign(:chart_dates, dates)
+  end
+
   # --- Board helpers ---
 
   defp resolve_project(socket) do
@@ -542,7 +604,6 @@ defmodule SynkadeWeb.DashboardLive do
   end
 
   defp is_db_issue?(issue_id) do
-    # DB issue IDs are UUIDs (36 chars with hyphens)
     String.length(issue_id) == 36 and String.contains?(issue_id, "-")
   end
 
@@ -602,7 +663,7 @@ defmodule SynkadeWeb.DashboardLive do
       <div class="px-6 py-4">
         <div class="flex items-center justify-between mb-4">
           <h1 class="text-2xl font-bold">
-            {if @current_project, do: @current_project, else: "Board"}
+            {if @current_project, do: @current_project, else: "Overview"}
           </h1>
           <div class="flex items-center gap-3">
             <div class="flex items-center gap-4 text-sm">
@@ -623,7 +684,8 @@ defmodule SynkadeWeb.DashboardLive do
               </span>
             </div>
             <button phx-click="refresh" class="btn btn-sm btn-primary">
-              <span :if={@board_loading} class="loading loading-spinner loading-xs"></span> Refresh
+              <span :if={@current_project && @board_loading} class="loading loading-spinner loading-xs"></span>
+              Refresh
             </button>
             <button phx-click="reset" class="btn btn-sm btn-warning" title="Reset orchestrator state">
               Reset Agent
@@ -637,69 +699,81 @@ defmodule SynkadeWeb.DashboardLive do
           </div>
         <% end %>
 
-        <%= if @board_error do %>
-          <div class="alert alert-warning mb-4">
-            <span>{@board_error}</span>
-          </div>
-        <% end %>
-        
-    <!-- Kanban Board -->
-        <div
-          id="kanban-board"
-          phx-hook="KanbanDrag"
-          class="flex gap-4 overflow-x-auto pb-4"
-          style="min-height: 60vh;"
-        >
-          <%= for col <- @board_columns do %>
-            <div
-              class="kanban-column flex-shrink-0 w-72 bg-base-200 rounded-lg p-3"
-              data-column={col["id"]}
-              data-droppable={to_string(draggable?(col["id"]))}
-            >
-              <div class="flex items-center justify-between mb-3">
-                <h3 class="font-semibold text-sm">
-                  {col["name"]}
-                  <span
-                    :if={col["id"] in ["in_progress", "human_review"]}
-                    class="text-xs text-base-content/40 font-normal ml-1"
-                  >
-                    auto
-                  </span>
-                </h3>
-                <div class="flex items-center gap-1">
-                  <span class="badge badge-ghost badge-sm">
-                    {length(Map.get(@board_issues, col["id"], []))}
-                  </span>
-                  <button
-                    :if={col["id"] == "backlog"}
-                    phx-click="open_new_issue"
-                    class="btn btn-ghost btn-xs btn-circle"
-                    title="New issue"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-              <div class="kanban-drop-zone flex flex-col gap-2 min-h-[100px]">
-                <%= for issue <- Map.get(@board_issues, col["id"], []) do %>
-                  <.issue_card
-                    issue={issue}
-                    column={col["id"]}
-                    draggable={draggable?(col["id"])}
-                    status={
-                      issue_status(issue, @filtered_running, @filtered_retries, @filtered_awaiting)
-                    }
-                    clickable={col["id"] == "backlog" && is_db_issue?(issue.id)}
-                  />
-                <% end %>
-              </div>
+        <%= if @current_project do %>
+          <%!-- Project view: Kanban Board --%>
+          <%= if @board_error do %>
+            <div class="alert alert-warning mb-4">
+              <span>{@board_error}</span>
             </div>
           <% end %>
-        </div>
+
+          <div
+            id="kanban-board"
+            phx-hook="KanbanDrag"
+            class="flex gap-4 overflow-x-auto pb-4"
+            style="min-height: 60vh;"
+          >
+            <%= for col <- @board_columns do %>
+              <div
+                class="kanban-column flex-shrink-0 w-72 bg-base-200 rounded-lg p-3"
+                data-column={col["id"]}
+                data-droppable={to_string(draggable?(col["id"]))}
+              >
+                <div class="flex items-center justify-between mb-3">
+                  <h3 class="font-semibold text-sm">
+                    {col["name"]}
+                    <span
+                      :if={col["id"] in ["in_progress", "human_review"]}
+                      class="text-xs text-base-content/40 font-normal ml-1"
+                    >
+                      auto
+                    </span>
+                  </h3>
+                  <div class="flex items-center gap-1">
+                    <span class="badge badge-ghost badge-sm">
+                      {length(Map.get(@board_issues, col["id"], []))}
+                    </span>
+                    <button
+                      :if={col["id"] == "backlog"}
+                      phx-click="open_new_issue"
+                      class="btn btn-ghost btn-xs btn-circle"
+                      title="New issue"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+                <div class="kanban-drop-zone flex flex-col gap-2 min-h-[100px]">
+                  <%= for issue <- Map.get(@board_issues, col["id"], []) do %>
+                    <.issue_card
+                      issue={issue}
+                      column={col["id"]}
+                      draggable={draggable?(col["id"])}
+                      status={
+                        issue_status(issue, @filtered_running, @filtered_retries, @filtered_awaiting)
+                      }
+                      clickable={col["id"] == "backlog" && is_db_issue?(issue.id)}
+                    />
+                  <% end %>
+                </div>
+              </div>
+            <% end %>
+          </div>
+
+          <.issue_modal :if={@modal} modal={@modal} agents={@agents} />
+        <% else %>
+          <%!-- Overview: Token Usage Chart --%>
+          <div class="card bg-base-200 p-4">
+            <h2 class="text-lg font-semibold mb-3">Token Usage — Last 30 Days</h2>
+            <.token_chart
+              days={@chart_days}
+              models={@chart_models}
+              y_max={@chart_y_max}
+              dates={@chart_dates}
+            />
+          </div>
+        <% end %>
       </div>
-      
-    <!-- Modal -->
-      <.issue_modal :if={@modal} modal={@modal} agents={@agents} />
     </Layouts.app>
     """
   end
@@ -761,8 +835,7 @@ defmodule SynkadeWeb.DashboardLive do
             <p :if={!@modal.issue.body} class="text-sm text-base-content/40 italic mb-4">
               No body
             </p>
-            
-    <!-- Dispatch input for backlog issues -->
+
             <div :if={@modal.issue.state == "backlog"} class="mb-4">
               <.form for={to_form(%{"message" => ""}, as: :dispatch)} phx-submit="dispatch_issue">
                 <div class="form-control">
@@ -893,11 +966,264 @@ defmodule SynkadeWeb.DashboardLive do
     """
   end
 
+  # --- SVG Chart Component ---
+
+  @model_colors ~w(#6366f1 #f59e0b #10b981 #ef4444 #8b5cf6 #ec4899 #14b8a6 #f97316)
+
+  attr :days, :list, required: true
+  attr :models, :list, required: true
+  attr :y_max, :integer, required: true
+  attr :dates, :list, required: true
+
+  defp token_chart(assigns) do
+    chart_w = 900
+    chart_h = 400
+    pad_left = 70
+    pad_right = 20
+    pad_top = 20
+    pad_bottom = 60
+    plot_w = chart_w - pad_left - pad_right
+    plot_h = chart_h - pad_top - pad_bottom
+
+    num_days = length(assigns.dates)
+    bar_width = if num_days > 0, do: plot_w / num_days * 0.7, else: 10
+    gap = if num_days > 0, do: plot_w / num_days, else: 10
+    zero_y = pad_top + plot_h / 2
+    y_max = assigns.y_max
+    half_h = plot_h / 2
+    colors = @model_colors
+
+    bars =
+      assigns.days
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {day, i} ->
+        x = pad_left + i * gap + (gap - bar_width) / 2
+
+        {output_bars, _} =
+          Enum.reduce(day.models, {[], 0}, fn m, {acc, offset} ->
+            if m.output > 0 do
+              h = m.output / y_max * half_h
+              y = zero_y - offset - h
+              color_idx = Enum.find_index(assigns.models, &(&1 == m.model)) || 0
+              color = Enum.at(colors, rem(color_idx, length(colors)))
+
+              bar = %{
+                x: x,
+                y: y,
+                w: bar_width,
+                h: h,
+                color: color,
+                title: "#{m.model} output: #{format_number(m.output)} on #{day.date}"
+              }
+
+              {[bar | acc], offset + h}
+            else
+              {acc, offset}
+            end
+          end)
+
+        {input_bars, _} =
+          Enum.reduce(day.models, {[], 0}, fn m, {acc, offset} ->
+            if m.input > 0 do
+              h = m.input / y_max * half_h
+              y = zero_y + offset
+              color_idx = Enum.find_index(assigns.models, &(&1 == m.model)) || 0
+              color = Enum.at(colors, rem(color_idx, length(colors)))
+
+              bar = %{
+                x: x,
+                y: y,
+                w: bar_width,
+                h: h,
+                color: color,
+                title: "#{m.model} input: #{format_number(m.input)} on #{day.date}",
+                opacity: "0.6"
+              }
+
+              {[bar | acc], offset + h}
+            else
+              {acc, offset}
+            end
+          end)
+
+        output_bars ++ input_bars
+      end)
+
+    y_ticks = build_y_ticks(y_max, zero_y, half_h, pad_left)
+
+    x_labels =
+      assigns.dates
+      |> Enum.with_index()
+      |> Enum.filter(fn {_d, i} -> rem(i, 5) == 0 or i == num_days - 1 end)
+      |> Enum.map(fn {date, i} ->
+        x = pad_left + i * gap + gap / 2
+        %{x: x, label: Calendar.strftime(date, "%b %d")}
+      end)
+
+    legend =
+      assigns.models
+      |> Enum.with_index()
+      |> Enum.map(fn {model, i} ->
+        color = Enum.at(colors, rem(i, length(colors)))
+        %{model: model, color: color}
+      end)
+
+    assigns =
+      assigns
+      |> assign(:chart_w, chart_w)
+      |> assign(:chart_h, chart_h)
+      |> assign(:bars, bars)
+      |> assign(:zero_y, zero_y)
+      |> assign(:pad_left, pad_left)
+      |> assign(:pad_right, pad_right)
+      |> assign(:plot_w, plot_w)
+      |> assign(:y_ticks, y_ticks)
+      |> assign(:x_labels, x_labels)
+      |> assign(:legend, legend)
+
+    ~H"""
+    <div class="overflow-x-auto">
+      <svg
+        viewBox={"0 0 #{@chart_w} #{@chart_h + 30}"}
+        class="w-full max-w-4xl"
+        style="min-height: 300px"
+      >
+        <line
+          :for={tick <- @y_ticks}
+          x1={@pad_left}
+          y1={tick.y}
+          x2={@pad_left + @plot_w}
+          y2={tick.y}
+          stroke="currentColor"
+          stroke-opacity="0.1"
+          stroke-dasharray="4,4"
+        />
+        <line
+          x1={@pad_left}
+          y1={@zero_y}
+          x2={@pad_left + @plot_w}
+          y2={@zero_y}
+          stroke="currentColor"
+          stroke-opacity="0.3"
+          stroke-width="1"
+        />
+        <text
+          :for={tick <- @y_ticks}
+          x={@pad_left - 8}
+          y={tick.y + 4}
+          text-anchor="end"
+          class="fill-base-content/50"
+          font-size="11"
+        >
+          {tick.label}
+        </text>
+        <rect
+          :for={bar <- @bars}
+          x={bar.x}
+          y={bar.y}
+          width={bar.w}
+          height={max(bar.h, 0)}
+          fill={bar.color}
+          opacity={Map.get(bar, :opacity, "1")}
+          rx="2"
+        >
+          <title>{bar.title}</title>
+        </rect>
+        <text
+          :for={lbl <- @x_labels}
+          x={lbl.x}
+          y={@chart_h - 5}
+          text-anchor="middle"
+          class="fill-base-content/50"
+          font-size="11"
+          transform={"rotate(-30, #{lbl.x}, #{@chart_h - 5})"}
+        >
+          {lbl.label}
+        </text>
+        <text
+          x={@pad_left - 8}
+          y={@zero_y - 10}
+          text-anchor="end"
+          class="fill-base-content/40"
+          font-size="10"
+        >
+          Output
+        </text>
+        <text
+          x={@pad_left - 8}
+          y={@zero_y + 16}
+          text-anchor="end"
+          class="fill-base-content/40"
+          font-size="10"
+        >
+          Input
+        </text>
+      </svg>
+      <div :if={@legend != []} class="flex flex-wrap gap-4 mt-2 ml-16">
+        <div :for={item <- @legend} class="flex items-center gap-1.5 text-sm">
+          <span class="inline-block w-3 h-3 rounded-sm" style={"background:#{item.color}"}></span>
+          <span class="text-base-content/70">{item.model}</span>
+          <span class="text-base-content/30 text-xs">(solid=output, faded=input)</span>
+        </div>
+      </div>
+      <p :if={@legend == []} class="text-base-content/40 text-sm text-center py-8">
+        No token usage data yet. Data will appear here as agents run.
+      </p>
+    </div>
+    """
+  end
+
+  defp build_y_ticks(y_max, zero_y, half_h, _pad_left) do
+    step = nice_step(y_max)
+    above = for i <- 1..4, i * step <= y_max * 1.1, do: i * step
+    below = Enum.map(above, &(-&1))
+
+    above_ticks =
+      Enum.map(above, fn val ->
+        y = zero_y - val / y_max * half_h
+        %{y: y, label: format_number(val)}
+      end)
+
+    below_ticks =
+      Enum.map(below, fn val ->
+        y = zero_y - val / y_max * half_h
+        %{y: y, label: format_number(abs(val))}
+      end)
+
+    [%{y: zero_y, label: "0"} | above_ticks ++ below_ticks]
+  end
+
+  defp nice_step(max_val) when max_val <= 0, do: 1000
+
+  defp nice_step(max_val) do
+    raw = max_val / 4
+    mag = :math.pow(10, floor(:math.log10(raw)))
+    normalized = raw / mag
+
+    step =
+      cond do
+        normalized <= 1.5 -> 1
+        normalized <= 3.5 -> 2.5
+        normalized <= 7.5 -> 5
+        true -> 10
+      end
+
+    trunc(step * mag)
+  end
+
   defp format_number(n) when is_integer(n) and n >= 1_000_000 do
     "#{Float.round(n / 1_000_000, 1)}M"
   end
 
   defp format_number(n) when is_integer(n) and n >= 1_000 do
+    "#{Float.round(n / 1_000, 1)}K"
+  end
+
+  defp format_number(n) when is_number(n) and n >= 1_000_000 do
+    "#{Float.round(n / 1_000_000, 1)}M"
+  end
+
+  defp format_number(n) when is_number(n) and n >= 1_000 do
     "#{Float.round(n / 1_000, 1)}K"
   end
 

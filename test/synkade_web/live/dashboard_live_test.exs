@@ -3,21 +3,18 @@ defmodule SynkadeWeb.DashboardLiveTest do
 
   import Phoenix.LiveViewTest
 
-  test "renders board page with state-driven columns", %{conn: conn} do
+  test "renders overview page with token chart when no project selected", %{conn: conn} do
     {:ok, _view, html} = live(conn, "/")
-    assert html =~ "Board"
-    assert html =~ "Backlog"
-    assert html =~ "Queue"
-    assert html =~ "In Progress"
-    assert html =~ "Human Review"
+    assert html =~ "Overview"
+    assert html =~ "Token Usage"
     assert html =~ "running"
     assert html =~ "review"
     assert html =~ "Refresh"
   end
 
-  test "shows workflow error when present", %{conn: conn} do
+  test "shows config error when present", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/")
-    assert render(view) =~ "Board"
+    assert render(view) =~ "Overview"
   end
 
   test "refresh button exists", %{conn: conn} do
