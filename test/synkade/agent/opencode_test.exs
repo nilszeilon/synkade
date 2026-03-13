@@ -9,16 +9,21 @@ defmodule Synkade.Agent.OpenCodeTest do
       config = %{}
       args = OpenCode.build_args(config, "Fix the bug", [])
 
-      assert args == ["run", "-f", "json", "-q", "-c", ".", "Fix the bug"]
+      assert args == ["run", "--format", "json", "Fix the bug"]
     end
 
     test "includes model when specified" do
-      config = %{"agent" => %{"model" => "anthropic/claude-sonnet-4-5-20250929"}}
+      config = %{"agent" => %{"model" => "openrouter/anthropic/claude-sonnet-4-5-20250929"}}
       args = OpenCode.build_args(config, "prompt", [])
 
-      idx = Enum.find_index(args, &(&1 == "-m"))
-      assert idx != nil
-      assert Enum.at(args, idx + 1) == "anthropic/claude-sonnet-4-5-20250929"
+      assert args == [
+               "run",
+               "--format",
+               "json",
+               "--model",
+               "openrouter/anthropic/claude-sonnet-4-5-20250929",
+               "prompt"
+             ]
     end
 
     test "includes --continue for continuation" do
@@ -30,7 +35,7 @@ defmodule Synkade.Agent.OpenCodeTest do
     end
 
     test "prompt is always the last argument" do
-      config = %{"agent" => %{"model" => "some-model"}}
+      config = %{"agent" => %{"model" => "openrouter/some-model"}}
       args = OpenCode.build_args(config, "my prompt", ["--continue"])
 
       assert List.last(args) == "my prompt"
@@ -80,35 +85,54 @@ defmodule Synkade.Agent.OpenCodeTest do
   end
 
   describe "parse_event/1" do
-    test "parses assistant event" do
+    test "parses text event with part.text" do
       json =
         Jason.encode!(%{
-          "type" => "assistant",
-          "message" => "Working on it.",
-          "session_id" => "sess_oc_1",
-          "usage" => %{"input_tokens" => 50, "output_tokens" => 25}
+          "type" => "text",
+          "sessionID" => "ses_abc123",
+          "part" => %{
+            "type" => "text",
+            "text" => "Hello! How can I help?",
+            "tokens" => %{"input" => 50, "output" => 25, "total" => 75}
+          }
         })
 
       assert {:ok, %Event{} = event} = OpenCode.parse_event(json)
-      assert event.type == "assistant"
-      assert event.session_id == "sess_oc_1"
-      assert event.message == "Working on it."
-      assert event.input_tokens == 50
-      assert event.output_tokens == 25
-      assert event.total_tokens == 75
+      assert event.type == "text"
+      assert event.session_id == "ses_abc123"
+      assert event.message == "Hello! How can I help?"
     end
 
-    test "parses result event" do
+    test "parses step_finish event with tokens" do
       json =
         Jason.encode!(%{
-          "type" => "result",
-          "result" => "Done.",
-          "usage" => %{"input_tokens" => 100, "output_tokens" => 50}
+          "type" => "step_finish",
+          "sessionID" => "ses_abc123",
+          "part" => %{
+            "type" => "step-finish",
+            "reason" => "stop",
+            "tokens" => %{"input" => 100, "output" => 50, "total" => 150}
+          }
         })
 
       assert {:ok, %Event{} = event} = OpenCode.parse_event(json)
-      assert event.type == "result"
-      assert event.message == "Done."
+      assert event.type == "step_finish"
+      assert event.input_tokens == 100
+      assert event.output_tokens == 50
+      assert event.total_tokens == 150
+    end
+
+    test "parses error event" do
+      json =
+        Jason.encode!(%{
+          "type" => "error",
+          "sessionID" => "ses_abc123",
+          "error" => %{"name" => "UnknownError", "message" => "Model not found"}
+        })
+
+      assert {:ok, %Event{} = event} = OpenCode.parse_event(json)
+      assert event.type == "error"
+      assert event.message == "Model not found"
     end
 
     test "skips non-JSON lines" do
@@ -117,7 +141,7 @@ defmodule Synkade.Agent.OpenCodeTest do
     end
 
     test "handles missing usage gracefully" do
-      json = Jason.encode!(%{"type" => "system"})
+      json = Jason.encode!(%{"type" => "step_start", "sessionID" => "ses_abc"})
       assert {:ok, event} = OpenCode.parse_event(json)
       assert event.input_tokens == 0
       assert event.output_tokens == 0

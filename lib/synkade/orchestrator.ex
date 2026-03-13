@@ -348,10 +348,30 @@ defmodule Synkade.Orchestrator do
 
           %{state | awaiting_review: Map.put(state.awaiting_review, key, review_entry)}
 
-        {:ok, {:completed_with_output, agent_output, children}, _session} ->
-          # Research/task completed — store output, create children, mark done
-          complete_db_issue_with_output(entry, agent_output, children)
-          state
+        {:ok, {:completed_with_output, agent_output, children}, session} ->
+          # Agent completed — store output, create children, await human review
+          pr_url = case Worker.extract_pr_url(session) do
+            {:ok, url} -> url
+            :none -> nil
+          end
+
+          complete_db_issue_with_output(entry, agent_output, children, pr_url)
+
+          review_entry = %{
+            project_name: project_name,
+            issue_id: issue_id,
+            identifier: (entry && entry.identifier) || issue_id,
+            pr_url: pr_url,
+            pr_number: if(pr_url, do: extract_pr_number(pr_url)),
+            env_ref: entry && entry.env_ref,
+            session_id: entry && entry.session_id,
+            created_at: System.monotonic_time(:millisecond),
+            agent_total_tokens: (entry && entry.agent_total_tokens) || 0
+          }
+
+          Logger.info("Agent completed for #{key}, awaiting review")
+
+          %{state | awaiting_review: Map.put(state.awaiting_review, key, review_entry)}
 
         {:ok, _reason, _session} ->
           # Normal exit - schedule continuation retry
@@ -882,15 +902,18 @@ defmodule Synkade.Orchestrator do
     %{project | config: Map.put(project.config, "agent_name", agent.name)}
   end
 
-  defp complete_db_issue_with_output(nil, _output, _children), do: :ok
+  defp complete_db_issue_with_output(nil, _output, _children, _pr_url), do: :ok
 
-  defp complete_db_issue_with_output(entry, agent_output, children) do
+  defp complete_db_issue_with_output(entry, agent_output, children, pr_url) do
     try do
       db_issue = Issues.get_issue(entry.db_issue_id)
 
       if db_issue do
-        Issues.update_issue(db_issue, %{agent_output: agent_output})
-        Issues.transition_state(db_issue, "done")
+        attrs = %{agent_output: agent_output}
+        attrs = if pr_url, do: Map.put(attrs, :github_pr_url, pr_url), else: attrs
+
+        Issues.update_issue(db_issue, attrs)
+        Issues.transition_state(db_issue, "awaiting_review")
 
         if children != [] do
           Issues.create_children_from_agent(db_issue, children)

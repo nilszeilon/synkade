@@ -167,22 +167,25 @@ defmodule Synkade.Agent.OpenCode do
   end
 
   defp build_event(data) do
+    # OpenCode tokens live inside part.tokens on step_finish events
+    tokens = get_in(data, ["part", "tokens"]) || %{}
+
     %Event{
       type: data["type"] || "unknown",
-      session_id: data["session_id"],
+      session_id: data["sessionID"],
       message: extract_message(data),
-      input_tokens: get_in(data, ["usage", "input_tokens"]) || 0,
-      output_tokens: get_in(data, ["usage", "output_tokens"]) || 0,
-      total_tokens:
-        (get_in(data, ["usage", "input_tokens"]) || 0) +
-          (get_in(data, ["usage", "output_tokens"]) || 0),
+      input_tokens: tokens["input"] || 0,
+      output_tokens: tokens["output"] || 0,
+      total_tokens: tokens["total"] || 0,
       timestamp: DateTime.utc_now(),
       raw: data
     }
   end
 
-  defp extract_message(%{"type" => "assistant", "message" => msg}), do: msg
-  defp extract_message(%{"type" => "result", "result" => result}), do: result
+  # OpenCode "text" events carry content in part.text
+  defp extract_message(%{"type" => "text", "part" => %{"text" => text}}), do: text
+  # OpenCode "error" events
+  defp extract_message(%{"type" => "error", "error" => %{"message" => msg}}), do: msg
   defp extract_message(%{"message" => msg}) when is_binary(msg), do: msg
   defp extract_message(_), do: nil
 end
