@@ -18,6 +18,7 @@ defmodule SynkadeWeb.DashboardLive do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Synkade.PubSub, Orchestrator.pubsub_topic())
       Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic())
+      Phoenix.PubSub.subscribe(Synkade.PubSub, Issues.pubsub_topic())
     end
 
     state = Orchestrator.get_state()
@@ -72,7 +73,14 @@ defmodule SynkadeWeb.DashboardLive do
       |> assign(:agent_totals_by_project, snapshot.agent_totals_by_project)
       |> assign(:projects, snapshot.projects)
       |> assign(:config_error, snapshot.config_error)
-      |> assign_chart_data()
+
+    # Only re-query chart data on overview (chart not shown on project pages)
+    socket =
+      if socket.assigns.current_project do
+        socket
+      else
+        assign_chart_data(socket)
+      end
 
     # Re-categorize board issues if on a project page
     socket =
@@ -91,6 +99,16 @@ defmodule SynkadeWeb.DashboardLive do
       end
 
     {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:issues_updated}, socket) do
+    if socket.assigns.current_project do
+      send(self(), :load_board)
+      {:noreply, socket}
+    else
+      {:noreply, assign_chart_data(socket)}
+    end
   end
 
   @impl true
