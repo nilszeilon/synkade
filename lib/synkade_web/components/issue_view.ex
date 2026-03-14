@@ -351,46 +351,6 @@ defmodule SynkadeWeb.Components.IssueView do
             </div>
           </div>
 
-          <div class="flex items-center gap-3 mt-3">
-            <input type="hidden" name="issue[auto_merge]" value="false" />
-            <label class="label cursor-pointer gap-2">
-              <input
-                type="checkbox"
-                name="issue[auto_merge]"
-                value="true"
-                class="checkbox checkbox-sm"
-                checked={@form[:auto_merge].value == true or @form[:auto_merge].value == "true"}
-              />
-              <span class="label-text text-sm">Auto-merge</span>
-            </label>
-            <span class="text-base-content/20">|</span>
-            <input type="hidden" name="issue[recurring]" value="false" />
-            <label class="label cursor-pointer gap-2">
-              <input
-                type="checkbox"
-                name="issue[recurring]"
-                value="true"
-                class="checkbox checkbox-sm"
-                checked={@form[:recurring].value == true or @form[:recurring].value == "true"}
-              />
-              <span class="label-text text-sm">Every</span>
-            </label>
-            <input
-              type="number"
-              name="issue[recurrence_interval]"
-              value={@form[:recurrence_interval].value || 24}
-              min="1"
-              class="input input-bordered input-sm w-20"
-            />
-            <select name="issue[recurrence_unit]" class="select select-bordered select-sm w-28">
-              <option value="hours" selected={(@form[:recurrence_unit].value || "hours") == "hours"}>
-                hours
-              </option>
-              <option value="days" selected={@form[:recurrence_unit].value == "days"}>days</option>
-              <option value="weeks" selected={@form[:recurrence_unit].value == "weeks"}>weeks</option>
-            </select>
-          </div>
-
           <div class="border-t border-base-300 pt-4 mt-4 space-y-3">
             <div :if={@agents != []} class="flex items-center gap-2">
               <input type="hidden" name="agent_id" value={@selected_agent_id || ""} />
@@ -412,6 +372,51 @@ defmodule SynkadeWeb.Components.IssueView do
                 </span>
                 <span class="text-xs">{agent.name}</span>
               </button>
+            </div>
+
+            <div class="flex items-center gap-3">
+              <input type="hidden" name="issue[auto_merge]" value="false" />
+              <label class="label cursor-pointer gap-2">
+                <input
+                  type="checkbox"
+                  name="issue[auto_merge]"
+                  value="true"
+                  class="checkbox checkbox-sm"
+                  checked={@form[:auto_merge].value == true or @form[:auto_merge].value == "true"}
+                />
+                <span class="label-text text-sm">Auto-merge</span>
+              </label>
+              <span class="text-base-content/20">|</span>
+              <input type="hidden" name="issue[recurring]" value="false" />
+              <label class="label cursor-pointer gap-2">
+                <input
+                  type="checkbox"
+                  name="issue[recurring]"
+                  value="true"
+                  class="checkbox checkbox-sm"
+                  checked={@form[:recurring].value == true or @form[:recurring].value == "true"}
+                />
+                <span class="label-text text-sm">Recurring</span>
+              </label>
+              <input
+                :if={@form[:recurring].value == true or @form[:recurring].value == "true"}
+                type="number"
+                name="issue[recurrence_interval]"
+                value={@form[:recurrence_interval].value || 24}
+                min="1"
+                class="input input-bordered input-sm w-20"
+              />
+              <select
+                :if={@form[:recurring].value == true or @form[:recurring].value == "true"}
+                name="issue[recurrence_unit]"
+                class="select select-bordered select-sm w-28"
+              >
+                <option value="hours" selected={(@form[:recurrence_unit].value || "hours") == "hours"}>
+                  hours
+                </option>
+                <option value="days" selected={@form[:recurrence_unit].value == "days"}>days</option>
+                <option value="weeks" selected={@form[:recurrence_unit].value == "weeks"}>weeks</option>
+              </select>
             </div>
             <div class="flex gap-2">
               <button type="submit" class="btn btn-sm btn-ghost">Create</button>
