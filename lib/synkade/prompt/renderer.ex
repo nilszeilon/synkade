@@ -59,6 +59,19 @@ defmodule Synkade.Prompt.Renderer do
   Always create a PR with your changes so they can be reviewed.
   """
 
+  @auto_merge_suffix """
+
+  ## Auto-Merge
+
+  This issue has auto-merge enabled. After creating your pull request, merge it directly to main:
+
+  ```bash
+  gh pr merge --merge
+  ```
+
+  Do NOT wait for review — merge immediately after PR creation.
+  """
+
   @api_suffix """
 
   ## Synkade Issue API
@@ -151,7 +164,13 @@ defmodule Synkade.Prompt.Renderer do
 
     template =
       if tracker_repo && tracker_api_key do
-        template <> @git_suffix
+        git_template = template <> @git_suffix
+
+        if Map.get(issue, :auto_merge) do
+          git_template <> @auto_merge_suffix
+        else
+          git_template
+        end
       else
         template
       end

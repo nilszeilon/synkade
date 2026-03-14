@@ -20,6 +20,7 @@ defmodule Synkade.Issues.Issue do
     field :github_pr_url, :string
     field :metadata, :map, default: %{}
     field :dispatch_message, :string
+    field :auto_merge, :boolean, default: false
     field :recurring, :boolean, default: false
     field :recurrence_interval, :integer, default: 24
     field :recurrence_unit, :string, default: "hours"
@@ -49,7 +50,7 @@ defmodule Synkade.Issues.Issue do
   @optional_fields ~w(body state depth position parent_id
                       agent_output github_issue_url github_pr_url metadata
                       dispatch_message assigned_agent_id
-                      recurring recurrence_interval recurrence_unit)a
+                      auto_merge recurring recurrence_interval recurrence_unit)a
 
   def changeset(issue, attrs) do
     issue

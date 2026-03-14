@@ -34,13 +34,14 @@ defmodule SynkadeWeb.Components.IssueView do
 
       <div class="mb-4">
         <span class={"badge badge-sm #{state_badge_class(@issue.state)} mb-2"}>{@issue.state}</span>
+        <span :if={@issue.auto_merge} class="badge badge-sm badge-warning mb-2">auto-merge</span>
         <span :if={@issue.recurring} class="badge badge-sm badge-accent mb-2">
           every {@issue.recurrence_interval} {@issue.recurrence_unit}
         </span>
         <h1 class="text-2xl font-bold">{Issue.title(@issue)}</h1>
       </div>
-
-      <!-- Agent status bar -->
+      
+    <!-- Agent status bar -->
       <div
         :if={@running_entry}
         class="mb-4 px-4 py-3 bg-info/10 rounded-lg flex items-center gap-2"
@@ -71,11 +72,13 @@ defmodule SynkadeWeb.Components.IssueView do
           {format_relative_time(@running_entry.last_agent_timestamp)}
         </span>
       </div>
-
-      <!-- Ancestor thread -->
+      
+    <!-- Ancestor thread -->
       <div :for={ancestor <- @ancestors} class="border-l-2 border-base-300 pl-4 mb-4">
         <p class="text-sm font-semibold text-base-content/70">{Issue.title(ancestor)}</p>
-        <p :if={ancestor.body} class="text-sm text-base-content/60 whitespace-pre-wrap mt-1">{ancestor.body}</p>
+        <p :if={ancestor.body} class="text-sm text-base-content/60 whitespace-pre-wrap mt-1">
+          {ancestor.body}
+        </p>
         <div :if={ancestor.agent_output} class="mt-2">
           <div class="collapse collapse-arrow bg-base-200 rounded">
             <input type="checkbox" />
@@ -88,10 +91,12 @@ defmodule SynkadeWeb.Components.IssueView do
           </div>
         </div>
       </div>
-
-      <!-- Current issue body -->
+      
+    <!-- Current issue body -->
       <div class="border-l-2 border-primary pl-4 mb-4">
-        <p :if={body_without_title(@issue.body)} class="text-sm whitespace-pre-wrap">{body_without_title(@issue.body)}</p>
+        <p :if={body_without_title(@issue.body)} class="text-sm whitespace-pre-wrap">
+          {body_without_title(@issue.body)}
+        </p>
         <!-- Show agent_output in drawer when no message history covers it -->
         <div :if={@issue.agent_output && @messages == []} class="mt-3">
           <div class="collapse collapse-arrow bg-base-200 rounded">
@@ -105,8 +110,8 @@ defmodule SynkadeWeb.Components.IssueView do
           </div>
         </div>
       </div>
-
-      <!-- Message history (numbered) -->
+      
+    <!-- Message history (numbered) -->
       <div :if={@messages != []} class="mb-4 space-y-3">
         <div :for={{msg, idx} <- Enum.with_index(@messages, 1)}>
           <%= cond do %>
@@ -138,7 +143,11 @@ defmodule SynkadeWeb.Components.IssueView do
                 <div class="collapse collapse-arrow bg-base-200 rounded">
                   <input type="checkbox" />
                   <div class="collapse-title text-xs py-2 min-h-0">
-                    {msg["text"] |> String.slice(0..120) |> then(fn s -> if String.length(msg["text"] || "") > 120, do: s <> "...", else: s end)}
+                    {msg["text"]
+                    |> String.slice(0..120)
+                    |> then(fn s ->
+                      if String.length(msg["text"] || "") > 120, do: s <> "...", else: s
+                    end)}
                   </div>
                   <div class="collapse-content">
                     <pre class="text-xs whitespace-pre-wrap overflow-auto max-h-64">{msg["text"]}</pre>
@@ -148,15 +157,18 @@ defmodule SynkadeWeb.Components.IssueView do
           <% end %>
         </div>
       </div>
-
-      <!-- Agent session log -->
+      
+    <!-- Agent session log -->
       <div
         :if={@issue.state == "in_progress" && (@session_events != [] || @session_id)}
         class="mb-4"
       >
         <div class="flex items-center justify-between mb-2">
           <p class="text-sm text-base-content/50 font-semibold inline-flex items-center gap-1.5">
-            <span :if={@running_entry && @running_entry[:agent_kind]} class={brand_color(@running_entry[:agent_kind])}>
+            <span
+              :if={@running_entry && @running_entry[:agent_kind]}
+              class={brand_color(@running_entry[:agent_kind])}
+            >
               <.agent_icon kind={@running_entry[:agent_kind]} class="size-4" />
             </span>
             Agent Session
@@ -185,8 +197,8 @@ defmodule SynkadeWeb.Components.IssueView do
           Waiting for agent events...
         </p>
       </div>
-
-      <!-- Children list -->
+      
+    <!-- Children list -->
       <div :if={@issue.children != [] and is_list(@issue.children)} class="mb-4">
         <p class="text-sm text-base-content/50 mb-2">Children ({length(@issue.children)})</p>
         <div :for={child <- @issue.children} class="flex items-center gap-2 py-1.5">
@@ -202,8 +214,8 @@ defmodule SynkadeWeb.Components.IssueView do
           </span>
         </div>
       </div>
-
-      <!-- GitHub links -->
+      
+    <!-- GitHub links -->
       <div :if={@issue.github_issue_url || @issue.github_pr_url} class="mb-4 flex gap-3">
         <a
           :if={@issue.github_issue_url}
@@ -222,15 +234,15 @@ defmodule SynkadeWeb.Components.IssueView do
           Pull Request
         </a>
       </div>
-
-      <!-- Bottom input + actions -->
+      
+    <!-- Bottom input + actions -->
       <div class="border-t border-base-300 pt-4">
         <div :if={@issue.state in ["backlog", "done", "awaiting_review", "cancelled"]} class="mb-3">
           <.form for={@dispatch_form} phx-submit="dispatch_issue">
             <div class="flex flex-col gap-2">
               <textarea
                 name="dispatch[message]"
-                placeholder={"@agent instructions..."}
+                placeholder="@agent instructions..."
                 class="textarea textarea-bordered textarea-sm w-full font-mono min-h-24"
                 rows="4"
                 phx-debounce="300"
@@ -297,8 +309,7 @@ defmodule SynkadeWeb.Components.IssueView do
     <div class="max-w-4xl mx-auto">
       <div class="mb-4">
         <.link patch={@back_path} class="btn btn-ghost btn-sm gap-1">
-          <.icon name="hero-arrow-left" class="size-4" />
-          Issues
+          <.icon name="hero-arrow-left" class="size-4" /> Issues
         </.link>
       </div>
 
@@ -306,8 +317,8 @@ defmodule SynkadeWeb.Components.IssueView do
         <span class="badge badge-sm badge-info mb-2">new</span>
         <h1 class="text-2xl font-bold">New Issue</h1>
       </div>
-
-      <!-- Ancestor thread (when creating a child) -->
+      
+    <!-- Ancestor thread (when creating a child) -->
       <div :for={ancestor <- @create_ancestors} class="border-l-2 border-base-300 pl-4 mb-4">
         <p class="text-sm font-semibold text-base-content/70">{Issue.title(ancestor)}</p>
         <p :if={ancestor.body} class="text-sm text-base-content/60 whitespace-pre-wrap mt-1">
@@ -332,7 +343,7 @@ defmodule SynkadeWeb.Components.IssueView do
             <div class="form-control">
               <textarea
                 name="issue[body]"
-                placeholder={"# Issue title\n\nDescribe the issue..."}
+                placeholder="# Issue title\n\nDescribe the issue..."
                 class="textarea textarea-bordered w-full font-mono min-h-32"
                 rows="8"
                 phx-debounce="300"
@@ -341,6 +352,18 @@ defmodule SynkadeWeb.Components.IssueView do
           </div>
 
           <div class="flex items-center gap-3 mt-3">
+            <input type="hidden" name="issue[auto_merge]" value="false" />
+            <label class="label cursor-pointer gap-2">
+              <input
+                type="checkbox"
+                name="issue[auto_merge]"
+                value="true"
+                class="checkbox checkbox-sm"
+                checked={@form[:auto_merge].value == true or @form[:auto_merge].value == "true"}
+              />
+              <span class="label-text text-sm">Auto-merge</span>
+            </label>
+            <span class="text-base-content/20">|</span>
             <input type="hidden" name="issue[recurring]" value="false" />
             <label class="label cursor-pointer gap-2">
               <input
@@ -360,7 +383,9 @@ defmodule SynkadeWeb.Components.IssueView do
               class="input input-bordered input-sm w-20"
             />
             <select name="issue[recurrence_unit]" class="select select-bordered select-sm w-28">
-              <option value="hours" selected={(@form[:recurrence_unit].value || "hours") == "hours"}>hours</option>
+              <option value="hours" selected={(@form[:recurrence_unit].value || "hours") == "hours"}>
+                hours
+              </option>
               <option value="days" selected={@form[:recurrence_unit].value == "days"}>days</option>
               <option value="weeks" selected={@form[:recurrence_unit].value == "weeks"}>weeks</option>
             </select>
@@ -444,7 +469,11 @@ defmodule SynkadeWeb.Components.IssueView do
   defp body_without_title(""), do: nil
 
   defp body_without_title(body) do
-    result = String.replace(body, ~r/^#\s+.+\n*/, "", global: false) |> String.trim_leading("\n") |> String.trim()
+    result =
+      String.replace(body, ~r/^#\s+.+\n*/, "", global: false)
+      |> String.trim_leading("\n")
+      |> String.trim()
+
     if result == "", do: nil, else: result
   end
 end

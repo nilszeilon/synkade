@@ -492,6 +492,7 @@ defmodule SynkadeWeb.IssuesLive do
         {@project_name}
       </span>
       <span class="text-sm truncate flex-1 min-w-0">{Issue.title(@issue)}</span>
+      <span :if={@issue.auto_merge} class="badge badge-xs badge-warning flex-shrink-0">auto-merge</span>
       <span :if={@issue.recurring} class="badge badge-xs badge-accent flex-shrink-0">recurring</span>
       <span class={"badge badge-xs #{state_badge_class(@issue.state)} flex-shrink-0"}>
         {@issue.state}
