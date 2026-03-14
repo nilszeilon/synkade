@@ -39,10 +39,16 @@ defmodule SynkadeWeb.Layouts do
     <div class="flex min-h-screen">
       <aside class="w-56 h-screen fixed bg-base-200 flex flex-col border-r border-base-300">
         <%!-- Logo --%>
-        <div class="p-4 border-b border-base-300">
-          <a href="/" class="flex items-center gap-2">
-            <img src={~p"/images/logo.svg"} width="28" />
-            <span class="ops-label text-primary text-xs tracking-widest">Synkade</span>
+        <div class="border-b border-base-300">
+          <a href="/" class="relative flex items-center justify-center">
+            <span
+              class="inline-block w-32 h-32 bg-primary"
+              style="mask-image: url('/images/cicada.svg'); mask-size: contain; mask-repeat: no-repeat; mask-position: center; -webkit-mask-image: url('/images/cicada.svg'); -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center;"
+            >
+            </span>
+            <span class="absolute bottom-2 ops-label text-primary text-xs tracking-widest">
+              Synkade
+            </span>
           </a>
         </div>
 
@@ -173,5 +179,4 @@ defmodule SynkadeWeb.Layouts do
     </div>
     """
   end
-
 end
