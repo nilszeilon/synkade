@@ -404,6 +404,7 @@ defmodule SynkadeWeb.Components.IssueView do
                 name="issue[recurrence_interval]"
                 value={@form[:recurrence_interval].value || 24}
                 min="1"
+                max="365"
                 class="input input-bordered input-sm w-20"
               />
               <select

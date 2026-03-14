@@ -57,9 +57,25 @@ defmodule Synkade.Issues.Issue do
     |> cast(attrs, @required_fields ++ @optional_fields)
     |> validate_required(@required_fields)
     |> validate_inclusion(:state, @states)
-    |> validate_number(:recurrence_interval, greater_than: 0)
+    |> validate_number(:recurrence_interval, greater_than: 0, less_than_or_equal_to: 365)
     |> validate_inclusion(:recurrence_unit, ~w(hours days weeks))
+    |> validate_recurrence_minimum()
     |> foreign_key_constraint(:project_id)
     |> foreign_key_constraint(:parent_id)
+  end
+
+  # Enforce minimum recurrence of 1 hour
+  defp validate_recurrence_minimum(changeset) do
+    interval = get_field(changeset, :recurrence_interval)
+    unit = get_field(changeset, :recurrence_unit)
+
+    case {interval, unit} do
+      {nil, _} -> changeset
+      {_, nil} -> changeset
+      {i, "hours"} when i < 1 -> add_error(changeset, :recurrence_interval, "must be at least 1 hour")
+      {i, "days"} when i < 1 -> add_error(changeset, :recurrence_interval, "must be at least 1 day")
+      {i, "weeks"} when i < 1 -> add_error(changeset, :recurrence_interval, "must be at least 1 week")
+      _ -> changeset
+    end
   end
 end
