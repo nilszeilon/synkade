@@ -372,6 +372,16 @@ defmodule SynkadeWeb.SettingsLive do
       label: "Ember",
       desc: "Warm sand + fire accents",
       swatches: ["oklch(85% 0.06 70)", "oklch(68% 0.20 30)", "oklch(12% 0.015 30)"]
+    },
+    "daylight" => %{
+      label: "Daylight",
+      desc: "Crisp white + slate-blue",
+      swatches: ["oklch(20% 0.02 250)", "oklch(50% 0.18 250)", "oklch(98% 0 0)"]
+    },
+    "paper" => %{
+      label: "Paper",
+      desc: "Warm off-white + olive/forest",
+      swatches: ["oklch(22% 0.02 80)", "oklch(45% 0.12 145)", "oklch(96% 0.01 80)"]
     }
   }
 

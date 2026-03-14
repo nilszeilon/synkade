@@ -189,6 +189,74 @@
   --noise: 0;
 }
 
+/* ── Daylight: Crisp white + slate-blue accents ── */
+@plugin "../vendor/daisyui-theme" {
+  name: "daylight";
+  color-scheme: "light";
+  --color-base-100: oklch(98% 0 0);
+  --color-base-200: oklch(94% 0 0);
+  --color-base-300: oklch(88% 0 0);
+  --color-base-content: oklch(20% 0.02 250);
+  --color-primary: oklch(50% 0.18 250);
+  --color-primary-content: oklch(100% 0 0);
+  --color-secondary: oklch(55% 0.12 220);
+  --color-secondary-content: oklch(100% 0 0);
+  --color-accent: oklch(58% 0.16 270);
+  --color-accent-content: oklch(100% 0 0);
+  --color-neutral: oklch(30% 0.02 250);
+  --color-neutral-content: oklch(95% 0 0);
+  --color-info: oklch(55% 0.15 230);
+  --color-info-content: oklch(100% 0 0);
+  --color-success: oklch(52% 0.17 155);
+  --color-success-content: oklch(100% 0 0);
+  --color-warning: oklch(65% 0.18 75);
+  --color-warning-content: oklch(0% 0 0);
+  --color-error: oklch(55% 0.22 25);
+  --color-error-content: oklch(100% 0 0);
+  --radius-selector: 0;
+  --radius-field: 0;
+  --radius-box: 0;
+  --size-selector: 0.21875rem;
+  --size-field: 0.21875rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+/* ── Paper: Warm off-white + olive/forest accents ── */
+@plugin "../vendor/daisyui-theme" {
+  name: "paper";
+  color-scheme: "light";
+  --color-base-100: oklch(96% 0.01 80);
+  --color-base-200: oklch(92% 0.015 80);
+  --color-base-300: oklch(86% 0.02 80);
+  --color-base-content: oklch(22% 0.02 80);
+  --color-primary: oklch(45% 0.12 145);
+  --color-primary-content: oklch(100% 0 0);
+  --color-secondary: oklch(50% 0.10 100);
+  --color-secondary-content: oklch(100% 0 0);
+  --color-accent: oklch(55% 0.14 130);
+  --color-accent-content: oklch(100% 0 0);
+  --color-neutral: oklch(30% 0.02 80);
+  --color-neutral-content: oklch(95% 0.01 80);
+  --color-info: oklch(50% 0.12 230);
+  --color-info-content: oklch(100% 0 0);
+  --color-success: oklch(48% 0.15 155);
+  --color-success-content: oklch(100% 0 0);
+  --color-warning: oklch(62% 0.16 75);
+  --color-warning-content: oklch(0% 0 0);
+  --color-error: oklch(52% 0.20 25);
+  --color-error-content: oklch(100% 0 0);
+  --radius-selector: 0;
+  --radius-field: 0;
+  --radius-box: 0;
+  --size-selector: 0.21875rem;
+  --size-field: 0.21875rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
 /* Add variants based on LiveView classes */
 @custom-variant phx-click-loading (.phx-click-loading&, .phx-click-loading &);
 @custom-variant phx-submit-loading (.phx-submit-loading&, .phx-submit-loading &);

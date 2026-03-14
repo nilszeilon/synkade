@@ -5,7 +5,7 @@ defmodule Synkade.Settings.Setting do
   @primary_key {:id, :binary_id, autogenerate: true}
   @timestamps_opts [type: :utc_datetime]
 
-  @valid_themes ~w(ops copper midnight phantom ember)
+  @valid_themes ~w(ops copper midnight phantom ember daylight paper)
 
   schema "settings" do
     # GitHub integration
