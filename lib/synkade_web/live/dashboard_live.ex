@@ -870,14 +870,6 @@ defmodule SynkadeWeb.DashboardLive do
               {if @current_project, do: @current_project, else: "Overview"}
             </h1>
             <div class="flex items-center gap-3">
-              <div class="flex items-center gap-4 text-sm">
-                <span class="text-base-content/60">
-                  {format_number(@display_totals.total_tokens)} tokens
-                </span>
-                <span class="text-base-content/60">
-                  {format_duration(@display_totals.runtime_seconds)}
-                </span>
-              </div>
               <button phx-click="refresh" class="btn btn-sm btn-primary">
                 <span
                   :if={@current_project && @board_loading}
