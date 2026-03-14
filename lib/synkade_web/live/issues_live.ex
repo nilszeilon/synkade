@@ -30,9 +30,10 @@ defmodule SynkadeWeb.IssuesLive do
       |> assign(:issues, [])
       |> assign(:selected_issue, nil)
       |> assign(:view_mode, :list)
-      |> assign(:show_form, false)
       |> assign(:form, nil)
       |> assign(:form_project_id, nil)
+      |> assign(:form_parent_id, nil)
+      |> assign(:create_ancestors, [])
       |> assign(:collapsed, MapSet.new())
       |> assign(:agents, Settings.list_agents())
       |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
@@ -53,18 +54,21 @@ defmodule SynkadeWeb.IssuesLive do
       |> assign(:state_filter, filter)
       |> load_issues()
 
-    # Handle issue param for full-width view
+    # Handle view mode from URL params
     socket =
-      case params["issue"] do
-        nil ->
+      cond do
+        params["issue"] ->
+          load_issue_detail(socket, params["issue"])
+
+        params["new"] == "true" ->
+          init_create_view(socket, params)
+
+        true ->
           socket = unsubscribe_session(socket)
 
           socket
           |> assign(:selected_issue, nil)
           |> assign(:view_mode, :list)
-
-        issue_id ->
-          load_issue_detail(socket, issue_id)
       end
 
     {:noreply, socket}
@@ -197,29 +201,13 @@ defmodule SynkadeWeb.IssuesLive do
   @impl true
   def handle_event("new_issue", params, socket) do
     parent_id = params["parent_id"]
-
-    project_id =
-      params["project_id"] ||
-        case socket.assigns.db_projects do
-          [first | _] -> first.id
-          [] -> nil
-        end
-
-    changeset = Issues.change_issue(%Issue{}, %{parent_id: parent_id})
-
-    socket =
-      socket
-      |> assign(:show_form, true)
-      |> assign(:form, to_form(changeset))
-      |> assign(:form_parent_id, parent_id)
-      |> assign(:form_project_id, project_id)
-
-    {:noreply, socket}
+    path = new_issue_path(socket.assigns.state_filter, parent_id)
+    {:noreply, push_patch(socket, to: path)}
   end
 
   @impl true
   def handle_event("cancel_form", _params, socket) do
-    {:noreply, socket |> assign(:show_form, false) |> assign(:form, nil)}
+    {:noreply, push_patch(socket, to: issues_path(socket.assigns.state_filter))}
   end
 
   @impl true
@@ -242,15 +230,15 @@ defmodule SynkadeWeb.IssuesLive do
       |> maybe_put_parent(socket.assigns[:form_parent_id])
 
     case Issues.create_issue(params) do
-      {:ok, _issue} ->
+      {:ok, issue} ->
+        path = issues_path(socket.assigns.state_filter, issue.id)
+
         socket =
           socket
-          |> assign(:show_form, false)
-          |> assign(:form, nil)
           |> load_issues()
           |> put_flash(:info, "Issue created")
 
-        {:noreply, socket}
+        {:noreply, push_patch(socket, to: path)}
 
       {:error, changeset} ->
         {:noreply, assign(socket, :form, to_form(changeset))}
@@ -380,6 +368,40 @@ defmodule SynkadeWeb.IssuesLive do
 
   # --- Private ---
 
+  defp init_create_view(socket, params) do
+    parent_id = params["parent_id"]
+
+    project_id =
+      case socket.assigns.db_projects do
+        [first | _] -> first.id
+        [] -> nil
+      end
+
+    changeset = Issues.change_issue(%Issue{}, %{parent_id: parent_id})
+
+    create_ancestors =
+      case parent_id do
+        nil ->
+          []
+
+        id ->
+          case Issues.get_issue(id) do
+            nil -> []
+            parent -> Issues.ancestor_chain(parent) ++ [parent]
+          end
+      end
+
+    socket = unsubscribe_session(socket)
+
+    socket
+    |> assign(:view_mode, :create)
+    |> assign(:selected_issue, nil)
+    |> assign(:form, to_form(changeset))
+    |> assign(:form_parent_id, parent_id)
+    |> assign(:form_project_id, project_id)
+    |> assign(:create_ancestors, create_ancestors)
+  end
+
   defp load_issue_detail(socket, issue_id) do
     case Issues.get_issue(issue_id) do
       nil ->
@@ -418,6 +440,11 @@ defmodule SynkadeWeb.IssuesLive do
             |> assign(:session_id, nil)
           end
 
+        # Check PR status on load for awaiting_review issues
+        if issue.state == "awaiting_review" and issue.github_pr_url do
+          Orchestrator.check_pr_status(issue.id)
+        end
+
         socket
         |> assign(:selected_issue, %{issue: issue, ancestors: ancestors})
         |> assign(:view_mode, :detail)
@@ -450,6 +477,13 @@ defmodule SynkadeWeb.IssuesLive do
     else
       "/issues?" <> URI.encode_query(params)
     end
+  end
+
+  defp new_issue_path(filter, parent_id) do
+    params = %{"new" => "true"}
+    params = if filter, do: Map.put(params, "filter", filter), else: params
+    params = if parent_id, do: Map.put(params, "parent_id", parent_id), else: params
+    "/issues?" <> URI.encode_query(params)
   end
 
   defp maybe_put_parent(params, nil), do: params
@@ -498,89 +532,67 @@ defmodule SynkadeWeb.IssuesLive do
       current_project={@current_project}
     >
       <div class="px-6 py-4">
-        <%= if @view_mode == :detail && @selected_issue do %>
-          <.issue_full_view
-            issue={@selected_issue.issue}
-            ancestors={@selected_issue.ancestors}
-            dispatch_form={@dispatch_form}
-            agents={@agents}
-            session_events={@session_events}
-            session_id={@session_id}
-            running_entry={find_running_entry(@running, @selected_issue.issue.id)}
-            back_path={issues_path(@state_filter)}
-            back_label="Issues"
-          />
-        <% else %>
-          <div class="flex items-center justify-between mb-4">
-            <h1 class="text-2xl font-bold">Issues</h1>
-            <div class="flex items-center gap-2">
-              <div class="flex items-center gap-1">
-                <button
-                  :for={
-                    {label, value} <- [
-                      {"Open", nil},
-                      {"Done", "done"}
-                    ]
-                  }
-                  phx-click="set_filter"
-                  phx-value-filter={value || ""}
-                  class={["btn btn-xs", if(@state_filter == value, do: "btn-primary", else: "btn-ghost")]}
-                >
-                  {label}
-                </button>
-              </div>
-              <button phx-click="new_issue" class="btn btn-sm btn-primary">
-                New Issue
-              </button>
-            </div>
-          </div>
+        <%= cond do %>
+          <% @view_mode == :detail && @selected_issue -> %>
+            <.issue_full_view
+              issue={@selected_issue.issue}
+              ancestors={@selected_issue.ancestors}
+              dispatch_form={@dispatch_form}
+              agents={@agents}
+              session_events={@session_events}
+              session_id={@session_id}
+              running_entry={find_running_entry(@running, @selected_issue.issue.id)}
+              back_path={issues_path(@state_filter)}
+              back_label="Issues"
+            />
 
-          <!-- New issue form -->
-          <div :if={@show_form} class="card bg-base-200 p-4 mb-4">
-            <.form for={@form} phx-change="validate_issue" phx-submit="save_issue">
-              <div class="flex flex-col gap-3">
-                <div :if={length(@db_projects) > 1} class="form-control">
-                  <select name="issue[project_id]" class="select select-bordered select-sm">
-                    <option
-                      :for={p <- @db_projects}
-                      value={p.id}
-                      selected={p.id == @form_project_id}
-                    >
-                      {p.name}
-                    </option>
-                  </select>
-                </div>
-                <div class="form-control">
-                  <textarea
-                    name="issue[body]"
-                    placeholder={"# Issue title\n\nDescribe the issue..."}
-                    class="textarea textarea-bordered textarea-sm w-full font-mono"
-                    rows="5"
-                    phx-debounce="300"
-                  ><%= @form[:body].value %></textarea>
-                </div>
-                <div class="flex gap-2">
-                  <button type="submit" class="btn btn-sm btn-primary">Create</button>
-                  <button type="button" phx-click="cancel_form" class="btn btn-sm btn-ghost">
-                    Cancel
+          <% @view_mode == :create -> %>
+            <.issue_create_view
+              form={@form}
+              db_projects={@db_projects}
+              form_project_id={@form_project_id}
+              form_parent_id={@form_parent_id}
+              create_ancestors={@create_ancestors}
+              back_path={issues_path(@state_filter)}
+            />
+
+          <% true -> %>
+            <div class="flex items-center justify-between mb-4">
+              <h1 class="text-2xl font-bold">Issues</h1>
+              <div class="flex items-center gap-2">
+                <div class="flex items-center gap-1">
+                  <button
+                    :for={
+                      {label, value} <- [
+                        {"Open", nil},
+                        {"Done", "done"}
+                      ]
+                    }
+                    phx-click="set_filter"
+                    phx-value-filter={value || ""}
+                    class={["btn btn-xs", if(@state_filter == value, do: "btn-primary", else: "btn-ghost")]}
+                  >
+                    {label}
                   </button>
                 </div>
+                <button phx-click="new_issue" class="btn btn-sm btn-primary">
+                  New Issue
+                </button>
               </div>
-            </.form>
-          </div>
-
-          <div>
-            <div :if={@issues == []} class="text-base-content/50 text-sm py-8 text-center">
-              No issues
             </div>
 
-            <div :for={issue <- @issues} class="mb-1">
-              <.issue_flat_row
-                issue={issue}
-                project_name={Map.get(@project_names, issue.project_id)}
-              />
+            <div>
+              <div :if={@issues == []} class="text-base-content/50 text-sm py-8 text-center">
+                No issues
+              </div>
+
+              <div :for={issue <- @issues} class="mb-1">
+                <.issue_flat_row
+                  issue={issue}
+                  project_name={Map.get(@project_names, issue.project_id)}
+                />
+              </div>
             </div>
-          </div>
         <% end %>
       </div>
     </Layouts.app>

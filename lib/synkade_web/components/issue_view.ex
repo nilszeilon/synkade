@@ -215,21 +215,21 @@ defmodule SynkadeWeb.Components.IssueView do
       <div class="border-t border-base-300 pt-4">
         <div :if={@issue.state in ["backlog", "done", "awaiting_review", "cancelled"]} class="mb-3">
           <.form for={@dispatch_form} phx-submit="dispatch_issue">
-            <div class="flex gap-2">
-              <input
-                type="text"
+            <div class="flex flex-col gap-2">
+              <textarea
                 name="dispatch[message]"
-                value={@dispatch_form[:message].value}
-                placeholder="@agent instructions..."
-                class="input input-bordered input-sm flex-1"
-                list="agent-names"
-                autocomplete="off"
-              />
-              <button type="submit" class="btn btn-sm btn-primary">Go</button>
+                placeholder={"@agent instructions..."}
+                class="textarea textarea-bordered textarea-sm w-full font-mono min-h-24"
+                rows="4"
+                phx-debounce="300"
+              ><%= @dispatch_form[:message].value %></textarea>
+              <div class="flex items-center justify-between">
+                <p class="text-xs text-base-content/40">
+                  Prefix with @agent_name to target a specific agent
+                </p>
+                <button type="submit" class="btn btn-sm btn-primary">Dispatch</button>
+              </div>
             </div>
-            <datalist id="agent-names">
-              <option :for={agent <- @agents} value={"@#{agent.name} "} />
-            </datalist>
           </.form>
         </div>
 
@@ -266,6 +266,73 @@ defmodule SynkadeWeb.Components.IssueView do
             Delete
           </button>
         </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :form, :any, required: true
+  attr :db_projects, :list, required: true
+  attr :form_project_id, :any, default: nil
+  attr :form_parent_id, :any, default: nil
+  attr :create_ancestors, :list, default: []
+  attr :back_path, :string, required: true
+
+  def issue_create_view(assigns) do
+    ~H"""
+    <div class="max-w-4xl mx-auto">
+      <div class="mb-4">
+        <.link patch={@back_path} class="btn btn-ghost btn-sm gap-1">
+          <.icon name="hero-arrow-left" class="size-4" />
+          Issues
+        </.link>
+      </div>
+
+      <div class="mb-4">
+        <span class="badge badge-sm badge-info mb-2">new</span>
+        <h1 class="text-2xl font-bold">New Issue</h1>
+      </div>
+
+      <!-- Ancestor thread (when creating a child) -->
+      <div :for={ancestor <- @create_ancestors} class="border-l-2 border-base-300 pl-4 mb-4">
+        <p class="text-sm font-semibold text-base-content/70">{Issue.title(ancestor)}</p>
+        <p :if={ancestor.body} class="text-sm text-base-content/60 whitespace-pre-wrap mt-1">
+          {body_without_title(ancestor.body)}
+        </p>
+      </div>
+
+      <div class="border-l-2 border-primary pl-4 mb-4">
+        <.form for={@form} phx-change="validate_issue" phx-submit="save_issue">
+          <div class="flex flex-col gap-3">
+            <div :if={length(@db_projects) > 1} class="form-control">
+              <select name="issue[project_id]" class="select select-bordered select-sm">
+                <option
+                  :for={p <- @db_projects}
+                  value={p.id}
+                  selected={p.id == @form_project_id}
+                >
+                  {p.name}
+                </option>
+              </select>
+            </div>
+            <div class="form-control">
+              <textarea
+                name="issue[body]"
+                placeholder={"# Issue title\n\nDescribe the issue..."}
+                class="textarea textarea-bordered w-full font-mono min-h-32"
+                rows="8"
+                phx-debounce="300"
+              ><%= @form[:body].value %></textarea>
+            </div>
+          </div>
+
+          <div class="border-t border-base-300 pt-4 mt-4 flex gap-2">
+            <button type="submit" class="btn btn-sm btn-primary">Create</button>
+            <button type="button" phx-click="cancel_form" class="btn btn-sm btn-ghost">
+              Cancel
+            </button>
+          </div>
+        </.form>
       </div>
     </div>
     """
