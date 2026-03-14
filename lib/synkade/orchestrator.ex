@@ -191,7 +191,8 @@ defmodule Synkade.Orchestrator do
                   db_issue = Issues.get_issue(db_issue_id)
                   if db_issue, do: Issues.transition_state(db_issue, "done")
                 catch
-                  _, _ -> :ok
+                  kind, reason ->
+                    Logger.warning("Failed to transition issue to done on PR merge for #{key}: #{kind} #{inspect(reason)}")
                 end
 
                 put_in(state.awaiting_review[key], Map.put(entry, :should_stop, :pr_merged))
@@ -204,7 +205,8 @@ defmodule Synkade.Orchestrator do
                   db_issue = Issues.get_issue(db_issue_id)
                   if db_issue, do: Issues.transition_state(db_issue, "done")
                 catch
-                  _, _ -> :ok
+                  kind, reason ->
+                    Logger.warning("Failed to transition issue to done on PR close for #{key}: #{kind} #{inspect(reason)}")
                 end
 
                 put_in(state.awaiting_review[key], Map.put(entry, :should_stop, :pr_closed))
@@ -556,7 +558,9 @@ defmodule Synkade.Orchestrator do
         try do
           Issues.list_queued_issues(db_project_id)
         catch
-          _, _ -> []
+          kind, reason ->
+            Logger.warning("Failed to list queued issues for project #{project.name}: #{kind} #{inspect(reason)}")
+            []
         end
 
       Logger.warning(
@@ -634,7 +638,8 @@ defmodule Synkade.Orchestrator do
       try do
         Issues.transition_state(db_issue, "in_progress")
       catch
-        _, _ -> :ok
+        kind, reason ->
+          Logger.warning("Failed to transition issue #{db_issue.id} to in_progress: #{kind} #{inspect(reason)}")
       end
     end
 
@@ -695,21 +700,27 @@ defmodule Synkade.Orchestrator do
       try do
         Settings.get_settings()
       catch
-        _, _ -> nil
+        kind, reason ->
+          Logger.warning("Failed to load settings: #{kind} #{inspect(reason)}")
+          nil
       end
 
     db_projects =
       try do
         Settings.list_enabled_projects()
       catch
-        _, _ -> []
+        kind, reason ->
+          Logger.warning("Failed to list enabled projects: #{kind} #{inspect(reason)}")
+          []
       end
 
     db_agents =
       try do
         Settings.list_agents()
       catch
-        _, _ -> []
+        kind, reason ->
+          Logger.warning("Failed to list agents: #{kind} #{inspect(reason)}")
+          []
       end
 
     case {db_settings, db_projects} do
@@ -748,7 +759,9 @@ defmodule Synkade.Orchestrator do
                   try do
                     SynkadeWeb.Endpoint.url() <> "/api/v1/agent"
                   catch
-                    _, _ -> nil
+                    kind, reason ->
+                      Logger.warning("Failed to resolve Endpoint URL: #{kind} #{inspect(reason)}")
+                      nil
                   end
 
                 config =
@@ -828,7 +841,8 @@ defmodule Synkade.Orchestrator do
       try do
         TokenUsage.record_usage(model, entry.agent_input_tokens, entry.agent_output_tokens)
       catch
-        _, _ -> :ok
+        kind, reason ->
+          Logger.warning("Failed to record token usage for model #{model}: #{kind} #{inspect(reason)}")
       end
     end
 
@@ -970,7 +984,8 @@ defmodule Synkade.Orchestrator do
         Issues.transition_state(db_issue, "awaiting_review")
       end
     catch
-      _, _ -> :ok
+      kind, reason ->
+        Logger.warning("Failed to update DB issue #{entry.db_issue_id} with PR #{pr_url}: #{kind} #{inspect(reason)}")
     end
   end
 
@@ -998,7 +1013,8 @@ defmodule Synkade.Orchestrator do
                prompt_template: db_project.prompt_template || agent.system_prompt
            }, agent.name, agent.kind}
         catch
-          _, _ ->
+          kind, reason ->
+            Logger.warning("Failed to resolve assigned agent #{agent_id} for project #{project.name}: #{kind} #{inspect(reason)}")
             agent = get_default_agent(project)
             {add_agent_config(project, agent), agent_name(agent), agent_kind(agent)}
         end
@@ -1012,7 +1028,9 @@ defmodule Synkade.Orchestrator do
       db_project = Settings.get_project!(project.db_id)
       agents_by_id[db_project.default_agent_id] || List.first(db_agents)
     catch
-      _, _ -> nil
+      kind, reason ->
+        Logger.warning("Failed to resolve default agent for project #{project.name}: #{kind} #{inspect(reason)}")
+        nil
     end
   end
 
@@ -1054,7 +1072,8 @@ defmodule Synkade.Orchestrator do
         end
       end
     catch
-      _, _ -> :ok
+      kind, reason ->
+        Logger.warning("Failed to complete DB issue #{entry.db_issue_id} with agent output: #{kind} #{inspect(reason)}")
     end
   end
 end

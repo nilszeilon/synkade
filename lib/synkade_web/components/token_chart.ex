@@ -16,11 +16,15 @@ defmodule SynkadeWeb.Components.TokenChart do
   Call this in mount/handle_info to populate chart_days, chart_models, etc.
   """
   def assign_chart_data(socket) do
+    require Logger
+
     usage =
       try do
         TokenUsage.daily_usage(30)
       catch
-        _, _ -> []
+        kind, reason ->
+          Logger.warning("Failed to load token usage data: #{kind} #{inspect(reason)}")
+          []
       end
 
     today = Date.utc_today()
