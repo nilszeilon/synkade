@@ -5,6 +5,7 @@ defmodule SynkadeWeb.Components.IssueView do
   use Phoenix.Component
 
   import SynkadeWeb.CoreComponents
+  import SynkadeWeb.Components.AgentBrand
   alias Synkade.Issues.Issue
 
   attr :issue, :map, required: true
@@ -40,6 +41,9 @@ defmodule SynkadeWeb.Components.IssueView do
         :if={@running_entry}
         class="mb-4 px-4 py-3 bg-info/10 rounded-lg flex items-center gap-2"
       >
+        <span :if={@running_entry[:agent_kind]} class={brand_color(@running_entry[:agent_kind])}>
+          <.agent_icon kind={@running_entry[:agent_kind]} class="size-4" />
+        </span>
         <span class="loading loading-spinner loading-sm text-info"></span>
         <div class="flex-1 min-w-0">
           <p
@@ -103,14 +107,20 @@ defmodule SynkadeWeb.Components.IssueView do
         <div :for={{msg, idx} <- Enum.with_index(@messages, 1)}>
           <%= if msg["type"] == "dispatch" do %>
             <div class="border-l-2 border-info pl-4">
-              <p class="text-xs text-base-content/50 font-semibold mb-1">
+              <p class="text-xs text-base-content/50 font-semibold mb-1 inline-flex items-center gap-1">
+                <span :if={msg["agent_kind"]} class={brand_color(msg["agent_kind"])}>
+                  <.agent_icon kind={msg["agent_kind"]} class="size-3.5" />
+                </span>
                 #{idx}{if msg["agent_name"], do: " — #{msg["agent_name"]}", else: ""}
               </p>
               <p class="text-sm whitespace-pre-wrap">{msg["text"]}</p>
             </div>
           <% else %>
             <div class="border-l-2 border-success pl-4">
-              <p class="text-xs text-base-content/50 font-semibold mb-1">
+              <p class="text-xs text-base-content/50 font-semibold mb-1 inline-flex items-center gap-1">
+                <span :if={msg["agent_kind"]} class={brand_color(msg["agent_kind"])}>
+                  <.agent_icon kind={msg["agent_kind"]} class="size-3.5" />
+                </span>
                 #{idx} — {msg["agent_name"] || "agent"} output
               </p>
               <div class="collapse collapse-arrow bg-base-200 rounded">
@@ -133,7 +143,12 @@ defmodule SynkadeWeb.Components.IssueView do
         class="mb-4"
       >
         <div class="flex items-center justify-between mb-2">
-          <p class="text-sm text-base-content/50 font-semibold">Agent Session</p>
+          <p class="text-sm text-base-content/50 font-semibold inline-flex items-center gap-1.5">
+            <span :if={@running_entry && @running_entry[:agent_kind]} class={brand_color(@running_entry[:agent_kind])}>
+              <.agent_icon kind={@running_entry[:agent_kind]} class="size-4" />
+            </span>
+            Agent Session
+          </p>
           <div :if={@session_id} class="flex items-center gap-1">
             <code class="text-xs text-base-content/40 font-mono">
               {String.slice(@session_id, 0..11)}...

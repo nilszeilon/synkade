@@ -5,6 +5,8 @@ defmodule SynkadeWeb.SettingsLive do
   alias Synkade.Settings
   alias Synkade.Settings.{Agent, ConnectionTest}
 
+  import SynkadeWeb.Components.AgentBrand
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
@@ -116,6 +118,24 @@ defmodule SynkadeWeb.SettingsLive do
         :new -> %Agent{}
         %Agent{} = a -> a
       end
+
+    changeset =
+      Settings.change_agent(agent, params)
+      |> Map.put(:action, :validate)
+
+    {:noreply, assign(socket, :agent_form, to_form(changeset))}
+  end
+
+  @impl true
+  def handle_event("select_agent_kind", %{"kind" => kind}, socket) do
+    agent =
+      case socket.assigns.agent_editing do
+        :new -> %Agent{}
+        %Agent{} = a -> a
+      end
+
+    current_params = socket.assigns.agent_form.params || %{}
+    params = Map.put(current_params, "kind", kind)
 
     changeset =
       Settings.change_agent(agent, params)
@@ -516,7 +536,14 @@ defmodule SynkadeWeb.SettingsLive do
                 <%= for agent <- @agents do %>
                   <tr>
                     <td class="font-medium">{agent.name}</td>
-                    <td class="text-sm text-base-content/60">{agent.kind}</td>
+                    <td class="text-sm text-base-content/60">
+                      <span class="inline-flex items-center gap-1.5">
+                        <span class={brand_color(agent.kind)}>
+                          <.agent_icon kind={agent.kind} class="size-4" />
+                        </span>
+                        {brand_label(agent.kind)}
+                      </span>
+                    </td>
                     <td class="text-sm text-base-content/60">{agent.model || "-"}</td>
                     <td>
                       <%= if agent.api_token_hash do %>
@@ -635,17 +662,12 @@ defmodule SynkadeWeb.SettingsLive do
 
             <div class="form-control">
               <label class="label"><span class="label-text">Kind</span></label>
-              <select
-                class="select select-bordered w-full"
-                name={@form[:kind].name}
-                id={@form[:kind].id}
-              >
-                <option value="claude" selected={(@form[:kind].value || "claude") == "claude"}>
-                  Claude
-                </option>
-                <option value="codex" selected={@form[:kind].value == "codex"}>Codex</option>
-                <option value="opencode" selected={@form[:kind].value == "opencode"}>OpenCode</option>
-              </select>
+              <input type="hidden" name={@form[:kind].name} value={@form[:kind].value || "claude"} />
+              <div class="grid grid-cols-3 gap-2">
+                <.agent_card kind="claude" selected={(@form[:kind].value || "claude") == "claude"} />
+                <.agent_card kind="opencode" selected={@form[:kind].value == "opencode"} />
+                <.agent_card kind="codex" selected={@form[:kind].value == "codex"} />
+              </div>
             </div>
 
             <div class="form-control">

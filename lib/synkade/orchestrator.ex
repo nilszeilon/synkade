@@ -576,8 +576,8 @@ defmodule Synkade.Orchestrator do
       end
     end
 
-    # Resolve per-issue agent override and get agent name
-    {effective_project, agent_name} = resolve_issue_agent(project, db_issue)
+    # Resolve per-issue agent override and get agent name + kind
+    {effective_project, agent_name, agent_kind} = resolve_issue_agent(project, db_issue)
 
     # Launch worker task
     orchestrator = self()
@@ -612,6 +612,7 @@ defmodule Synkade.Orchestrator do
       should_stop: nil,
       events: [],
       agent_name: agent_name,
+      agent_kind: agent_kind,
       model: model
     }
 
@@ -857,14 +858,14 @@ defmodule Synkade.Orchestrator do
 
   defp resolve_issue_agent(project, nil) do
     agent = get_default_agent(project)
-    {add_agent_config(project, agent), agent_name(agent)}
+    {add_agent_config(project, agent), agent_name(agent), agent_kind(agent)}
   end
 
   defp resolve_issue_agent(project, db_issue) do
     case db_issue.assigned_agent_id do
       nil ->
         agent = get_default_agent(project)
-        {add_agent_config(project, agent), agent_name(agent)}
+        {add_agent_config(project, agent), agent_name(agent), agent_kind(agent)}
 
       agent_id ->
         try do
@@ -877,11 +878,11 @@ defmodule Synkade.Orchestrator do
              project
              | config: config,
                prompt_template: db_project.prompt_template || agent.system_prompt
-           }, agent.name}
+           }, agent.name, agent.kind}
         catch
           _, _ ->
             agent = get_default_agent(project)
-            {add_agent_config(project, agent), agent_name(agent)}
+            {add_agent_config(project, agent), agent_name(agent), agent_kind(agent)}
         end
     end
   end
@@ -900,6 +901,9 @@ defmodule Synkade.Orchestrator do
   defp agent_name(nil), do: nil
   defp agent_name(agent), do: agent.name
 
+  defp agent_kind(nil), do: nil
+  defp agent_kind(agent), do: agent.kind
+
   defp add_agent_config(project, nil), do: project
 
   defp add_agent_config(project, agent) do
@@ -914,7 +918,8 @@ defmodule Synkade.Orchestrator do
 
       if db_issue do
         agent_name = entry[:agent_name]
-        Issues.append_agent_output(db_issue, agent_output, agent_name)
+        agent_kind = entry[:agent_kind]
+        Issues.append_agent_output(db_issue, agent_output, agent_name, agent_kind)
 
         # Re-fetch after append to get updated metadata
         db_issue = Issues.get_issue(entry.db_issue_id)

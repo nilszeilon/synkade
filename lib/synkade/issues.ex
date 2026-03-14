@@ -143,14 +143,15 @@ defmodule Synkade.Issues do
   def cancel_issue(%Issue{} = issue), do: transition_state(issue, "cancelled")
 
   def dispatch_issue(%Issue{} = issue, dispatch_message, assigned_agent_id \\ nil) do
-    agent_name =
+    {agent_name, agent_kind} =
       case assigned_agent_id do
-        nil -> nil
+        nil -> {nil, nil}
         id ->
           try do
-            Synkade.Settings.get_agent!(id).name
+            agent = Synkade.Settings.get_agent!(id)
+            {agent.name, agent.kind}
           rescue
-            _ -> nil
+            _ -> {nil, nil}
           end
       end
 
@@ -158,6 +159,7 @@ defmodule Synkade.Issues do
     new_entry = %{
       "type" => "dispatch",
       "agent_name" => agent_name,
+      "agent_kind" => agent_kind,
       "text" => dispatch_message,
       "at" => DateTime.utc_now() |> DateTime.to_iso8601()
     }
@@ -178,11 +180,12 @@ defmodule Synkade.Issues do
   defp ensure_backlog(%Issue{} = issue), do: transition_state(issue, "backlog")
 
   @doc "Appends an agent output entry to the issue message history."
-  def append_agent_output(%Issue{} = issue, agent_output, agent_name \\ nil) do
+  def append_agent_output(%Issue{} = issue, agent_output, agent_name \\ nil, agent_kind \\ nil) do
     messages = (issue.metadata["messages"] || [])
     new_entry = %{
       "type" => "agent",
       "agent_name" => agent_name,
+      "agent_kind" => agent_kind,
       "text" => agent_output,
       "at" => DateTime.utc_now() |> DateTime.to_iso8601()
     }

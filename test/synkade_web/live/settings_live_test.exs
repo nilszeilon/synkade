@@ -31,7 +31,7 @@ defmodule SynkadeWeb.SettingsLiveTest do
     {:ok, view, _html} = live(conn, "/settings")
     html = view |> element(~s{button[phx-value-tab="agents"]}) |> render_click()
     assert html =~ "test-agent"
-    assert html =~ "claude"
+    assert html =~ "Claude Code"
     assert html =~ "sonnet"
   end
 
