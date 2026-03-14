@@ -2,9 +2,10 @@ defmodule SynkadeWeb.IssuesLive do
   use SynkadeWeb, :live_view
 
   import SynkadeWeb.Components.IssueView
+  import SynkadeWeb.IssueLiveHelpers
 
   alias Synkade.{Issues, Orchestrator, Settings}
-  alias Synkade.Issues.{Issue, DispatchParser}
+  alias Synkade.Issues.Issue
 
   @impl true
   def mount(_params, _session, socket) do
@@ -59,10 +60,15 @@ defmodule SynkadeWeb.IssuesLive do
     socket =
       cond do
         params["issue"] ->
-          load_issue_detail(socket, params["issue"])
+          load_issue_detail(socket, params["issue"], :list)
 
         params["new"] == "true" ->
-          init_create_view(socket, params)
+          init_create_view(socket, params, fn s ->
+            case s.assigns.db_projects do
+              [first | _] -> first.id
+              [] -> nil
+            end
+          end)
 
         true ->
           socket = unsubscribe_session(socket)
@@ -77,26 +83,10 @@ defmodule SynkadeWeb.IssuesLive do
 
   @impl true
   def handle_info({:issues_updated}, socket) do
-    socket = load_issues(socket)
-
-    # Reload selected issue if viewing detail
     socket =
-      case socket.assigns.selected_issue do
-        nil ->
-          socket
-
-        %{issue: issue} ->
-          case Issues.get_issue(issue.id) do
-            nil ->
-              socket
-              |> assign(:selected_issue, nil)
-              |> assign(:view_mode, :list)
-
-            updated ->
-              ancestors = Issues.ancestor_chain(updated)
-              assign(socket, :selected_issue, %{issue: updated, ancestors: ancestors})
-          end
-      end
+      socket
+      |> load_issues()
+      |> reload_selected_issue(:list)
 
     {:noreply, socket}
   end
@@ -107,22 +97,7 @@ defmodule SynkadeWeb.IssuesLive do
       socket
       |> assign(:running, snapshot.running)
       |> assign(:projects, snapshot.projects)
-
-    # Update session_id from running entry, or unsubscribe if no longer running
-    socket =
-      case socket.assigns.session_subscribed do
-        nil ->
-          socket
-
-        issue_id ->
-          running_entry = find_running_entry(snapshot.running, issue_id)
-
-          if running_entry do
-            assign(socket, :session_id, running_entry.session_id)
-          else
-            unsubscribe_session(socket)
-          end
-      end
+      |> update_session_from_snapshot(snapshot)
 
     {:noreply, socket}
   end
@@ -234,7 +209,7 @@ defmodule SynkadeWeb.IssuesLive do
     issue_params =
       issue_params
       |> Map.put("project_id", project_id)
-      |> maybe_put_parent(socket.assigns[:form_parent_id])
+      |> SynkadeWeb.IssueLiveHelpers.maybe_put_parent(socket.assigns[:form_parent_id])
 
     case Issues.create_issue(issue_params) do
       {:ok, issue} ->
@@ -315,19 +290,7 @@ defmodule SynkadeWeb.IssuesLive do
       {:noreply, put_flash(socket, :error, "Dispatch message cannot be empty")}
     else
       issue = socket.assigns.selected_issue.issue
-      {agent_name, instruction} = DispatchParser.parse(message)
-
-      agent_id =
-        case agent_name do
-          nil ->
-            nil
-
-          name ->
-            case Settings.get_agent_by_name(name) do
-              nil -> nil
-              agent -> agent.id
-            end
-        end
+      {agent_name, instruction, agent_id} = resolve_dispatch(message)
 
       case Issues.dispatch_issue(issue, instruction, agent_id) do
         {:ok, _} ->
@@ -398,97 +361,6 @@ defmodule SynkadeWeb.IssuesLive do
 
   # --- Private ---
 
-  defp init_create_view(socket, params) do
-    parent_id = params["parent_id"]
-
-    project_id =
-      case socket.assigns.db_projects do
-        [first | _] -> first.id
-        [] -> nil
-      end
-
-    changeset = Issues.change_issue(%Issue{}, %{parent_id: parent_id})
-
-    create_ancestors =
-      case parent_id do
-        nil ->
-          []
-
-        id ->
-          case Issues.get_issue(id) do
-            nil -> []
-            parent -> Issues.ancestor_chain(parent) ++ [parent]
-          end
-      end
-
-    socket = unsubscribe_session(socket)
-
-    default_agent_id =
-      case socket.assigns.agents do
-        [first | _] -> first.id
-        [] -> nil
-      end
-
-    socket
-    |> assign(:view_mode, :create)
-    |> assign(:selected_issue, nil)
-    |> assign(:form, to_form(changeset))
-    |> assign(:form_parent_id, parent_id)
-    |> assign(:form_project_id, project_id)
-    |> assign(:create_ancestors, create_ancestors)
-    |> assign(:selected_agent_id, default_agent_id)
-  end
-
-  defp load_issue_detail(socket, issue_id) do
-    case Issues.get_issue(issue_id) do
-      nil ->
-        socket
-        |> assign(:selected_issue, nil)
-        |> assign(:view_mode, :list)
-
-      issue ->
-        ancestors = Issues.ancestor_chain(issue)
-
-        # Unsubscribe from previous session
-        socket = unsubscribe_session(socket)
-
-        # Subscribe to agent events if issue is in_progress
-        socket =
-          if issue.state == "in_progress" do
-            running_entry = find_running_entry(socket.assigns.running, issue_id)
-
-            if running_entry do
-              topic = Orchestrator.agent_events_topic(issue_id)
-              Phoenix.PubSub.subscribe(Synkade.PubSub, topic)
-              past_events = Orchestrator.get_issue_events(issue_id)
-
-              socket
-              |> assign(:session_events, past_events)
-              |> assign(:session_id, running_entry.session_id)
-              |> assign(:session_subscribed, issue_id)
-            else
-              socket
-              |> assign(:session_events, [])
-              |> assign(:session_id, nil)
-            end
-          else
-            socket
-            |> assign(:session_events, [])
-            |> assign(:session_id, nil)
-          end
-
-        # Check PR status on load for awaiting_review issues
-        if issue.state == "awaiting_review" and issue.github_pr_url do
-          Orchestrator.check_pr_status(issue.id)
-        end
-
-        socket
-        |> assign(:selected_issue, %{issue: issue, ancestors: ancestors})
-        |> assign(:view_mode, :detail)
-        |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
-    end
-  end
-
   defp load_issues(socket) do
     states =
       case socket.assigns.state_filter do
@@ -523,38 +395,6 @@ defmodule SynkadeWeb.IssuesLive do
     "/issues?" <> URI.encode_query(params)
   end
 
-  defp maybe_put_parent(params, nil), do: params
-  defp maybe_put_parent(params, parent_id), do: Map.put(params, "parent_id", parent_id)
-
-  defp unsubscribe_session(socket) do
-    case socket.assigns.session_subscribed do
-      nil ->
-        socket
-
-      issue_id ->
-        topic = Orchestrator.agent_events_topic(issue_id)
-        Phoenix.PubSub.unsubscribe(Synkade.PubSub, topic)
-
-        socket
-        |> assign(:session_events, [])
-        |> assign(:session_id, nil)
-        |> assign(:session_subscribed, nil)
-    end
-  end
-
-  defp find_running_entry(running, issue_id) do
-    Enum.find_value(running, fn {_key, entry} ->
-      if entry.issue_id == issue_id, do: entry
-    end)
-  end
-
-  defp state_badge_class("backlog"), do: "badge-ghost"
-  defp state_badge_class("queued"), do: "badge-info"
-  defp state_badge_class("in_progress"), do: "badge-warning"
-  defp state_badge_class("awaiting_review"), do: "badge-secondary"
-  defp state_badge_class("done"), do: "badge-success"
-  defp state_badge_class("cancelled"), do: "badge-error"
-  defp state_badge_class(_), do: "badge-ghost"
 
   # --- Render ---
 

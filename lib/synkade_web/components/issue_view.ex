@@ -6,6 +6,7 @@ defmodule SynkadeWeb.Components.IssueView do
 
   import SynkadeWeb.CoreComponents
   import SynkadeWeb.Components.AgentBrand
+  import SynkadeWeb.IssueLiveHelpers, only: [state_badge_class: 1, format_relative_time: 1]
   alias Synkade.Issues.Issue
 
   attr :issue, :map, required: true
@@ -401,28 +402,6 @@ defmodule SynkadeWeb.Components.IssueView do
     </div>
     """
   end
-
-  defp state_badge_class("backlog"), do: "badge-ghost"
-  defp state_badge_class("queued"), do: "badge-info"
-  defp state_badge_class("in_progress"), do: "badge-warning"
-  defp state_badge_class("awaiting_review"), do: "badge-secondary"
-  defp state_badge_class("done"), do: "badge-success"
-  defp state_badge_class("cancelled"), do: "badge-error"
-  defp state_badge_class(_), do: "badge-ghost"
-
-  defp format_relative_time(monotonic_ms) when is_integer(monotonic_ms) do
-    elapsed_ms = System.monotonic_time(:millisecond) - monotonic_ms
-    elapsed_s = div(elapsed_ms, 1000)
-
-    cond do
-      elapsed_s < 5 -> "just now"
-      elapsed_s < 60 -> "#{elapsed_s}s ago"
-      elapsed_s < 3600 -> "#{div(elapsed_s, 60)}m ago"
-      true -> "#{div(elapsed_s, 3600)}h ago"
-    end
-  end
-
-  defp format_relative_time(_), do: nil
 
   defp body_without_title(nil), do: nil
   defp body_without_title(""), do: nil
