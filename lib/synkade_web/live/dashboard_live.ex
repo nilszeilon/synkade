@@ -688,6 +688,11 @@ defmodule SynkadeWeb.DashboardLive do
             |> assign(:session_id, nil)
           end
 
+        # Check PR status on load for awaiting_review issues
+        if issue.state == "awaiting_review" and issue.github_pr_url do
+          Orchestrator.check_pr_status(issue.id)
+        end
+
         socket
         |> assign(:selected_issue, %{issue: issue, ancestors: ancestors})
         |> assign(:view_mode, :detail)

@@ -43,6 +43,11 @@ defmodule Synkade.Orchestrator do
     GenServer.cast(server, {:agent_heartbeat, issue_id, status, message})
   end
 
+  @doc "Check PR status for a specific awaiting_review issue (e.g. on page load)."
+  def check_pr_status(server \\ __MODULE__, issue_id) do
+    GenServer.cast(server, {:check_pr_status, issue_id})
+  end
+
   # --- Callbacks ---
 
   @impl true
@@ -162,6 +167,63 @@ defmodule Synkade.Orchestrator do
 
     broadcast_state(state)
     {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:check_pr_status, issue_id}, state) do
+    # Find awaiting_review entry by issue_id
+    case Enum.find(state.awaiting_review, fn {_key, entry} ->
+           entry.issue_id == issue_id || Map.get(entry, :db_issue_id) == issue_id
+         end) do
+      {key, entry} ->
+        project = Map.get(state.projects, entry.project_name)
+
+        if project do
+          alias Synkade.Tracker.Client, as: TrackerClient
+
+          state =
+            case TrackerClient.fetch_pr_status(project.config, entry.project_name, entry.pr_number) do
+              {:ok, %{merged: true}} ->
+                Logger.info("PR merged for #{key} (on-demand check)")
+
+                try do
+                  db_issue_id = Map.get(entry, :db_issue_id) || entry.issue_id
+                  db_issue = Issues.get_issue(db_issue_id)
+                  if db_issue, do: Issues.transition_state(db_issue, "done")
+                catch
+                  _, _ -> :ok
+                end
+
+                put_in(state.awaiting_review[key], Map.put(entry, :should_stop, :pr_merged))
+
+              {:ok, %{state: "closed"}} ->
+                Logger.info("PR closed for #{key} (on-demand check)")
+
+                try do
+                  db_issue_id = Map.get(entry, :db_issue_id) || entry.issue_id
+                  db_issue = Issues.get_issue(db_issue_id)
+                  if db_issue, do: Issues.transition_state(db_issue, "done")
+                catch
+                  _, _ -> :ok
+                end
+
+                put_in(state.awaiting_review[key], Map.put(entry, :should_stop, :pr_closed))
+
+              _ ->
+                state
+            end
+
+          state = handle_stopped_sessions(state)
+          broadcast_state(state)
+          {:noreply, state}
+        else
+          {:noreply, state}
+        end
+
+      nil ->
+        # No in-memory entry — fall back to DB issue + project config
+        check_pr_status_from_db(state, issue_id)
+    end
   end
 
   @impl true
@@ -814,6 +876,62 @@ defmodule Synkade.Orchestrator do
 
   defp find_task_entry(state, ref) do
     Enum.find(state.running, fn {_key, entry} -> entry.task_ref == ref end)
+  end
+
+  defp check_pr_status_from_db(state, issue_id) do
+    alias Synkade.Tracker.Client, as: TrackerClient
+
+    try do
+      case Issues.get_issue(issue_id) do
+        %{state: "awaiting_review", github_pr_url: pr_url} = db_issue when is_binary(pr_url) ->
+          pr_number = extract_pr_number(pr_url)
+
+          # Find project config by DB project_id
+          project =
+            Enum.find_value(state.projects, fn {_name, p} ->
+              if p[:db_id] == db_issue.project_id, do: p
+            end)
+
+          cond do
+            !project ->
+              Logger.warning("check_pr_status: no project found for project_id=#{db_issue.project_id}")
+
+            !pr_number ->
+              Logger.warning("check_pr_status: could not extract PR number from #{pr_url}")
+
+            true ->
+              case TrackerClient.fetch_pr_status(project.config, project.name, pr_number) do
+                {:ok, %{merged: true}} ->
+                  Logger.info("PR merged for issue #{issue_id} (on-demand DB check)")
+                  Issues.transition_state(db_issue, "done")
+
+                {:ok, %{state: "closed"}} ->
+                  Logger.info("PR closed for issue #{issue_id} (on-demand DB check)")
+                  Issues.transition_state(db_issue, "done")
+
+                {:ok, %{state: pr_state}} ->
+                  Logger.info("check_pr_status: PR still #{pr_state} for issue #{issue_id}")
+
+                {:error, reason} ->
+                  Logger.warning("check_pr_status: failed for issue #{issue_id}: #{inspect(reason)}")
+              end
+          end
+
+          {:noreply, state}
+
+        %{state: issue_state} ->
+          Logger.info("check_pr_status: issue #{issue_id} is #{issue_state}, skipping")
+          {:noreply, state}
+
+        nil ->
+          Logger.warning("check_pr_status: issue #{issue_id} not found in DB")
+          {:noreply, state}
+      end
+    catch
+      kind, reason ->
+        Logger.warning("check_pr_status: error for issue #{issue_id}: #{kind} #{inspect(reason)}")
+        {:noreply, state}
+    end
   end
 
   defp extract_pr_number(pr_url) do
