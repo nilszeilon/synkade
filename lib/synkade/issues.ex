@@ -217,6 +217,41 @@ defmodule Synkade.Issues do
     |> Repo.all()
   end
 
+  # --- Recurring Issues ---
+
+  @doc "Returns recurring issues in `done` state whose interval has elapsed."
+  def list_due_recurring_issues do
+    now = DateTime.utc_now()
+
+    from(i in Issue,
+      where: i.recurring == true and i.state == "done"
+    )
+    |> Repo.all()
+    |> Enum.filter(fn issue ->
+      seconds = interval_to_seconds(issue.recurrence_interval, issue.recurrence_unit)
+      deadline = DateTime.add(issue.updated_at, seconds, :second)
+      DateTime.compare(deadline, now) != :gt
+    end)
+  end
+
+  @doc "Cycles a recurring issue from done back to queued, appending a system message."
+  def cycle_recurring_issue(%Issue{state: "done", recurring: true} = issue) do
+    messages = (issue.metadata["messages"] || [])
+
+    new_entry = %{
+      "type" => "system",
+      "text" => "Recurring issue cycled automatically",
+      "at" => DateTime.utc_now() |> DateTime.to_iso8601()
+    }
+
+    metadata = Map.put(issue.metadata || %{}, "messages", messages ++ [new_entry])
+
+    with {:ok, backlog} <- update_issue(issue, %{state: "backlog", metadata: metadata}),
+         {:ok, queued} <- transition_state(backlog, "queued") do
+      {:ok, queued}
+    end
+  end
+
   # --- Agent Child Creation ---
 
   def create_children_from_agent(%Issue{} = parent, children_attrs_list)
@@ -253,6 +288,11 @@ defmodule Synkade.Issues do
       Map.put_new(attrs, :depth, 0)
     end
   end
+
+  defp interval_to_seconds(amount, "hours"), do: amount * 3600
+  defp interval_to_seconds(amount, "days"), do: amount * 86400
+  defp interval_to_seconds(amount, "weeks"), do: amount * 604_800
+  defp interval_to_seconds(amount, _), do: amount * 3600
 
   defp children_preload_query do
     from(i in Issue, order_by: [asc: i.position, asc: i.inserted_at])

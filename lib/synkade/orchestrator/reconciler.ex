@@ -16,6 +16,7 @@ defmodule Synkade.Orchestrator.Reconciler do
     |> refresh_issue_states()
     |> check_pr_statuses()
     |> cleanup_stale_claimed()
+    |> cycle_recurring_issues()
   end
 
   @doc "Detect stalled sessions based on last agent event timestamp."
@@ -178,6 +179,24 @@ defmodule Synkade.Orchestrator.Reconciler do
     end
 
     %{state | running: Map.drop(state.running, stale_running)}
+  end
+
+  @doc "Cycle recurring issues that are due back to queued."
+  @spec cycle_recurring_issues(State.t()) :: State.t()
+  def cycle_recurring_issues(state) do
+    due = Issues.list_due_recurring_issues()
+
+    Enum.each(due, fn issue ->
+      case Issues.cycle_recurring_issue(issue) do
+        {:ok, _} ->
+          Logger.info("Cycled recurring issue #{issue.id}")
+
+        {:error, reason} ->
+          Logger.warning("Failed to cycle recurring issue #{issue.id}: #{inspect(reason)}")
+      end
+    end)
+
+    state
   end
 
   defp parse_claimed_key(key) do

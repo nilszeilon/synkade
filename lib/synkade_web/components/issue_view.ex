@@ -34,6 +34,9 @@ defmodule SynkadeWeb.Components.IssueView do
 
       <div class="mb-4">
         <span class={"badge badge-sm #{state_badge_class(@issue.state)} mb-2"}>{@issue.state}</span>
+        <span :if={@issue.recurring} class="badge badge-sm badge-accent mb-2">
+          every {@issue.recurrence_interval} {@issue.recurrence_unit}
+        </span>
         <h1 class="text-2xl font-bold">{Issue.title(@issue)}</h1>
       </div>
 
@@ -106,34 +109,42 @@ defmodule SynkadeWeb.Components.IssueView do
       <!-- Message history (numbered) -->
       <div :if={@messages != []} class="mb-4 space-y-3">
         <div :for={{msg, idx} <- Enum.with_index(@messages, 1)}>
-          <%= if msg["type"] == "dispatch" do %>
-            <div class="border-l-2 border-info pl-4">
-              <p class="text-xs text-base-content/50 font-semibold mb-1 inline-flex items-center gap-1">
-                <span :if={msg["agent_kind"]} class={brand_color(msg["agent_kind"])}>
-                  <.agent_icon kind={msg["agent_kind"]} class="size-3.5" />
-                </span>
-                #{idx}{if msg["agent_name"], do: " — #{msg["agent_name"]}", else: ""}
-              </p>
-              <p class="text-sm whitespace-pre-wrap">{msg["text"]}</p>
-            </div>
-          <% else %>
-            <div class="border-l-2 border-success pl-4">
-              <p class="text-xs text-base-content/50 font-semibold mb-1 inline-flex items-center gap-1">
-                <span :if={msg["agent_kind"]} class={brand_color(msg["agent_kind"])}>
-                  <.agent_icon kind={msg["agent_kind"]} class="size-3.5" />
-                </span>
-                #{idx} — {msg["agent_name"] || "agent"} output
-              </p>
-              <div class="collapse collapse-arrow bg-base-200 rounded">
-                <input type="checkbox" />
-                <div class="collapse-title text-xs py-2 min-h-0">
-                  {msg["text"] |> String.slice(0..120) |> then(fn s -> if String.length(msg["text"] || "") > 120, do: s <> "...", else: s end)}
-                </div>
-                <div class="collapse-content">
-                  <pre class="text-xs whitespace-pre-wrap overflow-auto max-h-64">{msg["text"]}</pre>
+          <%= cond do %>
+            <% msg["type"] == "dispatch" -> %>
+              <div class="border-l-2 border-info pl-4">
+                <p class="text-xs text-base-content/50 font-semibold mb-1 inline-flex items-center gap-1">
+                  <span :if={msg["agent_kind"]} class={brand_color(msg["agent_kind"])}>
+                    <.agent_icon kind={msg["agent_kind"]} class="size-3.5" />
+                  </span>
+                  #{idx}{if msg["agent_name"], do: " — #{msg["agent_name"]}", else: ""}
+                </p>
+                <p class="text-sm whitespace-pre-wrap">{msg["text"]}</p>
+              </div>
+            <% msg["type"] == "system" -> %>
+              <div class="border-l-2 border-accent pl-4">
+                <p class="text-xs text-base-content/50 font-semibold mb-1">
+                  #{idx} — system
+                </p>
+                <p class="text-sm whitespace-pre-wrap italic text-base-content/70">{msg["text"]}</p>
+              </div>
+            <% true -> %>
+              <div class="border-l-2 border-success pl-4">
+                <p class="text-xs text-base-content/50 font-semibold mb-1 inline-flex items-center gap-1">
+                  <span :if={msg["agent_kind"]} class={brand_color(msg["agent_kind"])}>
+                    <.agent_icon kind={msg["agent_kind"]} class="size-3.5" />
+                  </span>
+                  #{idx} — {msg["agent_name"] || "agent"} output
+                </p>
+                <div class="collapse collapse-arrow bg-base-200 rounded">
+                  <input type="checkbox" />
+                  <div class="collapse-title text-xs py-2 min-h-0">
+                    {msg["text"] |> String.slice(0..120) |> then(fn s -> if String.length(msg["text"] || "") > 120, do: s <> "...", else: s end)}
+                  </div>
+                  <div class="collapse-content">
+                    <pre class="text-xs whitespace-pre-wrap overflow-auto max-h-64">{msg["text"]}</pre>
+                  </div>
                 </div>
               </div>
-            </div>
           <% end %>
         </div>
       </div>
@@ -327,6 +338,32 @@ defmodule SynkadeWeb.Components.IssueView do
                 phx-debounce="300"
               ><%= @form[:body].value %></textarea>
             </div>
+          </div>
+
+          <div class="flex items-center gap-3 mt-3">
+            <input type="hidden" name="issue[recurring]" value="false" />
+            <label class="label cursor-pointer gap-2">
+              <input
+                type="checkbox"
+                name="issue[recurring]"
+                value="true"
+                class="checkbox checkbox-sm"
+                checked={@form[:recurring].value == true or @form[:recurring].value == "true"}
+              />
+              <span class="label-text text-sm">Every</span>
+            </label>
+            <input
+              type="number"
+              name="issue[recurrence_interval]"
+              value={@form[:recurrence_interval].value || 24}
+              min="1"
+              class="input input-bordered input-sm w-20"
+            />
+            <select name="issue[recurrence_unit]" class="select select-bordered select-sm w-28">
+              <option value="hours" selected={(@form[:recurrence_unit].value || "hours") == "hours"}>hours</option>
+              <option value="days" selected={@form[:recurrence_unit].value == "days"}>days</option>
+              <option value="weeks" selected={@form[:recurrence_unit].value == "weeks"}>weeks</option>
+            </select>
           </div>
 
           <div class="border-t border-base-300 pt-4 mt-4 space-y-3">

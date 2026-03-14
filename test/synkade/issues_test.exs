@@ -302,6 +302,105 @@ defmodule Synkade.IssuesTest do
     end
   end
 
+  describe "recurring issues" do
+    test "creates issue with recurring fields", %{project: project} do
+      {:ok, issue} =
+        Issues.create_issue(%{
+          body: "# Nightly build",
+          project_id: project.id,
+          recurring: true,
+          recurrence_interval: 8,
+          recurrence_unit: "days"
+        })
+
+      assert issue.recurring == true
+      assert issue.recurrence_interval == 8
+      assert issue.recurrence_unit == "days"
+    end
+
+    test "list_due_recurring_issues returns due issues", %{project: project} do
+      {:ok, issue} =
+        Issues.create_issue(%{
+          body: "# Due recurring",
+          project_id: project.id,
+          state: "in_progress",
+          recurring: true,
+          recurrence_interval: 1
+        })
+
+      # Transition to done
+      {:ok, done} = Issues.transition_state(issue, "done")
+
+      # Backdate updated_at so interval has elapsed
+      {:ok, raw_id} = Ecto.UUID.dump(done.id)
+
+      Synkade.Repo.query!(
+        "UPDATE issues SET updated_at = $1 WHERE id = $2",
+        [DateTime.add(DateTime.utc_now(), -7200, :second), raw_id]
+      )
+
+      due = Issues.list_due_recurring_issues()
+      assert length(due) == 1
+      assert hd(due).id == done.id
+    end
+
+    test "list_due_recurring_issues excludes not-yet-due issues", %{project: project} do
+      {:ok, issue} =
+        Issues.create_issue(%{
+          body: "# Not yet due",
+          project_id: project.id,
+          state: "in_progress",
+          recurring: true,
+          recurrence_interval: 24
+        })
+
+      {:ok, _done} = Issues.transition_state(issue, "done")
+
+      # updated_at is now, interval is 24h — not due yet
+      due = Issues.list_due_recurring_issues()
+      assert due == []
+    end
+
+    test "list_due_recurring_issues excludes non-recurring done issues", %{project: project} do
+      {:ok, issue} =
+        Issues.create_issue(%{
+          body: "# Not recurring",
+          project_id: project.id,
+          state: "in_progress",
+          recurring: false
+        })
+
+      {:ok, _done} = Issues.transition_state(issue, "done")
+
+      due = Issues.list_due_recurring_issues()
+      assert due == []
+    end
+
+    test "cycle_recurring_issue transitions done→queued and appends system message", %{
+      project: project
+    } do
+      {:ok, issue} =
+        Issues.create_issue(%{
+          body: "# Recurring task",
+          project_id: project.id,
+          state: "in_progress",
+          recurring: true,
+          recurrence_interval: 1
+        })
+
+      {:ok, done} = Issues.transition_state(issue, "done")
+      {:ok, cycled} = Issues.cycle_recurring_issue(done)
+
+      assert cycled.state == "queued"
+
+      reloaded = Issues.get_issue!(cycled.id)
+      messages = reloaded.metadata["messages"]
+      assert length(messages) == 1
+      assert hd(messages)["type"] == "system"
+      assert hd(messages)["text"] == "Recurring issue cycled automatically"
+    end
+  end
+
   describe "create_children_from_agent/2" do
     test "creates children with correct depth and project", %{project: project} do
       {:ok, parent} = Issues.create_issue(%{body: "# Parent", project_id: project.id})
