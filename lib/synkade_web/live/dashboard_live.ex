@@ -1,6 +1,8 @@
 defmodule SynkadeWeb.DashboardLive do
   use SynkadeWeb, :live_view
 
+  import SynkadeWeb.Components.IssueView
+
   alias Synkade.{Issues, Orchestrator, Settings, TokenUsage}
   alias Synkade.Issues.DispatchParser
   alias Synkade.Tracker.Client, as: TrackerClient
@@ -46,6 +48,15 @@ defmodule SynkadeWeb.DashboardLive do
       |> assign(:board_error, nil)
       |> assign(:modal, nil)
       |> assign(:agents, Settings.list_agents())
+      |> assign(:view_mode, :board)
+      |> assign(:selected_issue, nil)
+      |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
+      |> assign(:session_events, [])
+      |> assign(:session_id, nil)
+      |> assign(:session_subscribed, nil)
+      |> assign(:show_form, false)
+      |> assign(:form, nil)
+      |> assign(:form_project_id, nil)
       |> assign_chart_data()
 
     {:ok, socket}
@@ -55,7 +66,21 @@ defmodule SynkadeWeb.DashboardLive do
   def handle_params(params, _uri, socket) do
     socket = assign(socket, :current_project, params["project"])
 
-    if connected?(socket) && params["project"] do
+    # Handle issue param for full-width view
+    socket =
+      case params["issue"] do
+        nil ->
+          socket = unsubscribe_session(socket)
+
+          socket
+          |> assign(:selected_issue, nil)
+          |> assign(:view_mode, if(params["project"], do: :board, else: :overview))
+
+        issue_id ->
+          load_issue_detail(socket, issue_id)
+      end
+
+    if connected?(socket) && params["project"] && socket.assigns.view_mode != :detail do
       send(self(), :load_board)
     end
 
@@ -84,7 +109,7 @@ defmodule SynkadeWeb.DashboardLive do
 
     # Re-categorize board issues if on a project page
     socket =
-      if socket.assigns.current_project do
+      if socket.assigns.current_project && socket.assigns.view_mode == :board do
         project = resolve_project(socket)
 
         if project do
@@ -98,17 +123,58 @@ defmodule SynkadeWeb.DashboardLive do
         socket
       end
 
+    # Update session_id from running entry if viewing detail
+    socket =
+      case socket.assigns.session_subscribed do
+        nil ->
+          socket
+
+        issue_id ->
+          running_entry = find_running_entry(snapshot.running, issue_id)
+
+          if running_entry do
+            assign(socket, :session_id, running_entry.session_id)
+          else
+            unsubscribe_session(socket)
+          end
+      end
+
     {:noreply, socket}
   end
 
   @impl true
   def handle_info({:issues_updated}, socket) do
-    if socket.assigns.current_project do
+    if socket.assigns.current_project && socket.assigns.view_mode == :board do
       send(self(), :load_board)
-      {:noreply, socket}
-    else
-      {:noreply, assign_chart_data(socket)}
     end
+
+    # Reload selected issue if viewing detail
+    socket =
+      case socket.assigns.selected_issue do
+        nil ->
+          socket
+
+        %{issue: issue} ->
+          case Issues.get_issue(issue.id) do
+            nil ->
+              socket
+              |> assign(:selected_issue, nil)
+              |> assign(:view_mode, :board)
+
+            updated ->
+              ancestors = Issues.ancestor_chain(updated)
+              assign(socket, :selected_issue, %{issue: updated, ancestors: ancestors})
+          end
+      end
+
+    socket =
+      if !socket.assigns.current_project do
+        assign_chart_data(socket)
+      else
+        socket
+      end
+
+    {:noreply, socket}
   end
 
   @impl true
@@ -201,6 +267,19 @@ defmodule SynkadeWeb.DashboardLive do
   end
 
   @impl true
+  def handle_info({:agent_event, event}, socket) do
+    events = socket.assigns.session_events ++ [event]
+    events = Enum.take(events, -500)
+
+    socket =
+      socket
+      |> assign(:session_events, events)
+      |> assign(:session_id, event.session_id || socket.assigns.session_id)
+
+    {:noreply, socket}
+  end
+
+  @impl true
   def handle_info(_msg, socket) do
     {:noreply, socket}
   end
@@ -274,7 +353,189 @@ defmodule SynkadeWeb.DashboardLive do
     end
   end
 
-  # --- Modal events ---
+  # --- Issue detail events (used by issue_full_view) ---
+
+  @impl true
+  def handle_event("select_issue", %{"id" => issue_id}, socket) do
+    project_name = socket.assigns.current_project
+    path = dashboard_path(project_name, issue_id)
+    {:noreply, push_patch(socket, to: path)}
+  end
+
+  @impl true
+  def handle_event("close_detail", _params, socket) do
+    path = dashboard_path(socket.assigns.current_project)
+    {:noreply, push_patch(socket, to: path)}
+  end
+
+  @impl true
+  def handle_event("dispatch_issue", %{"dispatch" => %{"message" => message}}, socket) do
+    message = String.trim(message)
+
+    if message == "" do
+      {:noreply, put_flash(socket, :error, "Dispatch message cannot be empty")}
+    else
+      issue =
+        case socket.assigns do
+          %{view_mode: :detail, selected_issue: %{issue: issue}} -> issue
+          %{modal: %{issue: issue}} -> issue
+        end
+
+      {agent_name, instruction} = DispatchParser.parse(message)
+
+      agent_id =
+        case agent_name do
+          nil ->
+            nil
+
+          name ->
+            case Settings.get_agent_by_name(name) do
+              nil -> nil
+              agent -> agent.id
+            end
+        end
+
+      case Issues.dispatch_issue(issue, instruction, agent_id) do
+        {:ok, _} ->
+          send(self(), :load_board)
+
+          socket =
+            socket
+            |> assign(:modal, nil)
+            |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
+            |> put_flash(
+              :info,
+              "Issue dispatched" <> if(agent_name, do: " to #{agent_name}", else: "")
+            )
+
+          if socket.assigns.view_mode == :detail do
+            {:noreply,
+             push_patch(socket, to: dashboard_path(socket.assigns.current_project))}
+          else
+            {:noreply, socket}
+          end
+
+        {:error, :invalid_transition} ->
+          {:noreply, put_flash(socket, :error, "Cannot dispatch from current state")}
+
+        {:error, _} ->
+          {:noreply, put_flash(socket, :error, "Failed to dispatch issue")}
+      end
+    end
+  end
+
+  @impl true
+  def handle_event("cancel_issue", %{"id" => issue_id}, socket) do
+    case Issues.get_issue(issue_id) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Issue not found")}
+
+      issue ->
+        case Issues.cancel_issue(issue) do
+          {:ok, _} ->
+            send(self(), :load_board)
+            {:noreply, put_flash(socket, :info, "Issue cancelled")}
+
+          {:error, :invalid_transition} ->
+            {:noreply, put_flash(socket, :error, "Cannot cancel from current state")}
+        end
+    end
+  end
+
+  @impl true
+  def handle_event("unqueue_issue", %{"id" => issue_id}, socket) do
+    case Issues.get_issue(issue_id) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Issue not found")}
+
+      issue ->
+        case Issues.transition_state(issue, "backlog") do
+          {:ok, _} ->
+            send(self(), :load_board)
+            {:noreply, put_flash(socket, :info, "Issue moved to backlog")}
+
+          {:error, :invalid_transition} ->
+            {:noreply, put_flash(socket, :error, "Cannot move to backlog from current state")}
+        end
+    end
+  end
+
+  @impl true
+  def handle_event("copy_resume", _params, socket) do
+    session_id = socket.assigns.session_id
+
+    if session_id do
+      {:noreply, push_event(socket, "phx:copy", %{text: "claude --resume #{session_id}"})}
+    else
+      {:noreply, put_flash(socket, :error, "No session ID available")}
+    end
+  end
+
+  @impl true
+  def handle_event("new_issue", params, socket) do
+    parent_id = params["parent_id"]
+    db_id = resolve_db_id(resolve_project(socket))
+
+    if parent_id do
+      # Add child — use inline form in detail view
+      changeset = Issues.change_issue(%Issues.Issue{}, %{parent_id: parent_id})
+
+      socket =
+        socket
+        |> assign(:show_form, true)
+        |> assign(:form, to_form(changeset))
+        |> assign(:form_parent_id, parent_id)
+        |> assign(:form_project_id, db_id)
+
+      {:noreply, socket}
+    else
+      # New issue modal from kanban
+      {:noreply, assign(socket, :modal, %{mode: :new, body: ""})}
+    end
+  end
+
+  @impl true
+  def handle_event("cancel_form", _params, socket) do
+    {:noreply, socket |> assign(:show_form, false) |> assign(:form, nil)}
+  end
+
+  @impl true
+  def handle_event("validate_issue", %{"issue" => params}, socket) do
+    changeset =
+      %Issues.Issue{}
+      |> Issues.change_issue(params)
+      |> Map.put(:action, :validate)
+
+    {:noreply, assign(socket, :form, to_form(changeset))}
+  end
+
+  @impl true
+  def handle_event("save_issue", %{"issue" => params}, socket) do
+    project_id = params["project_id"] || socket.assigns.form_project_id
+
+    params =
+      params
+      |> Map.put("project_id", project_id)
+      |> maybe_put_parent(socket.assigns[:form_parent_id])
+
+    case Issues.create_issue(params) do
+      {:ok, _issue} ->
+        send(self(), :load_board)
+
+        socket =
+          socket
+          |> assign(:show_form, false)
+          |> assign(:form, nil)
+          |> put_flash(:info, "Issue created")
+
+        {:noreply, socket}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, :form, to_form(changeset))}
+    end
+  end
+
+  # --- Modal events (new/edit only, view replaced by full-width) ---
 
   @impl true
   def handle_event("open_new_issue", _params, socket) do
@@ -283,18 +544,14 @@ defmodule SynkadeWeb.DashboardLive do
 
   @impl true
   def handle_event("open_issue", %{"id" => issue_id}, socket) do
-    case Issues.get_issue(issue_id) do
-      nil ->
-        {:noreply, put_flash(socket, :error, "Issue not found")}
-
-      issue ->
-        {:noreply, assign(socket, :modal, %{mode: :view, issue: issue, dispatch_message: ""})}
-    end
+    project_name = socket.assigns.current_project
+    path = dashboard_path(project_name, issue_id)
+    {:noreply, push_patch(socket, to: path)}
   end
 
   @impl true
   def handle_event("edit_issue", _params, socket) do
-    issue = socket.assigns.modal.issue
+    issue = socket.assigns.selected_issue.issue
 
     {:noreply,
      assign(socket, :modal, %{
@@ -342,56 +599,25 @@ defmodule SynkadeWeb.DashboardLive do
       {:ok, updated} ->
         send(self(), :load_board)
 
-        {:noreply,
-         socket
-         |> assign(:modal, %{mode: :view, issue: updated, dispatch_message: ""})
-         |> put_flash(:info, "Issue updated")}
+        # Update selected_issue if in detail view
+        socket =
+          if socket.assigns.view_mode == :detail do
+            ancestors = Issues.ancestor_chain(updated)
+
+            socket
+            |> assign(:selected_issue, %{issue: updated, ancestors: ancestors})
+            |> assign(:modal, nil)
+            |> put_flash(:info, "Issue updated")
+          else
+            socket
+            |> assign(:modal, nil)
+            |> put_flash(:info, "Issue updated")
+          end
+
+        {:noreply, socket}
 
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Failed to update issue")}
-    end
-  end
-
-  @impl true
-  def handle_event("dispatch_issue", %{"dispatch" => %{"message" => message}}, socket) do
-    message = String.trim(message)
-
-    if message == "" do
-      {:noreply, put_flash(socket, :error, "Dispatch message cannot be empty")}
-    else
-      issue = socket.assigns.modal.issue
-      {agent_name, instruction} = DispatchParser.parse(message)
-
-      agent_id =
-        case agent_name do
-          nil ->
-            nil
-
-          name ->
-            case Settings.get_agent_by_name(name) do
-              nil -> nil
-              agent -> agent.id
-            end
-        end
-
-      case Issues.dispatch_issue(issue, instruction, agent_id) do
-        {:ok, _} ->
-          send(self(), :load_board)
-
-          {:noreply,
-           socket
-           |> assign(:modal, nil)
-           |> put_flash(
-             :info,
-             "Issue dispatched" <> if(agent_name, do: " to #{agent_name}", else: "")
-           )}
-
-        {:error, :invalid_transition} ->
-          {:noreply, put_flash(socket, :error, "Cannot dispatch from current state")}
-
-        {:error, _} ->
-          {:noreply, put_flash(socket, :error, "Failed to dispatch issue")}
-      end
     end
   end
 
@@ -405,13 +631,108 @@ defmodule SynkadeWeb.DashboardLive do
         case Issues.delete_issue(issue) do
           {:ok, _} ->
             send(self(), :load_board)
-            {:noreply, socket |> assign(:modal, nil) |> put_flash(:info, "Issue deleted")}
+
+            socket =
+              socket
+              |> assign(:modal, nil)
+              |> put_flash(:info, "Issue deleted")
+
+            if socket.assigns.view_mode == :detail do
+              {:noreply,
+               push_patch(socket, to: dashboard_path(socket.assigns.current_project))}
+            else
+              {:noreply, socket}
+            end
 
           {:error, _} ->
             {:noreply, put_flash(socket, :error, "Failed to delete issue")}
         end
     end
   end
+
+  # --- Private helpers ---
+
+  defp load_issue_detail(socket, issue_id) do
+    case Issues.get_issue(issue_id) do
+      nil ->
+        socket
+        |> assign(:selected_issue, nil)
+        |> assign(:view_mode, :board)
+
+      issue ->
+        ancestors = Issues.ancestor_chain(issue)
+
+        # Unsubscribe from previous session
+        socket = unsubscribe_session(socket)
+
+        # Subscribe to agent events if issue is in_progress
+        socket =
+          if issue.state == "in_progress" do
+            running_entry = find_running_entry(socket.assigns.running, issue_id)
+
+            if running_entry do
+              topic = Orchestrator.agent_events_topic(issue_id)
+              Phoenix.PubSub.subscribe(Synkade.PubSub, topic)
+              past_events = Orchestrator.get_issue_events(issue_id)
+
+              socket
+              |> assign(:session_events, past_events)
+              |> assign(:session_id, running_entry.session_id)
+              |> assign(:session_subscribed, issue_id)
+            else
+              socket
+              |> assign(:session_events, [])
+              |> assign(:session_id, nil)
+            end
+          else
+            socket
+            |> assign(:session_events, [])
+            |> assign(:session_id, nil)
+          end
+
+        socket
+        |> assign(:selected_issue, %{issue: issue, ancestors: ancestors})
+        |> assign(:view_mode, :detail)
+        |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
+    end
+  end
+
+  defp unsubscribe_session(socket) do
+    case socket.assigns.session_subscribed do
+      nil ->
+        socket
+
+      issue_id ->
+        topic = Orchestrator.agent_events_topic(issue_id)
+        Phoenix.PubSub.unsubscribe(Synkade.PubSub, topic)
+
+        socket
+        |> assign(:session_events, [])
+        |> assign(:session_id, nil)
+        |> assign(:session_subscribed, nil)
+    end
+  end
+
+  defp find_running_entry(running, issue_id) do
+    Enum.find_value(running, fn {_key, entry} ->
+      if entry.issue_id == issue_id, do: entry
+    end)
+  end
+
+  defp dashboard_path(project_name, issue_id \\ nil) do
+    params = %{}
+    params = if project_name, do: Map.put(params, "project", project_name), else: params
+    params = if issue_id, do: Map.put(params, "issue", issue_id), else: params
+
+    if params == %{} do
+      "/"
+    else
+      "/?" <> URI.encode_query(params)
+    end
+  end
+
+  defp maybe_put_parent(params, nil), do: params
+  defp maybe_put_parent(params, parent_id), do: Map.put(params, "parent_id", parent_id)
 
   # --- Chart data ---
 
@@ -673,105 +994,146 @@ defmodule SynkadeWeb.DashboardLive do
       current_project={@current_project}
     >
       <div class="px-6 py-4">
-        <div class="flex items-center justify-between mb-4">
-          <h1 class="text-2xl font-bold">
-            {if @current_project, do: @current_project, else: "Overview"}
-          </h1>
-          <div class="flex items-center gap-3">
-            <div class="flex items-center gap-4 text-sm">
-              <span class="text-base-content/60">
-                {format_number(@display_totals.total_tokens)} tokens
-              </span>
-              <span class="text-base-content/60">
-                {format_duration(@display_totals.runtime_seconds)}
-              </span>
+        <%= if @view_mode == :detail && @selected_issue do %>
+          <.issue_full_view
+            issue={@selected_issue.issue}
+            ancestors={@selected_issue.ancestors}
+            dispatch_form={@dispatch_form}
+            agents={@agents}
+            session_events={@session_events}
+            session_id={@session_id}
+            running_entry={find_running_entry(@running, @selected_issue.issue.id)}
+            back_path={dashboard_path(@current_project)}
+            back_label={@current_project || "Overview"}
+          />
+
+          <!-- New child issue form (shown in detail view) -->
+          <div :if={@show_form} class="max-w-4xl mx-auto mt-4 card bg-base-200 p-4">
+            <.form for={@form} phx-change="validate_issue" phx-submit="save_issue">
+              <div class="flex flex-col gap-3">
+                <div class="form-control">
+                  <textarea
+                    name="issue[body]"
+                    placeholder={"# Child issue title\n\nDescribe the issue..."}
+                    class="textarea textarea-bordered textarea-sm w-full font-mono"
+                    rows="5"
+                    phx-debounce="300"
+                  >{@form[:body].value}</textarea>
+                </div>
+                <div class="flex gap-2">
+                  <button type="submit" class="btn btn-sm btn-primary">Create</button>
+                  <button type="button" phx-click="cancel_form" class="btn btn-sm btn-ghost">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </.form>
+          </div>
+
+          <!-- Edit modal (overlaid on detail view) -->
+          <.issue_modal :if={@modal && @modal.mode == :edit} modal={@modal} />
+        <% else %>
+          <div class="flex items-center justify-between mb-4">
+            <h1 class="text-2xl font-bold">
+              {if @current_project, do: @current_project, else: "Overview"}
+            </h1>
+            <div class="flex items-center gap-3">
+              <div class="flex items-center gap-4 text-sm">
+                <span class="text-base-content/60">
+                  {format_number(@display_totals.total_tokens)} tokens
+                </span>
+                <span class="text-base-content/60">
+                  {format_duration(@display_totals.runtime_seconds)}
+                </span>
+              </div>
+              <button phx-click="refresh" class="btn btn-sm btn-primary">
+                <span :if={@current_project && @board_loading} class="loading loading-spinner loading-xs"></span>
+                Refresh
+              </button>
             </div>
-            <button phx-click="refresh" class="btn btn-sm btn-primary">
-              <span :if={@current_project && @board_loading} class="loading loading-spinner loading-xs"></span>
-              Refresh
-            </button>
           </div>
-        </div>
 
-        <%= if @config_error do %>
-          <div class="alert alert-error mb-4">
-            <span>Config Error: {@config_error}</span>
-          </div>
-        <% end %>
-
-        <%= if @current_project do %>
-          <%!-- Project view: Kanban Board --%>
-          <%= if @board_error do %>
-            <div class="alert alert-warning mb-4">
-              <span>{@board_error}</span>
+          <%= if @config_error do %>
+            <div class="alert alert-error mb-4">
+              <span>Config Error: {@config_error}</span>
             </div>
           <% end %>
 
-          <div
-            id="kanban-board"
-            phx-hook="KanbanDrag"
-            class="flex gap-4 overflow-x-auto pb-4"
-            style="min-height: 60vh;"
-          >
-            <%= for col <- @board_columns do %>
-              <div
-                class="kanban-column flex-shrink-0 w-72 bg-base-200 border border-base-300 p-3"
-                data-column={col["id"]}
-                data-droppable={to_string(draggable?(col["id"]))}
-              >
-                <div class="flex items-center justify-between mb-3">
-                  <h3 class="font-semibold text-sm">
-                    {col["name"]}
-                    <span
-                      :if={col["id"] in ["in_progress", "human_review"]}
-                      class="text-xs text-base-content/40 font-normal ml-1"
-                    >
-                      auto
-                    </span>
-                  </h3>
-                  <div class="flex items-center gap-1">
-                    <span class="badge badge-ghost badge-sm">
-                      {length(Map.get(@board_issues, col["id"], []))}
-                    </span>
-                    <button
-                      :if={col["id"] == "backlog"}
-                      phx-click="open_new_issue"
-                      class="btn btn-ghost btn-xs btn-circle"
-                      title="New issue"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-                <div class="kanban-drop-zone flex flex-col gap-2 min-h-[100px]">
-                  <%= for issue <- Map.get(@board_issues, col["id"], []) do %>
-                    <.issue_card
-                      issue={issue}
-                      column={col["id"]}
-                      draggable={draggable?(col["id"])}
-                      status={
-                        issue_status(issue, @filtered_running, @filtered_retries, @filtered_awaiting)
-                      }
-                      clickable={col["id"] == "backlog" && is_db_issue?(issue.id)}
-                    />
-                  <% end %>
-                </div>
+          <%= if @current_project do %>
+            <%!-- Project view: Kanban Board --%>
+            <%= if @board_error do %>
+              <div class="alert alert-warning mb-4">
+                <span>{@board_error}</span>
               </div>
             <% end %>
-          </div>
 
-          <.issue_modal :if={@modal} modal={@modal} agents={@agents} />
-        <% else %>
-          <%!-- Overview: Token Usage Chart --%>
-          <div class="card bg-base-200 border border-base-300 p-4">
-            <h2 class="text-lg font-semibold mb-3">Token Usage — Last 30 Days</h2>
-            <.token_chart
-              days={@chart_days}
-              models={@chart_models}
-              y_max={@chart_y_max}
-              dates={@chart_dates}
-            />
-          </div>
+            <div
+              id="kanban-board"
+              phx-hook="KanbanDrag"
+              class="flex gap-4 overflow-x-auto pb-4"
+              style="min-height: 60vh;"
+            >
+              <%= for col <- @board_columns do %>
+                <div
+                  class="kanban-column flex-shrink-0 w-72 bg-base-200 border border-base-300 p-3"
+                  data-column={col["id"]}
+                  data-droppable={to_string(draggable?(col["id"]))}
+                >
+                  <div class="flex items-center justify-between mb-3">
+                    <h3 class="font-semibold text-sm">
+                      {col["name"]}
+                      <span
+                        :if={col["id"] in ["in_progress", "human_review"]}
+                        class="text-xs text-base-content/40 font-normal ml-1"
+                      >
+                        auto
+                      </span>
+                    </h3>
+                    <div class="flex items-center gap-1">
+                      <span class="badge badge-ghost badge-sm">
+                        {length(Map.get(@board_issues, col["id"], []))}
+                      </span>
+                      <button
+                        :if={col["id"] == "backlog"}
+                        phx-click="open_new_issue"
+                        class="btn btn-ghost btn-xs btn-circle"
+                        title="New issue"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                  <div class="kanban-drop-zone flex flex-col gap-2 min-h-[100px]">
+                    <%= for issue <- Map.get(@board_issues, col["id"], []) do %>
+                      <.issue_card
+                        issue={issue}
+                        column={col["id"]}
+                        draggable={draggable?(col["id"])}
+                        status={
+                          issue_status(issue, @filtered_running, @filtered_retries, @filtered_awaiting)
+                        }
+                        clickable={is_db_issue?(issue.id)}
+                        current_project={@current_project}
+                      />
+                    <% end %>
+                  </div>
+                </div>
+              <% end %>
+            </div>
+
+            <.issue_modal :if={@modal && @modal.mode == :new} modal={@modal} />
+          <% else %>
+            <%!-- Overview: Token Usage Chart --%>
+            <div class="card bg-base-200 border border-base-300 p-4">
+              <h2 class="text-lg font-semibold mb-3">Token Usage — Last 30 Days</h2>
+              <.token_chart
+                days={@chart_days}
+                models={@chart_models}
+                y_max={@chart_y_max}
+                dates={@chart_dates}
+              />
+            </div>
+          <% end %>
         <% end %>
       </div>
     </Layouts.app>
@@ -781,7 +1143,6 @@ defmodule SynkadeWeb.DashboardLive do
   # --- Components ---
 
   attr :modal, :map, required: true
-  attr :agents, :list, required: true
 
   defp issue_modal(assigns) do
     ~H"""
@@ -821,57 +1182,7 @@ defmodule SynkadeWeb.DashboardLive do
                 <button type="submit" class="btn btn-primary">Save</button>
               </div>
             </form>
-          <% :view -> %>
-            <div class="flex items-start justify-between mb-2">
-              <h3 class="font-bold text-lg">{Synkade.Issues.Issue.title(@modal.issue)}</h3>
-              <button phx-click="close_modal" class="btn btn-ghost btn-sm btn-circle">x</button>
-            </div>
-            <p
-              :if={@modal.issue.body}
-              class="text-sm whitespace-pre-wrap mb-4 text-base-content/70"
-            >
-              {@modal.issue.body}
-            </p>
-            <p :if={!@modal.issue.body} class="text-sm text-base-content/40 italic mb-4">
-              No body
-            </p>
-
-            <div :if={@modal.issue.state == "backlog"} class="mb-4">
-              <.form for={to_form(%{"message" => ""}, as: :dispatch)} phx-submit="dispatch_issue">
-                <div class="form-control">
-                  <label class="label">
-                    <span class="label-text text-xs">Dispatch to agent</span>
-                  </label>
-                  <div class="flex gap-2">
-                    <input
-                      type="text"
-                      name="dispatch[message]"
-                      placeholder="@agent instructions..."
-                      class="input input-bordered input-sm flex-1"
-                      list="modal-agent-names"
-                      autocomplete="off"
-                    />
-                    <button type="submit" class="btn btn-sm btn-primary">Go</button>
-                  </div>
-                  <datalist id="modal-agent-names">
-                    <option :for={agent <- @agents} value={"@#{agent.name} "} />
-                  </datalist>
-                </div>
-              </.form>
-            </div>
-
-            <div class="modal-action">
-              <button
-                phx-click="delete_issue"
-                phx-value-id={@modal.issue.id}
-                class="btn btn-error btn-ghost btn-sm"
-                data-confirm="Delete this issue?"
-              >
-                Delete
-              </button>
-              <button phx-click="edit_issue" class="btn btn-ghost btn-sm">Edit</button>
-              <button phx-click="close_modal" class="btn btn-sm">Close</button>
-            </div>
+          <% _ -> %>
         <% end %>
       </div>
       <div class="modal-backdrop" phx-click="close_modal"></div>
@@ -884,6 +1195,7 @@ defmodule SynkadeWeb.DashboardLive do
   attr :draggable, :boolean, default: true
   attr :status, :any, default: nil
   attr :clickable, :boolean, default: false
+  attr :current_project, :string, default: nil
 
   defp issue_card(assigns) do
     ~H"""
@@ -896,14 +1208,22 @@ defmodule SynkadeWeb.DashboardLive do
       draggable={to_string(@draggable)}
       data-issue-id={@issue.id}
       data-column={@column}
-      phx-click={@clickable && "open_issue"}
-      phx-value-id={@clickable && @issue.id}
     >
       <div class="card-body p-3">
         <div class="flex items-start justify-between gap-2">
           <div class="flex-1 min-w-0">
             <p class="text-xs text-base-content/50 font-mono">{@issue.identifier}</p>
-            <p class="text-sm font-medium leading-tight truncate">{@issue.title}</p>
+            <%= if @clickable do %>
+              <.link
+                patch={dashboard_path(@current_project, @issue.id)}
+                class="text-sm font-medium leading-tight truncate block hover:underline"
+                onclick="event.stopPropagation()"
+              >
+                {@issue.title}
+              </.link>
+            <% else %>
+              <p class="text-sm font-medium leading-tight truncate">{@issue.title}</p>
+            <% end %>
           </div>
         </div>
 

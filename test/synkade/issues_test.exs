@@ -198,11 +198,12 @@ defmodule Synkade.IssuesTest do
       assert {:error, :invalid_transition} = Issues.transition_state(issue, "done")
     end
 
-    test "cancelled has no transitions", %{project: project} do
+    test "cancelled can reopen to backlog", %{project: project} do
       {:ok, issue} =
         Issues.create_issue(%{body: "# Test", project_id: project.id, state: "cancelled"})
 
-      assert {:error, :invalid_transition} = Issues.transition_state(issue, "backlog")
+      assert {:ok, reopened} = Issues.transition_state(issue, "backlog")
+      assert reopened.state == "backlog"
     end
   end
 
@@ -292,11 +293,12 @@ defmodule Synkade.IssuesTest do
       assert reloaded.assigned_agent_id == agent.id
     end
 
-    test "fails for invalid transition", %{project: project} do
+    test "re-dispatches from done state", %{project: project} do
       {:ok, issue} =
         Issues.create_issue(%{body: "# Done issue", project_id: project.id, state: "done"})
 
-      assert {:error, :invalid_transition} = Issues.dispatch_issue(issue, "try again")
+      assert {:ok, queued} = Issues.dispatch_issue(issue, "try again")
+      assert queued.state == "queued"
     end
   end
 

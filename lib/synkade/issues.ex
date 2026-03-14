@@ -15,9 +15,9 @@ defmodule Synkade.Issues do
     "backlog" => ~w(queued cancelled),
     "queued" => ~w(in_progress backlog cancelled),
     "in_progress" => ~w(awaiting_review done cancelled),
-    "awaiting_review" => ~w(queued done cancelled),
-    "done" => ~w(cancelled),
-    "cancelled" => []
+    "awaiting_review" => ~w(queued backlog done cancelled),
+    "done" => ~w(backlog cancelled),
+    "cancelled" => ~w(backlog)
   }
 
   # --- CRUD ---
@@ -143,14 +143,54 @@ defmodule Synkade.Issues do
   def cancel_issue(%Issue{} = issue), do: transition_state(issue, "cancelled")
 
   def dispatch_issue(%Issue{} = issue, dispatch_message, assigned_agent_id \\ nil) do
+    agent_name =
+      case assigned_agent_id do
+        nil -> nil
+        id ->
+          try do
+            Synkade.Settings.get_agent!(id).name
+          rescue
+            _ -> nil
+          end
+      end
+
+    messages = (issue.metadata["messages"] || [])
+    new_entry = %{
+      "type" => "dispatch",
+      "agent_name" => agent_name,
+      "text" => dispatch_message,
+      "at" => DateTime.utc_now() |> DateTime.to_iso8601()
+    }
+
     with {:ok, updated} <-
            update_issue(issue, %{
              dispatch_message: dispatch_message,
-             assigned_agent_id: assigned_agent_id
+             assigned_agent_id: assigned_agent_id,
+             metadata: Map.put(issue.metadata || %{}, "messages", messages ++ [new_entry])
            }),
-         {:ok, queued} <- transition_state(updated, "queued") do
+         {:ok, ready} <- ensure_backlog(updated),
+         {:ok, queued} <- transition_state(ready, "queued") do
       {:ok, queued}
     end
+  end
+
+  defp ensure_backlog(%Issue{state: "backlog"} = issue), do: {:ok, issue}
+  defp ensure_backlog(%Issue{} = issue), do: transition_state(issue, "backlog")
+
+  @doc "Appends an agent output entry to the issue message history."
+  def append_agent_output(%Issue{} = issue, agent_output, agent_name \\ nil) do
+    messages = (issue.metadata["messages"] || [])
+    new_entry = %{
+      "type" => "agent",
+      "agent_name" => agent_name,
+      "text" => agent_output,
+      "at" => DateTime.utc_now() |> DateTime.to_iso8601()
+    }
+
+    update_issue(issue, %{
+      agent_output: agent_output,
+      metadata: Map.put(issue.metadata || %{}, "messages", messages ++ [new_entry])
+    })
   end
 
   # --- Tree Operations ---

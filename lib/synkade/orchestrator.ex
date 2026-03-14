@@ -913,10 +913,17 @@ defmodule Synkade.Orchestrator do
       db_issue = Issues.get_issue(entry.db_issue_id)
 
       if db_issue do
-        attrs = %{agent_output: agent_output}
-        attrs = if pr_url, do: Map.put(attrs, :github_pr_url, pr_url), else: attrs
+        agent_name = entry[:agent_name]
+        Issues.append_agent_output(db_issue, agent_output, agent_name)
 
-        Issues.update_issue(db_issue, attrs)
+        # Re-fetch after append to get updated metadata
+        db_issue = Issues.get_issue(entry.db_issue_id)
+        attrs = if pr_url, do: %{github_pr_url: pr_url}, else: %{}
+
+        if map_size(attrs) > 0 do
+          Issues.update_issue(db_issue, attrs)
+        end
+
         Issues.transition_state(db_issue, "awaiting_review")
 
         if children != [] do
