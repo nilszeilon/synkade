@@ -409,8 +409,7 @@ defmodule SynkadeWeb.DashboardLive do
             )
 
           if socket.assigns.view_mode == :detail do
-            {:noreply,
-             push_patch(socket, to: dashboard_path(socket.assigns.current_project))}
+            {:noreply, push_patch(socket, to: dashboard_path(socket.assigns.current_project))}
           else
             {:noreply, socket}
           end
@@ -638,8 +637,7 @@ defmodule SynkadeWeb.DashboardLive do
               |> put_flash(:info, "Issue deleted")
 
             if socket.assigns.view_mode == :detail do
-              {:noreply,
-               push_patch(socket, to: dashboard_path(socket.assigns.current_project))}
+              {:noreply, push_patch(socket, to: dashboard_path(socket.assigns.current_project))}
             else
               {:noreply, socket}
             end
@@ -1006,15 +1004,15 @@ defmodule SynkadeWeb.DashboardLive do
             back_path={dashboard_path(@current_project)}
             back_label={@current_project || "Overview"}
           />
-
-          <!-- New child issue form (shown in detail view) -->
+          
+    <!-- New child issue form (shown in detail view) -->
           <div :if={@show_form} class="max-w-4xl mx-auto mt-4 card bg-base-200 p-4">
             <.form for={@form} phx-change="validate_issue" phx-submit="save_issue">
               <div class="flex flex-col gap-3">
                 <div class="form-control">
                   <textarea
                     name="issue[body]"
-                    placeholder={"# Child issue title\n\nDescribe the issue..."}
+                    placeholder="# Child issue title\n\nDescribe the issue..."
                     class="textarea textarea-bordered textarea-sm w-full font-mono"
                     rows="5"
                     phx-debounce="300"
@@ -1029,8 +1027,8 @@ defmodule SynkadeWeb.DashboardLive do
               </div>
             </.form>
           </div>
-
-          <!-- Edit modal (overlaid on detail view) -->
+          
+    <!-- Edit modal (overlaid on detail view) -->
           <.issue_modal :if={@modal && @modal.mode == :edit} modal={@modal} />
         <% else %>
           <div class="flex items-center justify-between mb-4">
@@ -1047,7 +1045,11 @@ defmodule SynkadeWeb.DashboardLive do
                 </span>
               </div>
               <button phx-click="refresh" class="btn btn-sm btn-primary">
-                <span :if={@current_project && @board_loading} class="loading loading-spinner loading-xs"></span>
+                <span
+                  :if={@current_project && @board_loading}
+                  class="loading loading-spinner loading-xs"
+                >
+                </span>
                 Refresh
               </button>
             </div>
@@ -1110,7 +1112,12 @@ defmodule SynkadeWeb.DashboardLive do
                         column={col["id"]}
                         draggable={draggable?(col["id"])}
                         status={
-                          issue_status(issue, @filtered_running, @filtered_retries, @filtered_awaiting)
+                          issue_status(
+                            issue,
+                            @filtered_running,
+                            @filtered_retries,
+                            @filtered_awaiting
+                          )
                         }
                         clickable={is_db_issue?(issue.id)}
                         current_project={@current_project}
@@ -1123,7 +1130,28 @@ defmodule SynkadeWeb.DashboardLive do
 
             <.issue_modal :if={@modal && @modal.mode == :new} modal={@modal} />
           <% else %>
-            <%!-- Overview: Token Usage Chart --%>
+            <%!-- Overview: Status Cards + Token Usage Chart --%>
+            <div class="grid grid-cols-3 gap-4 mb-4">
+              <div class="card bg-base-200 border border-base-300 p-3">
+                <div class="flex items-center gap-2">
+                  <span class="loading loading-spinner loading-sm text-info"></span>
+                  <span class="text-sm">{map_size(@filtered_running)} running</span>
+                </div>
+              </div>
+              <div class="card bg-base-200 border border-base-300 p-3">
+                <div class="flex items-center gap-2">
+                  <span class="badge badge-error badge-xs">retry</span>
+                  <span class="text-sm">{map_size(@filtered_retries)} retry</span>
+                </div>
+              </div>
+              <div class="card bg-base-200 border border-base-300 p-3">
+                <div class="flex items-center gap-2">
+                  <span class="hero-arrow-uturn-down size-4 text-warning"></span>
+                  <span class="text-sm">{map_size(@filtered_awaiting)} review</span>
+                </div>
+              </div>
+            </div>
+
             <div class="card bg-base-200 border border-base-300 p-4">
               <h2 class="text-lg font-semibold mb-3">Token Usage — Last 30 Days</h2>
               <.token_chart
@@ -1155,7 +1183,7 @@ defmodule SynkadeWeb.DashboardLive do
               <div class="form-control mb-4">
                 <textarea
                   name="body"
-                  placeholder={"# Issue title\n\nDescribe the issue..."}
+                  placeholder="# Issue title\n\nDescribe the issue..."
                   class="textarea textarea-bordered w-full font-mono"
                   rows="6"
                   autofocus
