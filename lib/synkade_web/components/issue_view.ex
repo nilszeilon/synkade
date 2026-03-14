@@ -273,6 +273,8 @@ defmodule SynkadeWeb.Components.IssueView do
 
   attr :form, :any, required: true
   attr :db_projects, :list, required: true
+  attr :agents, :list, default: []
+  attr :selected_agent_id, :string, default: nil
   attr :form_project_id, :any, default: nil
   attr :form_parent_id, :any, default: nil
   attr :create_ancestors, :list, default: []
@@ -326,11 +328,37 @@ defmodule SynkadeWeb.Components.IssueView do
             </div>
           </div>
 
-          <div class="border-t border-base-300 pt-4 mt-4 flex gap-2">
-            <button type="submit" class="btn btn-sm btn-primary">Create</button>
-            <button type="button" phx-click="cancel_form" class="btn btn-sm btn-ghost">
-              Cancel
-            </button>
+          <div class="border-t border-base-300 pt-4 mt-4 space-y-3">
+            <div :if={@agents != []} class="flex items-center gap-2">
+              <input type="hidden" name="agent_id" value={@selected_agent_id || ""} />
+              <button
+                :for={agent <- @agents}
+                type="button"
+                phx-click="select_create_agent"
+                phx-value-id={agent.id}
+                class={[
+                  "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm transition-all cursor-pointer",
+                  if(@selected_agent_id == agent.id,
+                    do: "border-primary ring-1 ring-primary bg-primary/10",
+                    else: "border-base-300 hover:border-base-content/30"
+                  )
+                ]}
+              >
+                <span class={brand_color(agent.kind)}>
+                  <.agent_icon kind={agent.kind} class="size-4" />
+                </span>
+                <span class="text-xs">{agent.name}</span>
+              </button>
+            </div>
+            <div class="flex gap-2">
+              <button type="submit" class="btn btn-sm btn-ghost">Create</button>
+              <button type="submit" name="dispatch" value="true" class="btn btn-sm btn-primary">
+                Create & Dispatch
+              </button>
+              <button type="button" phx-click="cancel_form" class="btn btn-sm btn-ghost">
+                Cancel
+              </button>
+            </div>
           </div>
         </.form>
       </div>

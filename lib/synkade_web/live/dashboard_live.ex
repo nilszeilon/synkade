@@ -48,15 +48,17 @@ defmodule SynkadeWeb.DashboardLive do
       |> assign(:board_error, nil)
       |> assign(:modal, nil)
       |> assign(:agents, Settings.list_agents())
+      |> assign(:selected_agent_id, nil)
       |> assign(:view_mode, :board)
       |> assign(:selected_issue, nil)
       |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
       |> assign(:session_events, [])
       |> assign(:session_id, nil)
       |> assign(:session_subscribed, nil)
-      |> assign(:show_form, false)
       |> assign(:form, nil)
       |> assign(:form_project_id, nil)
+      |> assign(:form_parent_id, nil)
+      |> assign(:create_ancestors, [])
       |> assign_chart_data()
 
     {:ok, socket}
@@ -66,21 +68,24 @@ defmodule SynkadeWeb.DashboardLive do
   def handle_params(params, _uri, socket) do
     socket = assign(socket, :current_project, params["project"])
 
-    # Handle issue param for full-width view
+    # Handle view mode from URL params
     socket =
-      case params["issue"] do
-        nil ->
+      cond do
+        params["issue"] ->
+          load_issue_detail(socket, params["issue"])
+
+        params["new"] == "true" ->
+          init_create_view(socket, params)
+
+        true ->
           socket = unsubscribe_session(socket)
 
           socket
           |> assign(:selected_issue, nil)
           |> assign(:view_mode, if(params["project"], do: :board, else: :overview))
-
-        issue_id ->
-          load_issue_detail(socket, issue_id)
       end
 
-    if connected?(socket) && params["project"] && socket.assigns.view_mode != :detail do
+    if connected?(socket) && params["project"] && socket.assigns.view_mode not in [:detail, :create] do
       send(self(), :load_board)
     end
 
@@ -473,29 +478,13 @@ defmodule SynkadeWeb.DashboardLive do
   @impl true
   def handle_event("new_issue", params, socket) do
     parent_id = params["parent_id"]
-    db_id = resolve_db_id(resolve_project(socket))
-
-    if parent_id do
-      # Add child — use inline form in detail view
-      changeset = Issues.change_issue(%Issues.Issue{}, %{parent_id: parent_id})
-
-      socket =
-        socket
-        |> assign(:show_form, true)
-        |> assign(:form, to_form(changeset))
-        |> assign(:form_parent_id, parent_id)
-        |> assign(:form_project_id, db_id)
-
-      {:noreply, socket}
-    else
-      # New issue modal from kanban
-      {:noreply, assign(socket, :modal, %{mode: :new, body: ""})}
-    end
+    path = new_issue_path(socket.assigns.current_project, parent_id)
+    {:noreply, push_patch(socket, to: path)}
   end
 
   @impl true
   def handle_event("cancel_form", _params, socket) do
-    {:noreply, socket |> assign(:show_form, false) |> assign(:form, nil)}
+    {:noreply, push_patch(socket, to: dashboard_path(socket.assigns.current_project))}
   end
 
   @impl true
@@ -509,25 +498,52 @@ defmodule SynkadeWeb.DashboardLive do
   end
 
   @impl true
-  def handle_event("save_issue", %{"issue" => params}, socket) do
-    project_id = params["project_id"] || socket.assigns.form_project_id
+  def handle_event("select_create_agent", %{"id" => agent_id}, socket) do
+    {:noreply, assign(socket, :selected_agent_id, agent_id)}
+  end
 
-    params =
-      params
+  @impl true
+  def handle_event("save_issue", params, socket) do
+    issue_params = params["issue"]
+    project_id = issue_params["project_id"] || socket.assigns.form_project_id
+
+    issue_params =
+      issue_params
       |> Map.put("project_id", project_id)
       |> maybe_put_parent(socket.assigns[:form_parent_id])
 
-    case Issues.create_issue(params) do
-      {:ok, _issue} ->
-        send(self(), :load_board)
+    case Issues.create_issue(issue_params) do
+      {:ok, issue} ->
+        if params["dispatch"] == "true" do
+          agent_id = params["agent_id"]
+          agent_id = if agent_id == "", do: nil, else: agent_id
 
-        socket =
-          socket
-          |> assign(:show_form, false)
-          |> assign(:form, nil)
-          |> put_flash(:info, "Issue created")
+          case Issues.dispatch_issue(issue, issue.body, agent_id) do
+            {:ok, _} ->
+              send(self(), :load_board)
 
-        {:noreply, socket}
+              socket =
+                socket
+                |> put_flash(:info, "Issue created and dispatched")
+
+              {:noreply, push_patch(socket, to: dashboard_path(socket.assigns.current_project))}
+
+            {:error, _} ->
+              socket =
+                socket
+                |> put_flash(:error, "Issue created but dispatch failed")
+
+              {:noreply, push_patch(socket, to: dashboard_path(socket.assigns.current_project, issue.id))}
+          end
+        else
+          path = dashboard_path(socket.assigns.current_project, issue.id)
+
+          socket =
+            socket
+            |> put_flash(:info, "Issue created")
+
+          {:noreply, push_patch(socket, to: path)}
+        end
 
       {:error, changeset} ->
         {:noreply, assign(socket, :form, to_form(changeset))}
@@ -538,7 +554,8 @@ defmodule SynkadeWeb.DashboardLive do
 
   @impl true
   def handle_event("open_new_issue", _params, socket) do
-    {:noreply, assign(socket, :modal, %{mode: :new, body: ""})}
+    path = new_issue_path(socket.assigns.current_project)
+    {:noreply, push_patch(socket, to: path)}
   end
 
   @impl true
@@ -563,30 +580,6 @@ defmodule SynkadeWeb.DashboardLive do
   @impl true
   def handle_event("close_modal", _params, socket) do
     {:noreply, assign(socket, :modal, nil)}
-  end
-
-  @impl true
-  def handle_event("save_new_issue", %{"body" => body}, socket) do
-    db_id = resolve_db_id(resolve_project(socket))
-
-    case db_id do
-      nil ->
-        {:noreply, put_flash(socket, :error, "No project selected")}
-
-      db_id ->
-        body = String.trim(body)
-        attrs = %{project_id: db_id}
-        attrs = if body != "", do: Map.put(attrs, :body, body), else: attrs
-
-        case Issues.create_issue(attrs) do
-          {:ok, _issue} ->
-            send(self(), :load_board)
-            {:noreply, socket |> assign(:modal, nil) |> put_flash(:info, "Issue created")}
-
-          {:error, _} ->
-            {:noreply, put_flash(socket, :error, "Failed to create issue")}
-        end
-    end
   end
 
   @impl true
@@ -649,6 +642,42 @@ defmodule SynkadeWeb.DashboardLive do
   end
 
   # --- Private helpers ---
+
+  defp init_create_view(socket, params) do
+    parent_id = params["parent_id"]
+    db_id = resolve_db_id(resolve_project(socket))
+
+    changeset = Issues.change_issue(%Issues.Issue{}, %{parent_id: parent_id})
+
+    create_ancestors =
+      case parent_id do
+        nil ->
+          []
+
+        id ->
+          case Issues.get_issue(id) do
+            nil -> []
+            parent -> Issues.ancestor_chain(parent) ++ [parent]
+          end
+      end
+
+    socket = unsubscribe_session(socket)
+
+    default_agent_id =
+      case socket.assigns.agents do
+        [first | _] -> first.id
+        [] -> nil
+      end
+
+    socket
+    |> assign(:view_mode, :create)
+    |> assign(:selected_issue, nil)
+    |> assign(:form, to_form(changeset))
+    |> assign(:form_parent_id, parent_id)
+    |> assign(:form_project_id, db_id)
+    |> assign(:create_ancestors, create_ancestors)
+    |> assign(:selected_agent_id, default_agent_id)
+  end
 
   defp load_issue_detail(socket, issue_id) do
     case Issues.get_issue(issue_id) do
@@ -732,6 +761,13 @@ defmodule SynkadeWeb.DashboardLive do
     else
       "/?" <> URI.encode_query(params)
     end
+  end
+
+  defp new_issue_path(project_name, parent_id \\ nil) do
+    params = %{"new" => "true"}
+    params = if project_name, do: Map.put(params, "project", project_name), else: params
+    params = if parent_id, do: Map.put(params, "parent_id", parent_id), else: params
+    "/?" <> URI.encode_query(params)
   end
 
   defp maybe_put_parent(params, nil), do: params
@@ -997,45 +1033,36 @@ defmodule SynkadeWeb.DashboardLive do
       current_project={@current_project}
     >
       <div class="px-6 py-4">
-        <%= if @view_mode == :detail && @selected_issue do %>
-          <.issue_full_view
-            issue={@selected_issue.issue}
-            ancestors={@selected_issue.ancestors}
-            dispatch_form={@dispatch_form}
-            agents={@agents}
-            session_events={@session_events}
-            session_id={@session_id}
-            running_entry={find_running_entry(@running, @selected_issue.issue.id)}
-            back_path={dashboard_path(@current_project)}
-            back_label={@current_project || "Overview"}
-          />
-          
-    <!-- New child issue form (shown in detail view) -->
-          <div :if={@show_form} class="max-w-4xl mx-auto mt-4 card bg-base-200 p-4">
-            <.form for={@form} phx-change="validate_issue" phx-submit="save_issue">
-              <div class="flex flex-col gap-3">
-                <div class="form-control">
-                  <textarea
-                    name="issue[body]"
-                    placeholder="# Child issue title\n\nDescribe the issue..."
-                    class="textarea textarea-bordered textarea-sm w-full font-mono"
-                    rows="5"
-                    phx-debounce="300"
-                  >{@form[:body].value}</textarea>
-                </div>
-                <div class="flex gap-2">
-                  <button type="submit" class="btn btn-sm btn-primary">Create</button>
-                  <button type="button" phx-click="cancel_form" class="btn btn-sm btn-ghost">
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            </.form>
-          </div>
-          
-    <!-- Edit modal (overlaid on detail view) -->
-          <.issue_modal :if={@modal && @modal.mode == :edit} modal={@modal} />
-        <% else %>
+        <%= cond do %>
+          <% @view_mode == :detail && @selected_issue -> %>
+            <.issue_full_view
+              issue={@selected_issue.issue}
+              ancestors={@selected_issue.ancestors}
+              dispatch_form={@dispatch_form}
+              agents={@agents}
+              session_events={@session_events}
+              session_id={@session_id}
+              running_entry={find_running_entry(@running, @selected_issue.issue.id)}
+              back_path={dashboard_path(@current_project)}
+              back_label={@current_project || "Overview"}
+            />
+
+            <!-- Edit modal (overlaid on detail view) -->
+            <.issue_modal :if={@modal && @modal.mode == :edit} modal={@modal} />
+
+          <% @view_mode == :create -> %>
+            <.issue_create_view
+              form={@form}
+              db_projects={[]}
+              agents={@agents}
+              selected_agent_id={@selected_agent_id}
+              form_project_id={@form_project_id}
+              form_parent_id={@form_parent_id}
+              create_ancestors={@create_ancestors}
+              back_path={dashboard_path(@current_project)}
+            />
+
+          <% true -> %>
           <div class="flex items-center justify-between mb-4">
             <h1 class="text-2xl font-bold">
               {if @current_project, do: @current_project, else: "Overview"}
@@ -1133,7 +1160,6 @@ defmodule SynkadeWeb.DashboardLive do
               <% end %>
             </div>
 
-            <.issue_modal :if={@modal && @modal.mode == :new} modal={@modal} />
           <% else %>
             <%!-- Overview: Status Cards + Token Usage Chart --%>
             <div class="grid grid-cols-3 gap-4 mb-4">
@@ -1182,23 +1208,6 @@ defmodule SynkadeWeb.DashboardLive do
     <div class="modal modal-open" phx-window-keydown="close_modal" phx-key="Escape">
       <div class="modal-box max-w-lg">
         <%= case @modal.mode do %>
-          <% :new -> %>
-            <h3 class="font-bold text-lg mb-4">New Issue</h3>
-            <form phx-submit="save_new_issue">
-              <div class="form-control mb-4">
-                <textarea
-                  name="body"
-                  placeholder="# Issue title\n\nDescribe the issue..."
-                  class="textarea textarea-bordered w-full font-mono"
-                  rows="6"
-                  autofocus
-                ></textarea>
-              </div>
-              <div class="modal-action">
-                <button type="button" phx-click="close_modal" class="btn btn-ghost">Cancel</button>
-                <button type="submit" class="btn btn-primary">Create</button>
-              </div>
-            </form>
           <% :edit -> %>
             <h3 class="font-bold text-lg mb-4">Edit Issue</h3>
             <form phx-submit="save_edit_issue">

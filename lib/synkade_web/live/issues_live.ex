@@ -36,6 +36,7 @@ defmodule SynkadeWeb.IssuesLive do
       |> assign(:create_ancestors, [])
       |> assign(:collapsed, MapSet.new())
       |> assign(:agents, Settings.list_agents())
+      |> assign(:selected_agent_id, nil)
       |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
       |> assign(:session_events, [])
       |> assign(:session_id, nil)
@@ -221,24 +222,53 @@ defmodule SynkadeWeb.IssuesLive do
   end
 
   @impl true
-  def handle_event("save_issue", %{"issue" => params}, socket) do
-    project_id = params["project_id"] || socket.assigns.form_project_id
+  def handle_event("select_create_agent", %{"id" => agent_id}, socket) do
+    {:noreply, assign(socket, :selected_agent_id, agent_id)}
+  end
 
-    params =
-      params
+  @impl true
+  def handle_event("save_issue", params, socket) do
+    issue_params = params["issue"]
+    project_id = issue_params["project_id"] || socket.assigns.form_project_id
+
+    issue_params =
+      issue_params
       |> Map.put("project_id", project_id)
       |> maybe_put_parent(socket.assigns[:form_parent_id])
 
-    case Issues.create_issue(params) do
+    case Issues.create_issue(issue_params) do
       {:ok, issue} ->
-        path = issues_path(socket.assigns.state_filter, issue.id)
+        if params["dispatch"] == "true" do
+          agent_id = params["agent_id"]
+          agent_id = if agent_id == "", do: nil, else: agent_id
 
-        socket =
-          socket
-          |> load_issues()
-          |> put_flash(:info, "Issue created")
+          case Issues.dispatch_issue(issue, issue.body, agent_id) do
+            {:ok, _} ->
+              socket =
+                socket
+                |> load_issues()
+                |> put_flash(:info, "Issue created and dispatched")
 
-        {:noreply, push_patch(socket, to: path)}
+              {:noreply, push_patch(socket, to: issues_path(socket.assigns.state_filter))}
+
+            {:error, _} ->
+              socket =
+                socket
+                |> load_issues()
+                |> put_flash(:error, "Issue created but dispatch failed")
+
+              {:noreply, push_patch(socket, to: issues_path(socket.assigns.state_filter, issue.id))}
+          end
+        else
+          path = issues_path(socket.assigns.state_filter, issue.id)
+
+          socket =
+            socket
+            |> load_issues()
+            |> put_flash(:info, "Issue created")
+
+          {:noreply, push_patch(socket, to: path)}
+        end
 
       {:error, changeset} ->
         {:noreply, assign(socket, :form, to_form(changeset))}
@@ -393,6 +423,12 @@ defmodule SynkadeWeb.IssuesLive do
 
     socket = unsubscribe_session(socket)
 
+    default_agent_id =
+      case socket.assigns.agents do
+        [first | _] -> first.id
+        [] -> nil
+      end
+
     socket
     |> assign(:view_mode, :create)
     |> assign(:selected_issue, nil)
@@ -400,6 +436,7 @@ defmodule SynkadeWeb.IssuesLive do
     |> assign(:form_parent_id, parent_id)
     |> assign(:form_project_id, project_id)
     |> assign(:create_ancestors, create_ancestors)
+    |> assign(:selected_agent_id, default_agent_id)
   end
 
   defp load_issue_detail(socket, issue_id) do
@@ -550,6 +587,8 @@ defmodule SynkadeWeb.IssuesLive do
             <.issue_create_view
               form={@form}
               db_projects={@db_projects}
+              agents={@agents}
+              selected_agent_id={@selected_agent_id}
               form_project_id={@form_project_id}
               form_parent_id={@form_parent_id}
               create_ancestors={@create_ancestors}
