@@ -33,7 +33,15 @@ defmodule Synkade.TokenUsage do
 
     Repo.insert(
       %__MODULE__{date: today, model: model, input_tokens: input_tokens, output_tokens: output_tokens},
-      on_conflict: [inc: [input_tokens: input_tokens, output_tokens: output_tokens]],
+      on_conflict:
+        from(t in __MODULE__,
+          update: [
+            set: [
+              input_tokens: fragment("? + ?", t.input_tokens, ^input_tokens),
+              output_tokens: fragment("? + ?", t.output_tokens, ^output_tokens)
+            ]
+          ]
+        ),
       conflict_target: [:date, :model]
     )
   end
