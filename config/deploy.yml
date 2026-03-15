@@ -1,5 +1,5 @@
 service: synkade
-image: ghcr.io/nilszeilon/synkade
+image: nilszeilon/synkade
 
 servers:
   web:
