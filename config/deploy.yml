@@ -35,6 +35,7 @@ env:
 
 builder:
   arch: amd64
+  remote: ssh://root@116.203.114.129
 
 ssh:
   user: root
