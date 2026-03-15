@@ -33,5 +33,17 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
+      - name: Add server to known_hosts
+        run: ssh-keyscan -H 116.203.114.129 >> ~/.ssh/known_hosts
+
+      - name: Create Kamal secrets file
+        run: |
+          mkdir -p .kamal
+          printf '%s\n' \
+            'KAMAL_REGISTRY_PASSWORD=$KAMAL_REGISTRY_PASSWORD' \
+            'SECRET_KEY_BASE=$SECRET_KEY_BASE' \
+            'SETTINGS_ENCRYPTION_KEY=$SETTINGS_ENCRYPTION_KEY' \
+            > .kamal/secrets
+
       - name: Deploy with Kamal
         run: kamal deploy
