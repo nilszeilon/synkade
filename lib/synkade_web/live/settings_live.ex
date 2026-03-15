@@ -121,7 +121,7 @@ defmodule SynkadeWeb.SettingsLive do
       end
 
     changeset =
-      Settings.change_agent(agent, params)
+      Settings.change_agent(agent, normalize_agent_params(params))
       |> Map.put(:action, :validate)
 
     {:noreply, assign(socket, :agent_form, to_form(changeset))}
@@ -147,6 +147,7 @@ defmodule SynkadeWeb.SettingsLive do
 
   @impl true
   def handle_event("save_agent", %{"agent" => params}, socket) do
+    params = normalize_agent_params(params)
     was_new = socket.assigns.agent_editing == :new
 
     result =
@@ -807,7 +808,7 @@ defmodule SynkadeWeb.SettingsLive do
                   <input
                     type="text"
                     class="input input-bordered w-full"
-                    name={@form[:allowed_tools].name <> "[]"}
+                    name={@form[:allowed_tools].name}
                     id={@form[:allowed_tools].id}
                     value={Enum.join(@form[:allowed_tools].value || [], ", ")}
                     placeholder="Read, Edit, Write, Bash, Glob, Grep"
@@ -1062,4 +1063,16 @@ defmodule SynkadeWeb.SettingsLive do
   defp assign_form(socket, changeset) do
     assign(socket, :form, to_form(changeset))
   end
+
+  defp normalize_agent_params(%{"allowed_tools" => tools} = params) when is_binary(tools) do
+    list =
+      tools
+      |> String.split(",")
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
+    Map.put(params, "allowed_tools", list)
+  end
+
+  defp normalize_agent_params(params), do: params
 end
