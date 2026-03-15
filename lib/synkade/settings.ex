@@ -139,6 +139,22 @@ defmodule Synkade.Settings do
     Project.changeset(project, attrs)
   end
 
+  @doc "Lists all projects accessible to a given agent (default agent or has assigned issues)."
+  def list_agent_projects(agent_id) do
+    default_projects =
+      from(p in Project, where: p.default_agent_id == ^agent_id)
+
+    assigned_projects =
+      from(p in Project,
+        join: i in Synkade.Issues.Issue,
+        on: i.project_id == p.id,
+        where: i.assigned_agent_id == ^agent_id,
+        distinct: true
+      )
+
+    Repo.all(union(default_projects, ^assigned_projects))
+  end
+
   # --- Agents ---
 
   @doc "Lists all agents."

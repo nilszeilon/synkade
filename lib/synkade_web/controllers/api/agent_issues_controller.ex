@@ -4,19 +4,52 @@ defmodule SynkadeWeb.Api.AgentIssuesController do
   alias Synkade.Issues
   alias Synkade.Settings
 
-  def index(conn, %{"project_id" => project_id}) do
+  def index(conn, %{"project_id" => project_id} = params) do
     agent = conn.assigns.current_agent
 
     if has_project_access?(agent, project_id) do
       issues = Issues.list_issues(project_id)
+
+      # Filter by state if requested
+      issues =
+        case params["state"] do
+          nil -> issues
+          state -> Enum.filter(issues, fn i -> i.state == state end)
+        end
+
+      # Filter to issues assigned to the calling agent
+      issues =
+        case params["assigned_to"] do
+          "me" -> Enum.filter(issues, fn i -> i.assigned_agent_id == agent.id end)
+          _ -> issues
+        end
+
       json(conn, SynkadeWeb.Api.AgentIssuesJSON.issues(issues))
     else
       conn |> put_status(403) |> json(%{error: "forbidden"})
     end
   end
 
-  def index(conn, _params) do
-    conn |> put_status(400) |> json(%{error: "project_id is required"})
+  def index(conn, params) do
+    agent = conn.assigns.current_agent
+
+    opts =
+      []
+      |> then(fn opts ->
+        case params["state"] do
+          nil -> opts
+          state -> [{:state, state} | opts]
+        end
+      end)
+      |> then(fn opts ->
+        case params["assigned_to"] do
+          "me" -> [{:assigned_to, agent.id} | opts]
+          _ -> opts
+        end
+      end)
+
+    issues = Issues.list_agent_inbox(agent.id, opts)
+    json(conn, SynkadeWeb.Api.AgentIssuesJSON.issues(issues))
   end
 
   def create(conn, %{"project_id" => project_id} = params) do
@@ -94,6 +127,9 @@ defmodule SynkadeWeb.Api.AgentIssuesController do
               nil ->
                 Issues.update_issue(issue, update_attrs)
 
+              new_state when new_state in ~w(queued cancelled) ->
+                {:error, :forbidden_transition}
+
               new_state ->
                 with {:ok, updated} <- Issues.update_issue(issue, update_attrs) do
                   Issues.transition_state(updated, new_state)
@@ -105,11 +141,39 @@ defmodule SynkadeWeb.Api.AgentIssuesController do
               updated = Issues.get_issue!(updated.id)
               json(conn, SynkadeWeb.Api.AgentIssuesJSON.issue(updated))
 
+            {:error, :forbidden_transition} ->
+              conn
+              |> put_status(403)
+              |> json(%{error: "agents cannot transition to this state"})
+
             {:error, :invalid_transition} ->
               conn |> put_status(422) |> json(%{error: "invalid state transition"})
 
             {:error, changeset} ->
               conn |> put_status(422) |> json(%{error: format_errors(changeset)})
+          end
+        else
+          conn |> put_status(403) |> json(%{error: "forbidden"})
+        end
+    end
+  end
+
+  def checkout(conn, %{"id" => id}) do
+    agent = conn.assigns.current_agent
+
+    case Issues.get_issue(id) do
+      nil ->
+        conn |> put_status(404) |> json(%{error: "not found"})
+
+      issue ->
+        if has_project_access?(agent, issue.project_id) do
+          case Issues.checkout_issue(issue, agent.id) do
+            {:ok, updated} ->
+              updated = Issues.get_issue!(updated.id)
+              json(conn, SynkadeWeb.Api.AgentIssuesJSON.issue(updated))
+
+            {:error, :already_claimed} ->
+              conn |> put_status(409) |> json(%{error: "issue is not in queued state"})
           end
         else
           conn |> put_status(403) |> json(%{error: "forbidden"})

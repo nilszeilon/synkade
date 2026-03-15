@@ -86,6 +86,50 @@ defmodule Synkade.Prompt.RendererTest do
     end
   end
 
+  describe "pull protocol suffix for pull-kind agents" do
+    test "includes pull protocol when agent kind is hermes and API configured" do
+      project = %{
+        name: "api",
+        db_id: "proj-123",
+        config: %{
+          "agent" => %{
+            "synkade_api_url" => "https://synkade.test/api/v1/agent",
+            "kind" => "hermes"
+          }
+        }
+      }
+
+      assert {:ok, rendered} = Renderer.render(nil, project, @issue)
+      assert rendered =~ "Synkade Agent Protocol (Pull-Based)"
+      assert rendered =~ "/issues?state=queued&assigned_to=me"
+      assert rendered =~ "/issues/<issue_id>/checkout"
+      assert rendered =~ "returns 409 if already claimed"
+    end
+
+    test "omits pull protocol when agent kind is claude" do
+      project = %{
+        name: "api",
+        db_id: "proj-123",
+        config: %{
+          "agent" => %{
+            "synkade_api_url" => "https://synkade.test/api/v1/agent",
+            "kind" => "claude"
+          }
+        }
+      }
+
+      assert {:ok, rendered} = Renderer.render(nil, project, @issue)
+      assert rendered =~ "Synkade Issue API"
+      refute rendered =~ "Synkade Agent Protocol (Pull-Based)"
+    end
+
+    test "omits API suffix entirely when no API URL configured" do
+      assert {:ok, rendered} = Renderer.render(nil, @project, @issue)
+      refute rendered =~ "Synkade Issue API"
+      refute rendered =~ "Synkade Agent Protocol (Pull-Based)"
+    end
+  end
+
   describe "render/6 with dispatch_message" do
     test "includes dispatch message in rendered output" do
       template = "Work on {{ issue.identifier }}"

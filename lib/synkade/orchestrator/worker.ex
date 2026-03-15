@@ -24,10 +24,11 @@ defmodule Synkade.Orchestrator.Worker do
          :ok <- report_env(orchestrator, project_name, issue.id, env_ref),
          :ok <- BackendClient.run_before_hook(config, env_ref),
          {:ok, prompt} <- render_prompt(prompt_template, project, issue, attempt),
-         {:ok, session} <- start_or_continue(config, attempt, prompt, env_ref, nil) do
+         {:ok, session} <- start_or_continue(config, attempt, prompt, env_ref) do
       result = event_loop(orchestrator, project, issue, session, config, max_turns, 1)
 
       BackendClient.run_after_hook(config, env_ref)
+
       result
     else
       {:error, reason} ->
@@ -72,7 +73,7 @@ defmodule Synkade.Orchestrator.Worker do
     Renderer.render(prompt_template, project_map, issue_map, attempt, ancestors, dispatch_message)
   end
 
-  defp start_or_continue(config, nil, prompt, env_ref, _session_id) do
+  defp start_or_continue(config, nil, prompt, env_ref) do
     Logger.warning(
       "WORKER: start_or_continue calling start_agent for prompt: #{String.slice(prompt, 0..50)}..."
     )
@@ -82,15 +83,11 @@ defmodule Synkade.Orchestrator.Worker do
     result
   end
 
-  defp start_or_continue(config, _attempt, prompt, env_ref, nil) do
+  defp start_or_continue(config, _attempt, prompt, env_ref) do
     Logger.warning("WORKER: start_or_continue (with attempt) calling start_agent...")
     result = BackendClient.start_agent(config, prompt, env_ref)
     Logger.warning("WORKER: start_agent result: #{inspect(result)}")
     result
-  end
-
-  defp start_or_continue(config, _attempt, prompt, env_ref, session_id) do
-    BackendClient.continue_agent(config, session_id, prompt, env_ref)
   end
 
   defp event_loop(orchestrator, project, issue, session, config, max_turns, turn) do
@@ -166,7 +163,7 @@ defmodule Synkade.Orchestrator.Worker do
 
           session_id = session.session_id
 
-          case start_or_continue(config, turn, continuation_prompt, session.env_ref, session_id) do
+          case BackendClient.continue_agent(config, session_id, continuation_prompt, session.env_ref) do
             {:ok, new_session} ->
               event_loop(orchestrator, project, issue, new_session, config, max_turns, turn + 1)
 

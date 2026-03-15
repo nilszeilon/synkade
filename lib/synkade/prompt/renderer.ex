@@ -128,6 +128,41 @@ defmodule Synkade.Prompt.Renderer do
   Valid statuses: `working`, `error`, `blocked`. Send a heartbeat every 2-3 minutes during long-running tasks to prevent stall detection from killing your session.
   """
 
+  @pull_protocol_suffix """
+
+  ## Synkade Agent Protocol (Pull-Based)
+
+  You are a persistent agent connected to Synkade. Between tasks, you can discover and claim new work using the pull-based protocol below.
+
+  ### Discover your identity and projects:
+  ```bash
+  curl -s -H "Authorization: Bearer $SYNKADE_API_TOKEN" "$SYNKADE_API_URL/me"
+  ```
+
+  ### Find available work (queued issues assigned to you):
+  ```bash
+  curl -s -H "Authorization: Bearer $SYNKADE_API_TOKEN" "$SYNKADE_API_URL/issues?state=queued&assigned_to=me"
+  ```
+
+  ### Atomically claim an issue (returns 409 if already claimed):
+  ```bash
+  curl -s -X POST -H "Authorization: Bearer $SYNKADE_API_TOKEN" "$SYNKADE_API_URL/issues/<issue_id>/checkout"
+  ```
+
+  ### Mark issue complete (awaiting review):
+  ```bash
+  curl -s -X PATCH -H "Authorization: Bearer $SYNKADE_API_TOKEN" -H "Content-Type: application/json" \\
+    -d '{"state":"awaiting_review","agent_output":"Summary of completed work"}' \\
+    "$SYNKADE_API_URL/issues/{{ issue.id }}"
+  ```
+
+  ### Workflow: checkout → heartbeat → complete
+  1. Poll `GET /issues?state=queued&assigned_to=me` to find work
+  2. `POST /issues/:id/checkout` to claim it (handles race conditions)
+  3. Send heartbeats every 2-3 minutes while working
+  4. `PATCH /issues/:id` with `state: "awaiting_review"` when done
+  """
+
   @spec render(
           String.t() | nil,
           map(),
@@ -177,12 +212,19 @@ defmodule Synkade.Prompt.Renderer do
 
     # Add API suffix if Synkade API is configured, otherwise fallback to children markers
     has_api = get_in(project, [:config, "agent", "synkade_api_url"]) != nil
+    agent_kind = get_in(project, [:config, "agent", "kind"])
+    is_pull_kind = agent_kind in ~w(hermes openclaw)
 
     template =
-      if has_api do
-        template <> @api_suffix <> @children_suffix
-      else
-        template <> @children_suffix
+      cond do
+        has_api and is_pull_kind ->
+          template <> @api_suffix <> @pull_protocol_suffix <> @children_suffix
+
+        has_api ->
+          template <> @api_suffix <> @children_suffix
+
+        true ->
+          template <> @children_suffix
       end
 
     project_id = get_in(project, [:config, "agent", "synkade_api_url"]) && get_project_id(project)

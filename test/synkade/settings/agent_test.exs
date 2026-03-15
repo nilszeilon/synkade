@@ -22,7 +22,7 @@ defmodule Synkade.Settings.AgentTest do
     end
 
     test "accepts valid kinds" do
-      for kind <- ["claude", "codex"] do
+      for kind <- ~w(claude codex opencode hermes openclaw) do
         changeset = Agent.changeset(%Agent{}, %{name: "a", kind: kind})
         assert changeset.valid?, "expected kind=#{kind} to be valid"
       end
@@ -69,6 +69,28 @@ defmodule Synkade.Settings.AgentTest do
     test "defaults allowed_tools to empty list" do
       agent = %Agent{}
       assert agent.allowed_tools == []
+    end
+  end
+
+  describe "pull_kind?/1" do
+    test "hermes is a pull kind" do
+      assert Agent.pull_kind?("hermes")
+    end
+
+    test "openclaw is a pull kind" do
+      assert Agent.pull_kind?("openclaw")
+    end
+
+    test "claude is not a pull kind" do
+      refute Agent.pull_kind?("claude")
+    end
+
+    test "codex is not a pull kind" do
+      refute Agent.pull_kind?("codex")
+    end
+
+    test "opencode is not a pull kind" do
+      refute Agent.pull_kind?("opencode")
     end
   end
 

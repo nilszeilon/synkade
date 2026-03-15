@@ -5,6 +5,8 @@ defmodule Synkade.Settings.Agent do
   @primary_key {:id, :binary_id, autogenerate: true}
   @timestamps_opts [type: :utc_datetime]
 
+  @pull_kinds ~w(hermes openclaw)
+
   schema "agents" do
     field :name, :string
     field :kind, :string, default: "claude"
@@ -28,8 +30,10 @@ defmodule Synkade.Settings.Agent do
     |> cast(attrs, @fields)
     |> validate_required([:name])
     |> unique_constraint(:name)
-    |> validate_inclusion(:kind, ["claude", "codex", "opencode"])
+    |> validate_inclusion(:kind, ~w(claude codex opencode hermes openclaw))
     |> validate_inclusion(:auth_mode, ["api_key", "oauth"])
     |> validate_number(:max_turns, greater_than: 0)
   end
+
+  def pull_kind?(kind), do: kind in @pull_kinds
 end

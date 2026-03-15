@@ -40,6 +40,43 @@ defmodule Synkade.Issues do
     Repo.all(query)
   end
 
+  @doc "Lists issues across all projects accessible to the given agent."
+  def list_agent_inbox(agent_id, opts \\ []) do
+    # Find project IDs where agent is default
+    default_project_ids =
+      from(p in Synkade.Settings.Project,
+        where: p.default_agent_id == ^agent_id,
+        select: p.id
+      )
+      |> Repo.all()
+
+    # Find project IDs where agent has assigned issues
+    assigned_project_ids =
+      from(i in Issue,
+        where: i.assigned_agent_id == ^agent_id,
+        distinct: true,
+        select: i.project_id
+      )
+      |> Repo.all()
+
+    accessible_project_ids = Enum.uniq(default_project_ids ++ assigned_project_ids)
+
+    query =
+      from(i in Issue,
+        where: i.project_id in ^accessible_project_ids,
+        order_by: [asc: i.inserted_at]
+      )
+
+    query =
+      Enum.reduce(opts, query, fn
+        {:state, state}, q -> where(q, [i], i.state == ^state)
+        {:assigned_to, agent_id}, q -> where(q, [i], i.assigned_agent_id == ^agent_id)
+        _, q -> q
+      end)
+
+    Repo.all(query)
+  end
+
   def list_root_issues(project_id) do
     from(i in Issue,
       where: i.project_id == ^project_id and is_nil(i.parent_id),
@@ -135,6 +172,30 @@ defmodule Synkade.Issues do
       update_issue(issue, %{state: new_state})
     else
       {:error, :invalid_transition}
+    end
+  end
+
+  @doc """
+  Atomically checks out a queued issue for the given agent.
+  Returns {:ok, issue} on success, {:error, :already_claimed} if not in queued state.
+  """
+  def checkout_issue(%Issue{} = issue, agent_id) do
+    import Ecto.Query
+
+    {count, _} =
+      from(i in Issue,
+        where: i.id == ^issue.id and i.state == "queued"
+      )
+      |> Repo.update_all(
+        set: [state: "in_progress", assigned_agent_id: agent_id, updated_at: DateTime.utc_now()]
+      )
+
+    if count == 1 do
+      updated = get_issue!(issue.id)
+      broadcast_update()
+      {:ok, updated}
+    else
+      {:error, :already_claimed}
     end
   end
 

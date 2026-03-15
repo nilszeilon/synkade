@@ -528,6 +528,7 @@ defmodule SynkadeWeb.SettingsLive do
                   <th>Name</th>
                   <th>Kind</th>
                   <th>Model</th>
+                  <th>Mode</th>
                   <th>Token</th>
                   <th></th>
                 </tr>
@@ -545,6 +546,13 @@ defmodule SynkadeWeb.SettingsLive do
                       </span>
                     </td>
                     <td class="text-sm text-base-content/60">{agent.model || "-"}</td>
+                    <td class="text-sm">
+                      <%= if agent.kind in ~w(hermes openclaw) do %>
+                        <span class="badge badge-secondary badge-sm">Pull</span>
+                      <% else %>
+                        <span class="badge badge-ghost badge-sm">Ephemeral</span>
+                      <% end %>
+                    </td>
                     <td>
                       <%= if agent.api_token_hash do %>
                         <%= if MapSet.member?(@agent_token_visible, agent.id) do %>
@@ -667,6 +675,8 @@ defmodule SynkadeWeb.SettingsLive do
                 <.agent_card kind="claude" selected={(@form[:kind].value || "claude") == "claude"} />
                 <.agent_card kind="opencode" selected={@form[:kind].value == "opencode"} />
                 <.agent_card kind="codex" selected={@form[:kind].value == "codex"} />
+                <.agent_card kind="hermes" selected={@form[:kind].value == "hermes"} />
+                <.agent_card kind="openclaw" selected={@form[:kind].value == "openclaw"} />
               </div>
             </div>
 
@@ -772,6 +782,7 @@ defmodule SynkadeWeb.SettingsLive do
                 id={@form[:system_prompt].id}
               >{@form[:system_prompt].value}</textarea>
             </div>
+
           </div>
 
           <div class="flex gap-2 mt-6">

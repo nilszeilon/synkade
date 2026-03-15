@@ -43,8 +43,7 @@ defmodule Synkade.Orchestrator.Dispatch do
     global_available = max(0, global_max - global_running)
 
     project_running =
-      state.running
-      |> Enum.count(fn {_key, entry} -> entry.project_name == project.name end)
+      Enum.count(state.running, fn {_key, entry} -> entry.project_name == project.name end)
 
     project_max = project.max_concurrent_agents
     project_available = max(0, project_max - project_running)

@@ -11,7 +11,6 @@ defmodule Synkade.Orchestrator do
   alias Synkade.Settings.ConfigAdapter
   alias Synkade.Issues
   alias Synkade.TokenUsage
-
   @pubsub_topic "orchestrator:updates"
   @max_events_per_issue 500
 
@@ -108,13 +107,14 @@ defmodule Synkade.Orchestrator do
 
   @impl true
   def handle_cast({:agent_heartbeat, issue_id, status, message}, state) do
-    # Find running entry by issue_id
+    now = System.monotonic_time(:millisecond)
+
     state =
       case Enum.find(state.running, fn {_key, entry} -> entry.issue_id == issue_id end) do
         {key, entry} ->
           entry = %{
             entry
-            | last_agent_timestamp: System.monotonic_time(:millisecond),
+            | last_agent_timestamp: now,
               last_agent_message: "[#{status}] #{message || ""}"
           }
 
@@ -612,40 +612,51 @@ defmodule Synkade.Orchestrator do
         _ -> nil
       end
 
-    # Claim the issue
-    state = %{state | claimed: MapSet.put(state.claimed, key)}
-
-    # Remove from retry if present
-    state =
-      case Map.get(state.retry_attempts, key) do
-        nil ->
-          state
-
-        retry ->
-          Retry.cancel_retry(retry)
-          %{state | retry_attempts: Map.delete(state.retry_attempts, key)}
-      end
-
-    # Transition DB issue to in_progress
+    # Resolve per-issue agent override
     db_issue = Enum.find(db_issues, fn di -> di.id == issue.id end)
-    require Logger
+    {effective_project, _agent_name, _agent_kind, agent} = resolve_issue_agent_full(project, db_issue)
 
-    Logger.warning(
-      "DISPATCH_ISSUE_CHECK: issue.id=#{inspect(issue.id)}, db_issue found=#{not is_nil(db_issue)}, project=#{project.name}"
-    )
+    # Pull-based agents (hermes/openclaw): skip dispatch, issue stays queued for agent to poll
+    if agent && Synkade.Settings.Agent.pull_kind?(agent.kind) do
+      Logger.info("Skipping dispatch for pull-based agent #{agent.name} (#{agent.kind}), issue #{key} stays queued")
+      state
+    else
+      # Claim the issue
+      state = %{state | claimed: MapSet.put(state.claimed, key)}
 
-    if db_issue do
-      try do
-        Issues.transition_state(db_issue, "in_progress")
-      catch
-        kind, reason ->
-          Logger.warning("Failed to transition issue #{db_issue.id} to in_progress: #{kind} #{inspect(reason)}")
+      # Remove from retry if present
+      state =
+        case Map.get(state.retry_attempts, key) do
+          nil ->
+            state
+
+          retry ->
+            Retry.cancel_retry(retry)
+            %{state | retry_attempts: Map.delete(state.retry_attempts, key)}
+        end
+
+      # Transition DB issue to in_progress
+      require Logger
+
+      Logger.warning(
+        "DISPATCH_ISSUE_CHECK: issue.id=#{inspect(issue.id)}, db_issue found=#{not is_nil(db_issue)}, project=#{project.name}"
+      )
+
+      if db_issue do
+        try do
+          Issues.transition_state(db_issue, "in_progress")
+        catch
+          kind, reason ->
+            Logger.warning("Failed to transition issue #{db_issue.id} to in_progress: #{kind} #{inspect(reason)}")
+        end
       end
+
+      # Standard ephemeral dispatch
+      dispatch_ephemeral(state, project, effective_project, issue, attempt, agent_name(agent), agent_kind(agent), key)
     end
+  end
 
-    # Resolve per-issue agent override and get agent name + kind
-    {effective_project, agent_name, agent_kind} = resolve_issue_agent(project, db_issue)
-
+  defp dispatch_ephemeral(state, project, effective_project, issue, attempt, agent_name, agent_kind, key) do
     # Launch worker task
     orchestrator = self()
 
@@ -989,16 +1000,16 @@ defmodule Synkade.Orchestrator do
     end
   end
 
-  defp resolve_issue_agent(project, nil) do
+  defp resolve_issue_agent_full(project, nil) do
     agent = get_default_agent(project)
-    {add_agent_config(project, agent), agent_name(agent), agent_kind(agent)}
+    {add_agent_config(project, agent), agent_name(agent), agent_kind(agent), agent}
   end
 
-  defp resolve_issue_agent(project, db_issue) do
+  defp resolve_issue_agent_full(project, db_issue) do
     case db_issue.assigned_agent_id do
       nil ->
         agent = get_default_agent(project)
-        {add_agent_config(project, agent), agent_name(agent), agent_kind(agent)}
+        {add_agent_config(project, agent), agent_name(agent), agent_kind(agent), agent}
 
       agent_id ->
         try do
@@ -1011,12 +1022,12 @@ defmodule Synkade.Orchestrator do
              project
              | config: config,
                prompt_template: db_project.prompt_template || agent.system_prompt
-           }, agent.name, agent.kind}
+           }, agent.name, agent.kind, agent}
         catch
           kind, reason ->
             Logger.warning("Failed to resolve assigned agent #{agent_id} for project #{project.name}: #{kind} #{inspect(reason)}")
             agent = get_default_agent(project)
-            {add_agent_config(project, agent), agent_name(agent), agent_kind(agent)}
+            {add_agent_config(project, agent), agent_name(agent), agent_kind(agent), agent}
         end
     end
   end

@@ -42,10 +42,12 @@ defmodule SynkadeWeb.Router do
   scope "/api/v1/agent", SynkadeWeb.Api do
     pipe_through :agent_api
 
+    get "/me", AgentMeController, :show
     get "/issues", AgentIssuesController, :index
     post "/issues", AgentIssuesController, :create
     get "/issues/:id", AgentIssuesController, :show
     patch "/issues/:id", AgentIssuesController, :update
+    post "/issues/:id/checkout", AgentIssuesController, :checkout
     post "/issues/:id/children", AgentIssuesController, :create_children
     post "/heartbeat", AgentHeartbeatController, :create
   end

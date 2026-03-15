@@ -16,6 +16,8 @@ defmodule SynkadeWeb.Api.AgentIssuesJSON do
       id: issue.id,
       title: Issue.title(issue),
       state: issue.state,
+      project_id: issue.project_id,
+      assigned_agent_id: issue.assigned_agent_id,
       parent_id: issue.parent_id,
       inserted_at: issue.inserted_at,
       updated_at: issue.updated_at
@@ -35,6 +37,8 @@ defmodule SynkadeWeb.Api.AgentIssuesJSON do
       body: issue.body,
       state: issue.state,
       depth: issue.depth,
+      project_id: issue.project_id,
+      assigned_agent_id: issue.assigned_agent_id,
       parent_id: issue.parent_id,
       agent_output: issue.agent_output,
       children: children,
