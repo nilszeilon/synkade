@@ -46,3 +46,6 @@ SPEC.md
 *.db-shm
 *.db-wal
 
+# Kamal local secrets
+.kamal/secrets
+

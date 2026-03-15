@@ -1,0 +1,12 @@
+_build
+deps
+.git
+*.db
+*.db-shm
+*.db-wal
+.env*
+tmp
+cover
+node_modules
+.elixir_ls
+.kamal

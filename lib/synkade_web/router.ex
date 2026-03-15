@@ -1,6 +1,9 @@
 defmodule SynkadeWeb.Router do
   use SynkadeWeb, :router
 
+  # Health check for kamal-proxy (no auth, no pipeline)
+  get "/up", SynkadeWeb.HealthController, :index
+
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session

@@ -24,6 +24,8 @@ config :synkade, SynkadeWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
 if config_env() == :prod do
+  config :synkade, auto_migrate: true
+
   encryption_key =
     System.get_env("SETTINGS_ENCRYPTION_KEY") ||
       raise """

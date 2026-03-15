@@ -1,0 +1,39 @@
+service: synkade
+image: ghcr.io/nilszeilon/synkade
+
+servers:
+  web:
+    hosts:
+      - <SERVER_IP>
+    volumes:
+      - "/opt/synkade/data:/app/data"
+
+proxy:
+  ssl: true
+  host: synkade.com
+  app_port: 4000
+  healthcheck:
+    path: /up
+    interval: 3
+
+registry:
+  server: ghcr.io
+  username: nilszeilon
+  password:
+    - KAMAL_REGISTRY_PASSWORD
+
+env:
+  clear:
+    PHX_HOST: synkade.com
+    PHX_SERVER: "true"
+    DATABASE_PATH: /app/data/synkade.db
+    PORT: "4000"
+  secret:
+    - SECRET_KEY_BASE
+    - SETTINGS_ENCRYPTION_KEY
+
+builder:
+  arch: amd64
+
+ssh:
+  user: root

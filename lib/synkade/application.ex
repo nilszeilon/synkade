@@ -7,6 +7,8 @@ defmodule Synkade.Application do
 
   @impl true
   def start(_type, _args) do
+    migrate()
+
     children = [
       SynkadeWeb.Telemetry,
       Synkade.Vault,
@@ -24,6 +26,13 @@ defmodule Synkade.Application do
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: Synkade.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  # Run migrations automatically on boot in prod releases.
+  defp migrate do
+    if Application.get_env(:synkade, :auto_migrate, false) do
+      Synkade.Release.migrate()
+    end
   end
 
   # Tell Phoenix to update the endpoint configuration
