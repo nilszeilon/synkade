@@ -35,6 +35,7 @@ defmodule SynkadeWeb.SettingsLive do
      |> assign(:agent_editing, nil)
      |> assign(:agent_form, nil)
      |> assign(:agent_token_visible, MapSet.new())
+     |> assign(:pull_setup_step, nil)
      |> assign_form(changeset)}
   end
 
@@ -108,7 +109,7 @@ defmodule SynkadeWeb.SettingsLive do
 
   @impl true
   def handle_event("cancel_agent", _params, socket) do
-    {:noreply, assign(socket, agent_editing: nil, agent_form: nil)}
+    {:noreply, assign(socket, agent_editing: nil, agent_form: nil, pull_setup_step: nil)}
   end
 
   @impl true
@@ -146,6 +147,8 @@ defmodule SynkadeWeb.SettingsLive do
 
   @impl true
   def handle_event("save_agent", %{"agent" => params}, socket) do
+    was_new = socket.assigns.agent_editing == :new
+
     result =
       case socket.assigns.agent_editing do
         :new -> Settings.create_agent(params)
@@ -153,17 +156,42 @@ defmodule SynkadeWeb.SettingsLive do
       end
 
     case result do
-      {:ok, _agent} ->
-        {:noreply,
-         socket
-         |> assign(:agents, Settings.list_agents())
-         |> assign(:agent_editing, nil)
-         |> assign(:agent_form, nil)
-         |> put_flash(:info, "Agent saved.")}
+      {:ok, agent} ->
+        socket =
+          socket
+          |> assign(:agents, Settings.list_agents())
+          |> put_flash(:info, "Agent saved.")
+
+        socket =
+          if was_new and Agent.pull_kind?(agent.kind) do
+            # Enter setup wizard step 2: show the auto-generated token
+            changeset = Settings.change_agent(agent)
+
+            socket
+            |> assign(:agent_editing, agent)
+            |> assign(:agent_form, to_form(changeset))
+            |> assign(:pull_setup_step, :token)
+          else
+            socket
+            |> assign(:agent_editing, nil)
+            |> assign(:agent_form, nil)
+          end
+
+        {:noreply, socket}
 
       {:error, changeset} ->
         {:noreply, assign(socket, :agent_form, to_form(changeset))}
     end
+  end
+
+  @impl true
+  def handle_event("pull_setup_continue", _params, socket) do
+    {:noreply, assign(socket, :pull_setup_step, :skill)}
+  end
+
+  @impl true
+  def handle_event("pull_setup_done", _params, socket) do
+    {:noreply, assign(socket, agent_editing: nil, agent_form: nil, pull_setup_step: nil)}
   end
 
   @impl true
@@ -193,6 +221,7 @@ defmodule SynkadeWeb.SettingsLive do
         {:noreply,
          socket
          |> assign(:agents, Settings.list_agents())
+         |> maybe_refresh_editing(id)
          |> update(:agent_token_visible, &MapSet.put(&1, id))
          |> put_flash(:info, "Token regenerated.")}
 
@@ -220,6 +249,7 @@ defmodule SynkadeWeb.SettingsLive do
         {:noreply,
          socket
          |> assign(:agents, Settings.list_agents())
+         |> maybe_refresh_editing(id)
          |> update(:agent_token_visible, &MapSet.delete(&1, id))
          |> put_flash(:info, "Token revoked.")}
 
@@ -360,6 +390,7 @@ defmodule SynkadeWeb.SettingsLive do
             agent_editing={@agent_editing}
             agent_form={@agent_form}
             agent_token_visible={@agent_token_visible}
+            pull_setup_step={@pull_setup_step}
           />
         </div>
       </div>
@@ -502,12 +533,13 @@ defmodule SynkadeWeb.SettingsLive do
   attr :agent_editing, :any, required: true
   attr :agent_form, :any, required: true
   attr :agent_token_visible, :any, required: true
+  attr :pull_setup_step, :atom, default: nil
 
   defp agents_tab(assigns) do
     ~H"""
     <div>
       <%= if @agent_editing do %>
-        <.agent_form form={@agent_form} editing={@agent_editing} />
+        <.agent_form form={@agent_form} editing={@agent_editing} agent_token_visible={@agent_token_visible} pull_setup_step={@pull_setup_step} />
       <% else %>
         <div class="flex items-center justify-between mb-4">
           <p class="text-sm text-base-content/60">Manage agent configurations for your projects.</p>
@@ -644,154 +676,315 @@ defmodule SynkadeWeb.SettingsLive do
 
   attr :form, :any, required: true
   attr :editing, :any, required: true
+  attr :agent_token_visible, :any, required: true
+  attr :pull_setup_step, :atom, default: nil
 
   defp agent_form(assigns) do
+    kind = assigns.form[:kind].value || "claude"
+    assigns = assign(assigns, :is_pull, Agent.pull_kind?(kind))
+
     ~H"""
     <div class="card bg-base-200">
       <div class="card-body">
-        <h2 class="card-title text-lg">
-          {if @editing == :new, do: "New Agent", else: "Edit Agent"}
-        </h2>
+        <%= if @pull_setup_step do %>
+          <.pull_setup_wizard editing={@editing} step={@pull_setup_step} />
+        <% else %>
+          <h2 class="card-title text-lg">
+            {if @editing == :new, do: "New Agent", else: "Edit Agent"}
+          </h2>
 
-        <.form for={@form} phx-change="validate_agent" phx-submit="save_agent">
-          <div class="space-y-4">
-            <div class="form-control">
-              <label class="label"><span class="label-text">Name</span></label>
-              <input
-                type="text"
-                class="input input-bordered w-full"
-                name={@form[:name].name}
-                id={@form[:name].id}
-                value={@form[:name].value}
-                placeholder="my-agent"
-              />
-              <.field_error field={@form[:name]} />
-            </div>
-
-            <div class="form-control">
-              <label class="label"><span class="label-text">Kind</span></label>
-              <input type="hidden" name={@form[:kind].name} value={@form[:kind].value || "claude"} />
-              <div class="grid grid-cols-3 gap-2">
-                <.agent_card kind="claude" selected={(@form[:kind].value || "claude") == "claude"} />
-                <.agent_card kind="opencode" selected={@form[:kind].value == "opencode"} />
-                <.agent_card kind="codex" selected={@form[:kind].value == "codex"} />
-                <.agent_card kind="hermes" selected={@form[:kind].value == "hermes"} />
-                <.agent_card kind="openclaw" selected={@form[:kind].value == "openclaw"} />
-              </div>
-            </div>
-
-            <div class="form-control">
-              <label class="label"><span class="label-text">Auth Mode</span></label>
-              <select
-                class="select select-bordered w-full"
-                name={@form[:auth_mode].name}
-                id={@form[:auth_mode].id}
-              >
-                <option value="api_key" selected={(@form[:auth_mode].value || "api_key") == "api_key"}>
-                  API Key
-                </option>
-                <option value="oauth" selected={@form[:auth_mode].value == "oauth"}>
-                  OAuth Token
-                </option>
-              </select>
-            </div>
-
-            <%= if (@form[:auth_mode].value || "api_key") == "api_key" do %>
+          <.form for={@form} phx-change="validate_agent" phx-submit="save_agent">
+            <div class="space-y-4">
               <div class="form-control">
-                <label class="label"><span class="label-text">API Key</span></label>
+                <label class="label"><span class="label-text">Name</span></label>
                 <input
-                  type="password"
+                  type="text"
                   class="input input-bordered w-full"
-                  name={@form[:api_key].name}
-                  id={@form[:api_key].id}
-                  value={@form[:api_key].value}
-                  placeholder="sk-ant-..."
+                  name={@form[:name].name}
+                  id={@form[:name].id}
+                  value={@form[:name].value}
+                  placeholder="my-agent"
                 />
+                <.field_error field={@form[:name]} />
               </div>
-            <% else %>
-              <div class="form-control">
-                <label class="label"><span class="label-text">OAuth Token</span></label>
-                <input
-                  type="password"
-                  class="input input-bordered w-full"
-                  name={@form[:oauth_token].name}
-                  id={@form[:oauth_token].id}
-                  value={@form[:oauth_token].value}
-                  placeholder="oauth-token-..."
-                />
-              </div>
-            <% end %>
 
-            <div class="form-control">
-              <label class="label"><span class="label-text">Model (optional)</span></label>
-              <input
-                type="text"
-                class="input input-bordered w-full"
-                name={@form[:model].name}
-                id={@form[:model].id}
-                value={@form[:model].value}
-                placeholder={
-                  if @form[:kind].value == "opencode",
-                    do: "openrouter/minimax/minimax-m2.5",
-                    else: "claude-sonnet-4-5-20250929"
-                }
-              />
-              <%= if @form[:kind].value == "opencode" do %>
-                <label class="label">
-                  <span class="label-text-alt text-base-content/60">
-                    For OpenRouter use provider/model format, e.g. openrouter/minimax/minimax-m2.5
-                  </span>
-                </label>
+              <div class="form-control">
+                <label class="label"><span class="label-text">Kind</span></label>
+                <input type="hidden" name={@form[:kind].name} value={@form[:kind].value || "claude"} />
+                <div class="grid grid-cols-3 gap-2">
+                  <.agent_card kind="claude" selected={(@form[:kind].value || "claude") == "claude"} />
+                  <.agent_card kind="opencode" selected={@form[:kind].value == "opencode"} />
+                  <.agent_card kind="codex" selected={@form[:kind].value == "codex"} />
+                  <.agent_card kind="hermes" selected={@form[:kind].value == "hermes"} />
+                  <.agent_card kind="openclaw" selected={@form[:kind].value == "openclaw"} />
+                </div>
+              </div>
+
+              <%= unless @is_pull do %>
+                <div class="form-control">
+                  <label class="label"><span class="label-text">Auth Mode</span></label>
+                  <select
+                    class="select select-bordered w-full"
+                    name={@form[:auth_mode].name}
+                    id={@form[:auth_mode].id}
+                  >
+                    <option value="api_key" selected={(@form[:auth_mode].value || "api_key") == "api_key"}>
+                      API Key
+                    </option>
+                    <option value="oauth" selected={@form[:auth_mode].value == "oauth"}>
+                      OAuth Token
+                    </option>
+                  </select>
+                </div>
+
+                <%= if (@form[:auth_mode].value || "api_key") == "api_key" do %>
+                  <div class="form-control">
+                    <label class="label"><span class="label-text">API Key</span></label>
+                    <input
+                      type="password"
+                      class="input input-bordered w-full"
+                      name={@form[:api_key].name}
+                      id={@form[:api_key].id}
+                      value={@form[:api_key].value}
+                      placeholder="sk-ant-..."
+                    />
+                  </div>
+                <% else %>
+                  <div class="form-control">
+                    <label class="label"><span class="label-text">OAuth Token</span></label>
+                    <input
+                      type="password"
+                      class="input input-bordered w-full"
+                      name={@form[:oauth_token].name}
+                      id={@form[:oauth_token].id}
+                      value={@form[:oauth_token].value}
+                      placeholder="oauth-token-..."
+                    />
+                  </div>
+                <% end %>
+
+                <div class="form-control">
+                  <label class="label"><span class="label-text">Model (optional)</span></label>
+                  <input
+                    type="text"
+                    class="input input-bordered w-full"
+                    name={@form[:model].name}
+                    id={@form[:model].id}
+                    value={@form[:model].value}
+                    placeholder={
+                      if @form[:kind].value == "opencode",
+                        do: "openrouter/minimax/minimax-m2.5",
+                        else: "claude-sonnet-4-5-20250929"
+                    }
+                  />
+                  <%= if @form[:kind].value == "opencode" do %>
+                    <label class="label">
+                      <span class="label-text-alt text-base-content/60">
+                        For OpenRouter use provider/model format, e.g. openrouter/minimax/minimax-m2.5
+                      </span>
+                    </label>
+                  <% end %>
+                </div>
+
+                <div class="form-control">
+                  <label class="label"><span class="label-text">Max Turns</span></label>
+                  <input
+                    type="number"
+                    class="input input-bordered w-full"
+                    name={@form[:max_turns].name}
+                    id={@form[:max_turns].id}
+                    value={@form[:max_turns].value}
+                    placeholder="20"
+                    min="1"
+                  />
+                  <.field_error field={@form[:max_turns]} />
+                </div>
+
+                <div class="form-control">
+                  <label class="label">
+                    <span class="label-text">Allowed Tools (comma-separated)</span>
+                  </label>
+                  <input
+                    type="text"
+                    class="input input-bordered w-full"
+                    name={@form[:allowed_tools].name <> "[]"}
+                    id={@form[:allowed_tools].id}
+                    value={Enum.join(@form[:allowed_tools].value || [], ", ")}
+                    placeholder="Read, Edit, Write, Bash, Glob, Grep"
+                  />
+                </div>
+
+                <div class="form-control">
+                  <label class="label"><span class="label-text">System Prompt (optional)</span></label>
+                  <textarea
+                    class="textarea textarea-bordered w-full font-mono text-sm"
+                    rows="6"
+                    name={@form[:system_prompt].name}
+                    id={@form[:system_prompt].id}
+                  >{@form[:system_prompt].value}</textarea>
+                </div>
+              <% end %>
+
+              <%= if @is_pull and @editing != :new do %>
+                <div class="form-control">
+                  <label class="label"><span class="label-text">API Token</span></label>
+                  <%= if @editing.api_token_hash do %>
+                    <div class="flex flex-col gap-2">
+                      <%= if MapSet.member?(@agent_token_visible, @editing.id) do %>
+                        <code class="text-xs break-all select-all bg-base-300 p-2 rounded">{@editing.api_token}</code>
+                        <div class="flex gap-2">
+                          <button type="button" phx-click="hide_agent_token" phx-value-id={@editing.id} class="btn btn-ghost btn-xs">Hide</button>
+                          <button type="button" phx-click="generate_agent_token" phx-value-id={@editing.id} class="btn btn-ghost btn-xs" data-confirm="Regenerate token? The current token will be invalidated.">Regenerate</button>
+                          <button type="button" phx-click="revoke_agent_token" phx-value-id={@editing.id} class="btn btn-ghost btn-xs text-warning" data-confirm="Revoke this agent's API token?">Revoke</button>
+                        </div>
+                      <% else %>
+                        <div class="flex items-center gap-2">
+                          <span class="badge badge-success badge-sm">Active</span>
+                          <button type="button" phx-click="show_agent_token" phx-value-id={@editing.id} class="btn btn-ghost btn-xs">Show</button>
+                          <button type="button" phx-click="generate_agent_token" phx-value-id={@editing.id} class="btn btn-ghost btn-xs" data-confirm="Regenerate token? The current token will be invalidated.">Regenerate</button>
+                          <button type="button" phx-click="revoke_agent_token" phx-value-id={@editing.id} class="btn btn-ghost btn-xs text-warning" data-confirm="Revoke this agent's API token?">Revoke</button>
+                        </div>
+                      <% end %>
+                    </div>
+                  <% else %>
+                    <div class="flex items-center gap-2">
+                      <span class="badge badge-ghost badge-sm">None</span>
+                      <button type="button" phx-click="generate_agent_token" phx-value-id={@editing.id} class="btn btn-ghost btn-xs">Generate Token</button>
+                    </div>
+                  <% end %>
+                </div>
               <% end %>
             </div>
 
-            <div class="form-control">
-              <label class="label"><span class="label-text">Max Turns</span></label>
-              <input
-                type="number"
-                class="input input-bordered w-full"
-                name={@form[:max_turns].name}
-                id={@form[:max_turns].id}
-                value={@form[:max_turns].value}
-                placeholder="20"
-                min="1"
-              />
-              <.field_error field={@form[:max_turns]} />
+            <div class="flex gap-2 mt-6">
+              <%= if @is_pull and @editing == :new do %>
+                <button type="submit" class="btn btn-primary">Connect Agent</button>
+              <% else %>
+                <button type="submit" class="btn btn-primary">Save Agent</button>
+              <% end %>
+              <button type="button" phx-click="cancel_agent" class="btn btn-ghost">Cancel</button>
             </div>
+          </.form>
+        <% end %>
+      </div>
+    </div>
+    """
+  end
 
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">Allowed Tools (comma-separated)</span>
-              </label>
-              <input
-                type="text"
-                class="input input-bordered w-full"
-                name={@form[:allowed_tools].name <> "[]"}
-                id={@form[:allowed_tools].id}
-                value={Enum.join(@form[:allowed_tools].value || [], ", ")}
-                placeholder="Read, Edit, Write, Bash, Glob, Grep"
-              />
-            </div>
+  attr :editing, :any, required: true
+  attr :step, :atom, required: true
 
-            <div class="form-control">
-              <label class="label"><span class="label-text">System Prompt (optional)</span></label>
-              <textarea
-                class="textarea textarea-bordered w-full font-mono text-sm"
-                rows="6"
-                name={@form[:system_prompt].name}
-                id={@form[:system_prompt].id}
-              >{@form[:system_prompt].value}</textarea>
-            </div>
+  defp pull_setup_wizard(assigns) do
+    ~H"""
+    <div>
+      <%!-- Steps indicator --%>
+      <ul class="steps steps-horizontal w-full mb-6">
+        <li class="step step-primary">Connect</li>
+        <li class={"step #{if @step in [:token, :skill], do: "step-primary"}"}>Token</li>
+        <li class={"step #{if @step == :skill, do: "step-primary"}"}>Install Skill</li>
+      </ul>
 
+      <%= if @step == :token do %>
+        <div class="space-y-4">
+          <p class="text-sm text-base-content/60">
+            Your agent <span class="font-semibold text-base-content">{@editing.name}</span> has been created.
+            Copy the API token below — you'll need it to configure the agent.
+          </p>
+
+          <div class="form-control">
+            <label class="label"><span class="label-text">API Token</span></label>
+            <code class="text-xs break-all select-all bg-base-300 p-3 rounded block font-mono">
+              {@editing.api_token}
+            </code>
           </div>
 
           <div class="flex gap-2 mt-6">
-            <button type="submit" class="btn btn-primary">Save Agent</button>
-            <button type="button" phx-click="cancel_agent" class="btn btn-ghost">Cancel</button>
+            <button type="button" phx-click="pull_setup_continue" class="btn btn-primary">
+              Continue
+            </button>
+            <button type="button" phx-click="pull_setup_done" class="btn btn-ghost">
+              Skip
+            </button>
           </div>
-        </.form>
-      </div>
+        </div>
+      <% end %>
+
+      <%= if @step == :skill do %>
+        <div class="space-y-4">
+          <p class="text-sm text-base-content/60">
+            Install the Synkade skill on the machine where
+            <span class="font-semibold text-base-content">{@editing.name}</span>
+            runs so it knows how to pull work and send heartbeats.
+          </p>
+
+          <div class="form-control">
+            <label class="label"><span class="label-text">1. Install skill</span></label>
+            <.skill_install_instructions kind={@editing.kind} />
+          </div>
+
+          <div class="form-control">
+            <label class="label"><span class="label-text">2. Set environment variables</span></label>
+            <div class="text-xs bg-base-300 p-3 rounded font-mono space-y-1">
+              <div>export SYNKADE_API_URL={SynkadeWeb.Endpoint.url()}</div>
+              <div>export SYNKADE_API_TOKEN=&lt;your-token&gt;</div>
+            </div>
+          </div>
+
+          <div class="flex gap-2 mt-6">
+            <button type="button" phx-click="pull_setup_done" class="btn btn-primary">
+              Done
+            </button>
+          </div>
+        </div>
+      <% end %>
     </div>
+    """
+  end
+
+  attr :kind, :string, required: true
+
+  defp skill_install_instructions(assigns) do
+    ~H"""
+    <%= case @kind do %>
+      <% "hermes" -> %>
+        <div class="space-y-2">
+          <p class="text-sm text-base-content/60">
+            Copy the skill into the Hermes skills directory on the agent's machine:
+          </p>
+          <div class="text-xs bg-base-300 p-3 rounded font-mono space-y-1">
+            <div>mkdir -p ~/.hermes/skills/synkade</div>
+            <div>cp skills/synkade/SKILL.md ~/.hermes/skills/synkade/SKILL.md</div>
+          </div>
+          <p class="text-xs text-base-content/50">
+            Or download it directly from this Synkade instance:
+          </p>
+          <code class="text-xs bg-base-300 p-3 rounded block font-mono">
+            curl -o ~/.hermes/skills/synkade/SKILL.md {SynkadeWeb.Endpoint.url()}/skills/synkade/SKILL.md
+          </code>
+        </div>
+      <% "openclaw" -> %>
+        <div class="space-y-2">
+          <p class="text-sm text-base-content/60">
+            Copy the skill into the OpenClaw skills directory on the agent's machine:
+          </p>
+          <div class="text-xs bg-base-300 p-3 rounded font-mono space-y-1">
+            <div>mkdir -p ~/.openclaw/skills/synkade</div>
+            <div>cp skills/synkade/SKILL.md ~/.openclaw/skills/synkade/SKILL.md</div>
+          </div>
+          <p class="text-xs text-base-content/50">
+            Or download it directly from this Synkade instance:
+          </p>
+          <code class="text-xs bg-base-300 p-3 rounded block font-mono">
+            curl -o ~/.openclaw/skills/synkade/SKILL.md {SynkadeWeb.Endpoint.url()}/skills/synkade/SKILL.md
+          </code>
+        </div>
+      <% _ -> %>
+        <div class="space-y-2">
+          <code class="text-xs bg-base-300 p-3 rounded block font-mono">
+            mkdir -p .claude/commands && cp skills/synkade/SKILL.md .claude/commands/synkade.md
+          </code>
+        </div>
+    <% end %>
     """
   end
 
@@ -853,6 +1046,17 @@ defmodule SynkadeWeb.SettingsLive do
       </div>
     <% end %>
     """
+  end
+
+  defp maybe_refresh_editing(socket, id) do
+    case socket.assigns.agent_editing do
+      %Agent{id: ^id} ->
+        agent = Settings.get_agent!(id)
+        assign(socket, :agent_editing, agent)
+
+      _ ->
+        socket
+    end
   end
 
   defp assign_form(socket, changeset) do

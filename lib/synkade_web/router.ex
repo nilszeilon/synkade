@@ -52,6 +52,10 @@ defmodule SynkadeWeb.Router do
     post "/heartbeat", AgentHeartbeatController, :create
   end
 
+  scope "/skills", SynkadeWeb do
+    get "/:name/SKILL.md", SkillController, :show
+  end
+
   scope "/github", SynkadeWeb.GitHub do
     pipe_through :api
     post "/webhooks", WebhookController, :handle
