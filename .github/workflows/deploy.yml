@@ -34,7 +34,7 @@ jobs:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: Add server to known_hosts
-        run: ssh-keyscan -H 116.203.114.129 >> ~/.ssh/known_hosts
+        run: ssh-keyscan -t ed25519,rsa,ecdsa 116.203.114.129 >> ~/.ssh/known_hosts
 
       - name: Create Kamal secrets file
         run: |
