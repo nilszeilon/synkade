@@ -5,8 +5,9 @@ servers:
   web:
     hosts:
       - 116.203.114.129
-    volumes:
-      - "/opt/synkade/data:/app/data"
+
+volumes:
+  - "/opt/synkade/data:/app/data"
 
 proxy:
   ssl: true
