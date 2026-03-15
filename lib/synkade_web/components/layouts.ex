@@ -47,7 +47,7 @@ defmodule SynkadeWeb.Layouts do
             >
             </span>
             <span class="absolute bottom-2 ops-label text-primary text-xs tracking-widest">
-              Synkade
+              Synkade - yolo
             </span>
           </a>
         </div>
