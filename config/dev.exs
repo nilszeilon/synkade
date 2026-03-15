@@ -2,14 +2,12 @@ import Config
 
 # Configure your database
 config :synkade, Synkade.Repo,
-  username: "postgres",
-  password: "postgres",
-  hostname: "localhost",
-  port: 5437,
-  database: "synkade_dev",
+  database: Path.expand("../synkade_dev.db", __DIR__),
+  pool_size: 5,
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
-  pool_size: 10
+  journal_mode: :wal,
+  busy_timeout: 5000
 
 # For development, we disable any cache and enable
 # debugging and code reloading.

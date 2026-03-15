@@ -41,3 +41,8 @@ SPEC.md
 # Sprite instance config (user-specific).
 .sprite
 
+# SQLite database files
+*.db
+*.db-shm
+*.db-wal
+
