@@ -1,5 +1,5 @@
 defmodule SynkadeWeb.Api.AgentMeControllerTest do
-  use SynkadeWeb.ConnCase, async: true
+  use SynkadeWeb.ConnCase
 
   alias Synkade.Settings
   alias Synkade.Issues

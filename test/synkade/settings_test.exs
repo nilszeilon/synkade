@@ -1,5 +1,5 @@
 defmodule Synkade.SettingsTest do
-  use Synkade.DataCase, async: true
+  use Synkade.DataCase
 
   alias Synkade.Settings
   alias Synkade.Settings.{Setting, Agent}

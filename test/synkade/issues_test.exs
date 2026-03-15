@@ -1,5 +1,5 @@
 defmodule Synkade.IssuesTest do
-  use Synkade.DataCase, async: true
+  use Synkade.DataCase
 
   alias Synkade.Issues
   alias Synkade.Issues.Issue
@@ -332,11 +332,11 @@ defmodule Synkade.IssuesTest do
       {:ok, done} = Issues.transition_state(issue, "done")
 
       # Backdate updated_at so interval has elapsed
-      {:ok, raw_id} = Ecto.UUID.dump(done.id)
+      past = DateTime.add(DateTime.utc_now(), -7200, :second) |> DateTime.to_iso8601()
 
       Synkade.Repo.query!(
-        "UPDATE issues SET updated_at = $1 WHERE id = $2",
-        [DateTime.add(DateTime.utc_now(), -7200, :second), raw_id]
+        "UPDATE issues SET updated_at = ?1 WHERE id = ?2",
+        [past, done.id]
       )
 
       due = Issues.list_due_recurring_issues()

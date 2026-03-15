@@ -1,5 +1,5 @@
 defmodule Synkade.Settings.ProjectTest do
-  use Synkade.DataCase, async: true
+  use Synkade.DataCase
 
   alias Synkade.Settings.Project
 

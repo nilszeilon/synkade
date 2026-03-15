@@ -1,0 +1,9 @@
+synkade.com {
+	handle /hooks/* {
+		reverse_proxy localhost:9000
+	}
+
+	handle {
+		reverse_proxy localhost:4000
+	}
+}

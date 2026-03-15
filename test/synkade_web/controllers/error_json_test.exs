@@ -1,5 +1,5 @@
 defmodule SynkadeWeb.ErrorJSONTest do
-  use SynkadeWeb.ConnCase, async: true
+  use SynkadeWeb.ConnCase
 
   test "renders 404" do
     assert SynkadeWeb.ErrorJSON.render("404.json", %{}) == %{errors: %{detail: "Not Found"}}

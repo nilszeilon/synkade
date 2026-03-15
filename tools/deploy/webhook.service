@@ -1,0 +1,13 @@
+[Unit]
+Description=GitHub Webhook Listener
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/webhook -hooks /opt/synkade/hooks.json -port 9000 -ip 127.0.0.1 -verbose
+Restart=on-failure
+RestartSec=5
+SyslogIdentifier=synkade-webhook
+
+[Install]
+WantedBy=multi-user.target
