@@ -320,13 +320,15 @@ defmodule Synkade.Issues do
     children_attrs_list
     |> Enum.with_index()
     |> Enum.map(fn {attrs, index} ->
+      attrs = stringify_keys(attrs)
+
       attrs =
         attrs
-        |> Map.put(:project_id, parent.project_id)
-        |> Map.put(:parent_id, parent.id)
-        |> Map.put(:depth, parent.depth + 1)
-        |> Map.put(:state, "backlog")
-        |> Map.put_new(:position, index)
+        |> Map.put("project_id", parent.project_id)
+        |> Map.put("parent_id", parent.id)
+        |> Map.put("depth", parent.depth + 1)
+        |> Map.put("state", "backlog")
+        |> Map.put_new("position", index)
 
       create_issue(attrs)
     end)
@@ -335,20 +337,24 @@ defmodule Synkade.Issues do
   # --- Private ---
 
   defp compute_depth(attrs) do
-    parent_id = attrs[:parent_id] || attrs["parent_id"]
-    depth_key = if is_atom(Map.keys(attrs) |> List.first()), do: :depth, else: "depth"
+    attrs = stringify_keys(attrs)
+    parent_id = attrs["parent_id"]
 
     if parent_id do
       case Repo.get(Issue, parent_id) do
         %Issue{depth: parent_depth} ->
-          Map.put(attrs, depth_key, parent_depth + 1)
+          Map.put(attrs, "depth", parent_depth + 1)
 
         nil ->
           attrs
       end
     else
-      Map.put_new(attrs, depth_key, 0)
+      Map.put_new(attrs, "depth", 0)
     end
+  end
+
+  defp stringify_keys(map) when is_map(map) do
+    Map.new(map, fn {k, v} -> {to_string(k), v} end)
   end
 
   defp interval_to_seconds(amount, "hours"), do: amount * 3600
