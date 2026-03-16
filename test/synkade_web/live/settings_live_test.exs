@@ -5,6 +5,8 @@ defmodule SynkadeWeb.SettingsLiveTest do
 
   alias Synkade.Settings
 
+  setup :register_and_log_in_user
+
   test "renders settings page with tabs", %{conn: conn} do
     {:ok, _view, html} = live(conn, "/settings")
     assert html =~ "Settings"

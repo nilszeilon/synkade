@@ -40,6 +40,7 @@ defmodule Synkade.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:bcrypt_elixir, "~> 3.0"},
       {:phoenix, "~> 1.8.4"},
       {:phoenix_ecto, "~> 4.5"},
       {:ecto_sql, "~> 3.13"},
@@ -59,6 +60,7 @@ defmodule Synkade.MixProject do
        compile: false,
        depth: 1},
       {:swoosh, "~> 1.16"},
+      {:resend, "~> 0.4"},
       {:req, "~> 0.5"},
       {:solid, "~> 0.15"},
       {:cloak_ecto, "~> 1.3"},

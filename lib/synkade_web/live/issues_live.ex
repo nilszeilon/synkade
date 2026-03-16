@@ -407,6 +407,7 @@ defmodule SynkadeWeb.IssuesLive do
       running={@running}
       active_tab={@active_tab}
       current_project={@current_project}
+      current_scope={@current_scope}
     >
       <div class="px-6 py-4">
         <%= cond do %>

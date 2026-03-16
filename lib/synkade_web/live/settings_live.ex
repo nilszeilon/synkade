@@ -324,6 +324,7 @@ defmodule SynkadeWeb.SettingsLive do
       running={@running}
       active_tab={@nav_active_tab}
       current_project={@current_project}
+      current_scope={@current_scope}
     >
       <div class="max-w-3xl mx-auto px-6 py-6">
         <h1 class="text-2xl font-bold mb-6">Settings</h1>

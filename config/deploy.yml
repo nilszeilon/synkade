@@ -32,6 +32,7 @@ env:
   secret:
     - SECRET_KEY_BASE
     - SETTINGS_ENCRYPTION_KEY
+    - RESEND_API_KEY
 
 builder:
   arch: amd64

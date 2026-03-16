@@ -1,6 +1,8 @@
 defmodule SynkadeWeb.Router do
   use SynkadeWeb, :router
 
+  import SynkadeWeb.UserAuth
+
   # Health check for kamal-proxy (no auth, no pipeline)
   get "/up", SynkadeWeb.HealthController, :index
 
@@ -11,6 +13,7 @@ defmodule SynkadeWeb.Router do
     plug :put_root_layout, html: {SynkadeWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+    plug :fetch_current_scope_for_user
     plug SynkadeWeb.Plugs.Theme
   end
 
@@ -24,13 +27,15 @@ defmodule SynkadeWeb.Router do
   end
 
   scope "/", SynkadeWeb do
-    pipe_through :browser
+    pipe_through [:browser, :require_authenticated_user]
 
-    live "/", DashboardLive
-    live "/issues", IssuesLive
-    live "/settings", SettingsLive
-    live "/projects", ProjectsLive
-
+    live_session :require_authenticated,
+      on_mount: [{SynkadeWeb.UserAuth, :require_authenticated}] do
+      live "/", DashboardLive
+      live "/issues", IssuesLive
+      live "/settings", SettingsLive
+      live "/projects", ProjectsLive
+    end
   end
 
   scope "/api/v1", SynkadeWeb.Api do
@@ -79,5 +84,31 @@ defmodule SynkadeWeb.Router do
       live_dashboard "/dashboard", metrics: SynkadeWeb.Telemetry
       forward "/mailbox", Plug.Swoosh.MailboxPreview
     end
+  end
+
+  ## Authentication routes
+
+  scope "/", SynkadeWeb do
+    pipe_through [:browser, :redirect_if_user_is_authenticated]
+
+    get "/users/register", UserRegistrationController, :new
+    post "/users/register", UserRegistrationController, :create
+  end
+
+  scope "/", SynkadeWeb do
+    pipe_through [:browser, :require_authenticated_user]
+
+    get "/users/settings", UserSettingsController, :edit
+    put "/users/settings", UserSettingsController, :update
+    get "/users/settings/confirm-email/:token", UserSettingsController, :confirm_email
+  end
+
+  scope "/", SynkadeWeb do
+    pipe_through [:browser]
+
+    get "/users/log-in", UserSessionController, :new
+    get "/users/log-in/:token", UserSessionController, :confirm
+    post "/users/log-in", UserSessionController, :create
+    delete "/users/log-out", UserSessionController, :delete
   end
 end
