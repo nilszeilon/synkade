@@ -336,17 +336,18 @@ defmodule Synkade.Issues do
 
   defp compute_depth(attrs) do
     parent_id = attrs[:parent_id] || attrs["parent_id"]
+    depth_key = if is_atom(Map.keys(attrs) |> List.first()), do: :depth, else: "depth"
 
     if parent_id do
       case Repo.get(Issue, parent_id) do
         %Issue{depth: parent_depth} ->
-          Map.put(attrs, :depth, parent_depth + 1)
+          Map.put(attrs, depth_key, parent_depth + 1)
 
         nil ->
           attrs
       end
     else
-      Map.put_new(attrs, :depth, 0)
+      Map.put_new(attrs, depth_key, 0)
     end
   end
 
