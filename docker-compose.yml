@@ -1,0 +1,13 @@
+services:
+  synkade:
+    image: synkade/synkade:latest
+    entrypoint: ["/app/bin/docker-entrypoint.sh"]
+    ports:
+      - "4000:4000"
+    volumes:
+      - synkade_data:/app/data
+    environment:
+      - PHX_HOST=localhost
+
+volumes:
+  synkade_data:

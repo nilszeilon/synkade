@@ -57,6 +57,8 @@ RUN useradd --create-home app && \
     chown -R app:app /app
 
 COPY --from=builder --chown=app:app /app/_build/prod/rel/synkade ./
+COPY --chown=app:app rel/overlays/bin/docker-entrypoint.sh /app/bin/docker-entrypoint.sh
+RUN chmod +x /app/bin/docker-entrypoint.sh
 
 USER app
 

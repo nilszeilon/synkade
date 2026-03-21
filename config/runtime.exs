@@ -38,12 +38,7 @@ if config_env() == :prod do
       default: {Cloak.Ciphers.AES.GCM, tag: "AES.GCM.V1", key: Base.decode64!(encryption_key)}
     ]
 
-  database_path =
-    System.get_env("DATABASE_PATH") ||
-      raise """
-      environment variable DATABASE_PATH is missing.
-      For example: /opt/synkade/synkade.db
-      """
+  database_path = System.get_env("DATABASE_PATH") || "/app/data/synkade.db"
 
   config :synkade, Synkade.Repo,
     database: database_path,
@@ -63,7 +58,7 @@ if config_env() == :prod do
       You can generate one by calling: mix phx.gen.secret
       """
 
-  host = System.get_env("PHX_HOST") || "example.com"
+  host = System.get_env("PHX_HOST") || "synkade.domain.com"
 
   config :synkade, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
@@ -110,15 +105,12 @@ if config_env() == :prod do
   #
   # Check `Plug.SSL` for all available options in `force_ssl`.
 
-  # Configure Resend as the production mailer
-  resend_api_key =
-    System.get_env("RESEND_API_KEY") ||
-      raise """
-      environment variable RESEND_API_KEY is missing.
-      Get one at https://resend.com
-      """
-
-  config :synkade, Synkade.Mailer,
-    adapter: Resend.Swoosh.Adapter,
-    api_key: resend_api_key
+  # Configure mailer — Resend if API key is set, otherwise local adapter
+  if resend_api_key = System.get_env("RESEND_API_KEY") do
+    config :synkade, Synkade.Mailer,
+      adapter: Resend.Swoosh.Adapter,
+      api_key: resend_api_key
+  else
+    config :synkade, Synkade.Mailer, adapter: Swoosh.Adapters.Local
+  end
 end
