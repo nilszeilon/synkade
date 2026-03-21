@@ -19,7 +19,7 @@ defmodule SynkadeWeb.DashboardLive do
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
-      Phoenix.PubSub.subscribe(Synkade.PubSub, "orchestrator:updates")
+      Phoenix.PubSub.subscribe(Synkade.PubSub, "jobs:updates")
       Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic())
       Phoenix.PubSub.subscribe(Synkade.PubSub, Issues.pubsub_topic())
     end

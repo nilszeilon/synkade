@@ -38,6 +38,23 @@ defmodule Synkade.Agent.Client do
     adapter.parse_event(line)
   end
 
+  @doc "Stops a port-based agent session by closing the port and killing the OS process."
+  def stop_port_session(%{port: port, os_pid: os_pid}) when not is_nil(port) do
+    try do
+      Port.close(port)
+    catch
+      _, _ -> :ok
+    end
+
+    if os_pid do
+      System.cmd("kill", [to_string(os_pid)], stderr_to_stdout: true)
+    end
+
+    :ok
+  end
+
+  def stop_port_session(_), do: :ok
+
   defp adapter_for(config) do
     kind = Config.agent_kind(config)
     Map.get(@adapters, kind) || raise "Unsupported agent kind: #{kind}"

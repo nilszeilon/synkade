@@ -73,7 +73,6 @@ defmodule Synkade.Workspace.WorkspaceTest do
       assert {:ok, ws} = Manager.ensure_workspace(config, "api", "acme/api#42")
       assert ws.project_name == "api"
       assert ws.workspace_key == "api/acme/api_42"
-      assert ws.created_now == true
       assert File.dir?(ws.path)
     end
 
@@ -82,10 +81,8 @@ defmodule Synkade.Workspace.WorkspaceTest do
       config = %{"workspace" => %{"root" => dir}}
 
       assert {:ok, ws1} = Manager.ensure_workspace(config, "api", "acme/api#42")
-      assert ws1.created_now == true
 
       assert {:ok, ws2} = Manager.ensure_workspace(config, "api", "acme/api#42")
-      assert ws2.created_now == false
       assert ws2.path == ws1.path
     end
 
@@ -114,15 +111,4 @@ defmodule Synkade.Workspace.WorkspaceTest do
     end
   end
 
-  describe "Manager.cleanup_workspace/2" do
-    @tag :tmp_dir
-    test "removes workspace directory", %{tmp_dir: dir} do
-      config = %{"workspace" => %{"root" => dir}}
-      assert {:ok, ws} = Manager.ensure_workspace(config, "api", "issue_3")
-      assert File.dir?(ws.path)
-
-      Manager.cleanup_workspace(config, ws)
-      refute File.dir?(ws.path)
-    end
-  end
 end

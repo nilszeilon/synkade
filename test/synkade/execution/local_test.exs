@@ -74,18 +74,6 @@ defmodule Synkade.Execution.LocalTest do
     end
   end
 
-  describe "destroy_env/2" do
-    test "removes workspace directory", %{tmp_dir: tmp_dir} do
-      config = %{"workspace" => %{"root" => tmp_dir}}
-
-      {:ok, workspace} = Local.setup_env(config, "myproject", "99")
-      assert File.dir?(workspace.path)
-
-      Local.destroy_env(config, workspace)
-      refute File.dir?(workspace.path)
-    end
-  end
-
   describe "await_event/2" do
     test "receives port data messages" do
       port = Port.open({:spawn, "echo hello"}, [:binary, :exit_status, {:line, 1_048_576}])

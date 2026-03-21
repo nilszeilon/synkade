@@ -9,7 +9,7 @@ defmodule SynkadeWeb.ProjectsLive do
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic())
-      Phoenix.PubSub.subscribe(Synkade.PubSub, "orchestrator:updates")
+      Phoenix.PubSub.subscribe(Synkade.PubSub, "jobs:updates")
     end
 
     orc_state = Jobs.get_state()

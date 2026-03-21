@@ -5,7 +5,6 @@ defmodule SynkadeWeb.Api.StateJSON do
     %{
       running: format_running(state.running),
       retry_queue: format_retries(state.retry_attempts),
-      claimed: state.claimed,
       agent_totals: state.agent_totals,
       agent_totals_by_project: state.agent_totals_by_project,
       reconcile_interval_ms: state.reconcile_interval_ms,

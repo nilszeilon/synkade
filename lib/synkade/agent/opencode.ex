@@ -22,21 +22,7 @@ defmodule Synkade.Agent.OpenCode do
   end
 
   @impl true
-  def stop_session(%{port: port, os_pid: os_pid}) when not is_nil(port) do
-    try do
-      Port.close(port)
-    catch
-      _, _ -> :ok
-    end
-
-    if os_pid do
-      System.cmd("kill", [to_string(os_pid)], stderr_to_stdout: true)
-    end
-
-    :ok
-  end
-
-  def stop_session(_), do: :ok
+  defdelegate stop_session(session), to: Synkade.Agent.Client, as: :stop_port_session
 
   @impl true
   def build_args(config, prompt, extra_args) do
@@ -95,8 +81,6 @@ defmodule Synkade.Agent.OpenCode do
     env = build_env(config)
 
     command = Config.agent_command(config)
-    turn_timeout = Config.get(config, "agent", "turn_timeout_ms") || 3_600_000
-
     # Build shell-escaped command with </dev/null to close stdin.
     # OpenCode blocks on `Bun.stdin.text()` when stdin is a pipe, so we
     # redirect from /dev/null. We do NOT use a `script` PTY wrapper because
@@ -127,9 +111,7 @@ defmodule Synkade.Agent.OpenCode do
       session_id: nil,
       port: port,
       os_pid: port_os_pid(port),
-      events: [],
-      turn_timeout_ms: turn_timeout,
-      started_at: System.monotonic_time(:millisecond)
+      events: []
     }
 
     Logger.info("OpenCode: port opened, os_pid=#{inspect(port_os_pid(port))}")

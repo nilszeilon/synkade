@@ -11,7 +11,7 @@ defmodule SynkadeWeb.SettingsLive do
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic())
-      Phoenix.PubSub.subscribe(Synkade.PubSub, "orchestrator:updates")
+      Phoenix.PubSub.subscribe(Synkade.PubSub, "jobs:updates")
     end
 
     setting = Settings.get_settings()

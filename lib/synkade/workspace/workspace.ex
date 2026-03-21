@@ -4,15 +4,13 @@ defmodule Synkade.Workspace do
   @type t :: %__MODULE__{
           project_name: String.t(),
           path: String.t(),
-          workspace_key: String.t(),
-          created_now: boolean()
+          workspace_key: String.t()
         }
 
   @enforce_keys [:project_name, :path, :workspace_key]
   defstruct [
     :project_name,
     :path,
-    :workspace_key,
-    created_now: false
+    :workspace_key
   ]
 end

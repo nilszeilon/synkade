@@ -48,14 +48,13 @@ defmodule SynkadeWeb.DashboardLiveTest do
         runtime_seconds: 42.0
       },
       agent_totals_by_project: %{},
-      activity_log: [],
       projects: %{},
       config_error: nil
     }
 
     Phoenix.PubSub.broadcast(
       Synkade.PubSub,
-      Synkade.Orchestrator.pubsub_topic(),
+      "jobs:updates",
       {:state_changed, snapshot}
     )
 
@@ -72,14 +71,13 @@ defmodule SynkadeWeb.DashboardLiveTest do
       awaiting_review: %{},
       agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, runtime_seconds: 0.0},
       agent_totals_by_project: %{},
-      activity_log: [],
       projects: %{},
       config_error: "Config file missing"
     }
 
     Phoenix.PubSub.broadcast(
       Synkade.PubSub,
-      Synkade.Orchestrator.pubsub_topic(),
+      "jobs:updates",
       {:state_changed, snapshot}
     )
 

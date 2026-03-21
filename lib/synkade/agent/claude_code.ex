@@ -20,21 +20,7 @@ defmodule Synkade.Agent.ClaudeCode do
   end
 
   @impl true
-  def stop_session(%{port: port, os_pid: os_pid}) when not is_nil(port) do
-    try do
-      Port.close(port)
-    catch
-      _, _ -> :ok
-    end
-
-    if os_pid do
-      System.cmd("kill", [to_string(os_pid)], stderr_to_stdout: true)
-    end
-
-    :ok
-  end
-
-  def stop_session(_), do: :ok
+  defdelegate stop_session(session), to: Synkade.Agent.Client, as: :stop_port_session
 
   @impl true
   def build_args(config, prompt, extra_args) do
@@ -80,8 +66,6 @@ defmodule Synkade.Agent.ClaudeCode do
 
   defp run_agent(config, args, workspace_path) do
     command = Config.agent_command(config)
-    turn_timeout = Config.get(config, "agent", "turn_timeout_ms") || 3_600_000
-
     # Build the bash command string with single-quote escaping for each arg.
     # Then launch via spawn_executable on `script` so each OS-level argument
     # is passed directly — no nested shell interpretation.
@@ -110,9 +94,7 @@ defmodule Synkade.Agent.ClaudeCode do
       session_id: nil,
       port: port,
       os_pid: port_os_pid(port),
-      events: [],
-      turn_timeout_ms: turn_timeout,
-      started_at: System.monotonic_time(:millisecond)
+      events: []
     }
 
     {:ok, session}

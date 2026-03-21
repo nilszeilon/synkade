@@ -26,8 +26,7 @@ defmodule Synkade.Workspace.Manager do
         workspace = %Workspace{
           project_name: project_name,
           path: path,
-          workspace_key: key,
-          created_now: created_now
+          workspace_key: key
         }
 
         if created_now do
@@ -88,21 +87,4 @@ defmodule Synkade.Workspace.Manager do
     end
   end
 
-  @spec cleanup_workspace(map(), Workspace.t()) :: :ok
-  def cleanup_workspace(config, workspace) do
-    hooks_config = Config.get_section(config, "hooks")
-    hook_script = hooks_config["before_remove"]
-    timeout = hooks_config["timeout_ms"] || 60_000
-
-    if File.dir?(workspace.path) do
-      case Hooks.run_hook(hook_script, workspace.path, timeout_ms: timeout) do
-        :ok -> :ok
-        {:error, reason} -> Logger.warning("before_remove hook failed: #{reason}")
-      end
-
-      File.rm_rf!(workspace.path)
-    end
-
-    :ok
-  end
 end

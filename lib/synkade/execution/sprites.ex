@@ -157,18 +157,6 @@ defmodule Synkade.Execution.Sprites do
   end
 
   @impl true
-  def destroy_env(_config, env_ref) do
-    case Sprites.destroy(env_ref.sprite) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("Failed to destroy sprite #{env_ref.sprite_name}: #{inspect(reason)}")
-        :ok
-    end
-  end
-
-  @impl true
   def parse_event(config, line) do
     AgentClient.parse_event(config, line)
   end

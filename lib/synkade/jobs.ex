@@ -11,12 +11,10 @@ defmodule Synkade.Jobs do
     %{
       projects: projects,
       running: running_agents_map(),
-      claimed: [],
       retry_attempts: retrying_agents_map(),
       awaiting_review: %{},
       agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, runtime_seconds: 0.0},
       agent_totals_by_project: %{},
-      activity_log: [],
       config_error: config_error,
       reconcile_interval_ms: 60_000,
       max_concurrent_agents: 10
@@ -66,7 +64,7 @@ defmodule Synkade.Jobs do
 
   @doc "No-op refresh -- Oban handles scheduling. Broadcasts to trigger LiveView re-query."
   def refresh do
-    Phoenix.PubSub.broadcast(Synkade.PubSub, "orchestrator:updates", {:jobs_changed})
+    Phoenix.PubSub.broadcast(Synkade.PubSub, "jobs:updates", {:jobs_changed})
   end
 
   @doc "Load projects configuration from Settings."

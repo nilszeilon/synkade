@@ -68,30 +68,18 @@ defmodule Synkade.Execution.Local do
   @impl true
   def await_event(session, timeout_ms) do
     port = session.backend_data.port
-    require Logger
-    Logger.warning("await_event: waiting on port=#{inspect(port)}, timeout=#{timeout_ms}")
 
     receive do
       {^port, {:data, {:eol, chunk}}} ->
-        Logger.info(
-          "Received eol data from agent port: #{String.slice(to_string(chunk), 0..200)}"
-        )
-
         {:data, to_string(chunk)}
 
       {^port, {:data, {:noeol, chunk}}} ->
-        Logger.info(
-          "Received noeol data from agent port: #{String.slice(to_string(chunk), 0..200)}"
-        )
-
         {:partial, to_string(chunk)}
 
       {^port, {:exit_status, code}} ->
-        Logger.warning("Agent port exit status: #{code}")
         {:exit, code}
     after
       timeout_ms ->
-        Logger.warning("await_event: timeout after #{timeout_ms}ms")
         :timeout
     end
   end
@@ -112,15 +100,9 @@ defmodule Synkade.Execution.Local do
         :ok
 
       {:error, reason} ->
-        require Logger
         Logger.warning("after_run hook failed: #{reason}")
         :ok
     end
-  end
-
-  @impl true
-  def destroy_env(config, workspace) do
-    Manager.cleanup_workspace(config, workspace)
   end
 
   @impl true

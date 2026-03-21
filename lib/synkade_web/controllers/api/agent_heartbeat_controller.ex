@@ -2,7 +2,8 @@ defmodule SynkadeWeb.Api.AgentHeartbeatController do
   use SynkadeWeb, :controller
 
   alias Synkade.Issues
-  alias Synkade.Settings
+
+  import SynkadeWeb.Api.AgentAccess, only: [has_project_access?: 2]
 
   @valid_statuses ~w(working error blocked)
 
@@ -34,22 +35,4 @@ defmodule SynkadeWeb.Api.AgentHeartbeatController do
     conn |> put_status(400) |> json(%{error: "issue_id and status are required"})
   end
 
-  defp has_project_access?(agent, project_id) do
-    case Settings.get_project!(project_id) do
-      %{default_agent_id: agent_id} when agent_id == agent.id -> true
-      _ -> project_has_agent_issues?(agent, project_id)
-    end
-  rescue
-    Ecto.NoResultsError -> false
-  end
-
-  defp project_has_agent_issues?(agent, project_id) do
-    import Ecto.Query
-
-    Synkade.Repo.exists?(
-      from(i in Synkade.Issues.Issue,
-        where: i.project_id == ^project_id and i.assigned_agent_id == ^agent.id
-      )
-    )
-  end
 end

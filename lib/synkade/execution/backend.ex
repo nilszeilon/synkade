@@ -34,7 +34,5 @@ defmodule Synkade.Execution.Backend do
 
   @callback run_after_hook(config :: map(), env_ref()) :: :ok
 
-  @callback destroy_env(config :: map(), env_ref()) :: :ok
-
   @callback parse_event(config :: map(), binary()) :: {:ok, Event.t()} | :skip
 end

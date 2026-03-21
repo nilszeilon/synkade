@@ -81,6 +81,11 @@ defmodule Synkade.Settings do
     Repo.get!(Project, id)
   end
 
+  @doc "Gets a single project by ID. Returns nil if not found."
+  def get_project(id) do
+    Repo.get(Project, id)
+  end
+
   @doc "Gets a single project by name."
   def get_project_by_name(name) do
     Repo.get_by(Project, name: name)

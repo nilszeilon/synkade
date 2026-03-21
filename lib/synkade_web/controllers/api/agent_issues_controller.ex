@@ -2,7 +2,8 @@ defmodule SynkadeWeb.Api.AgentIssuesController do
   use SynkadeWeb, :controller
 
   alias Synkade.Issues
-  alias Synkade.Settings
+
+  import SynkadeWeb.Api.AgentAccess, only: [has_project_access?: 2]
 
   def index(conn, %{"project_id" => project_id} = params) do
     agent = conn.assigns.current_agent
@@ -217,25 +218,6 @@ defmodule SynkadeWeb.Api.AgentIssuesController do
   defp assemble_body(title, nil), do: "# #{title}"
   defp assemble_body(nil, desc), do: desc
   defp assemble_body(title, desc), do: "# #{title}\n\n#{desc}"
-
-  defp has_project_access?(agent, project_id) do
-    case Settings.get_project!(project_id) do
-      %{default_agent_id: agent_id} when agent_id == agent.id -> true
-      _ -> project_has_agent_issues?(agent, project_id)
-    end
-  rescue
-    Ecto.NoResultsError -> false
-  end
-
-  defp project_has_agent_issues?(agent, project_id) do
-    import Ecto.Query
-
-    Synkade.Repo.exists?(
-      from(i in Synkade.Issues.Issue,
-        where: i.project_id == ^project_id and i.assigned_agent_id == ^agent.id
-      )
-    )
-  end
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

@@ -80,22 +80,6 @@ defmodule Synkade.IssuesTest do
     end
   end
 
-  describe "list_root_issues/1" do
-    test "lists only root issues with children preloaded", %{project: project} do
-      {:ok, parent} = Issues.create_issue(%{body: "# Root", project_id: project.id})
-
-      {:ok, _} =
-        Issues.create_issue(%{body: "# Child", project_id: project.id, parent_id: parent.id})
-
-      roots = Issues.list_root_issues(project.id)
-      assert length(roots) == 1
-      root = hd(roots)
-      assert Issue.title(root) == "Root"
-      assert length(root.children) == 1
-      assert Issue.title(hd(root.children)) == "Child"
-    end
-  end
-
   describe "get_issue!/1" do
     test "returns issue with children preloaded", %{project: project} do
       {:ok, parent} = Issues.create_issue(%{body: "# Parent", project_id: project.id})
@@ -414,7 +398,7 @@ defmodule Synkade.IssuesTest do
       assert length(results) == 2
       assert Enum.all?(results, &match?({:ok, _}, &1))
 
-      children = Issues.list_children(parent.id)
+      children = Issues.list_issues(project.id, parent_id: parent.id)
       assert length(children) == 2
       assert Enum.all?(children, &(&1.depth == 1))
       assert Enum.all?(children, &(&1.project_id == project.id))

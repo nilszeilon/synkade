@@ -3,7 +3,7 @@ defmodule Synkade.ObanTelemetry do
 
   require Logger
 
-  @pubsub_topic "orchestrator:updates"
+  @pubsub_topic "jobs:updates"
 
   def attach do
     :telemetry.attach_many(

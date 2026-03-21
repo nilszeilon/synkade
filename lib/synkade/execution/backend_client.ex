@@ -41,10 +41,6 @@ defmodule Synkade.Execution.BackendClient do
     backend_for(config).run_after_hook(config, env_ref)
   end
 
-  def destroy_env(config, env_ref) do
-    backend_for(config).destroy_env(config, env_ref)
-  end
-
   def parse_event(config, line) do
     backend_for(config).parse_event(config, line)
   end

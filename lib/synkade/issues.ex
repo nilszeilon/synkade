@@ -77,26 +77,9 @@ defmodule Synkade.Issues do
     Repo.all(query)
   end
 
-  def list_root_issues(project_id) do
-    from(i in Issue,
-      where: i.project_id == ^project_id and is_nil(i.parent_id),
-      order_by: [asc: i.position, asc: i.inserted_at],
-      preload: [children: ^children_preload_query()]
-    )
-    |> Repo.all()
-  end
-
   def list_issues_filtered(project_id, states) when is_list(states) do
     from(i in Issue,
       where: i.project_id == ^project_id and i.state in ^states,
-      order_by: [asc: i.position, asc: i.inserted_at]
-    )
-    |> Repo.all()
-  end
-
-  def list_children(issue_id) do
-    from(i in Issue,
-      where: i.parent_id == ^issue_id,
       order_by: [asc: i.position, asc: i.inserted_at]
     )
     |> Repo.all()
@@ -304,10 +287,6 @@ defmodule Synkade.Issues do
   def ancestor_chain(%Issue{parent_id: parent_id}) do
     parent = get_issue!(parent_id)
     ancestor_chain(parent) ++ [parent]
-  end
-
-  def issue_tree(issue_id) do
-    get_issue!(issue_id)
   end
 
   def list_queued_issues(project_id) do
