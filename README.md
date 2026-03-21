@@ -2,18 +2,18 @@
 
 Self-hosted orchestrator for autonomous coding agents.
 
-Point it at your repos, configure your agents, and let them work through your issue backlog — with real-time visibility, cost tracking, and automatic retries.
+Point it at your repos, configure your agents, and let them work through your issue backlog -- with real-time visibility, cost tracking, and automatic retries.
 
 ## What it does
 
-- **Multi-agent pool** — Configure Claude Code, Codex, or any CLI agent with their own API keys, models, and system prompts
-- **Multi-project** — Manage multiple repos from one instance, each with its own agent and prompt template
-- **Automatic dispatch** — Issues move from backlog to queue to in-progress without manual intervention
-- **Live dashboard** — See what every agent is doing right now, streaming events via WebSocket
-- **Cost tracking** — Per-session and per-project token usage
-- **Retry & recovery** — Exponential backoff on failures, automatic continuation
-- **Isolated workspaces** — Each agent session gets its own workspace with lifecycle hooks
-- **Encrypted secrets** — API keys and tokens encrypted at rest
+- **Multi-agent pool** -- Configure Claude Code, Codex, or any CLI agent with their own API keys, models, and system prompts
+- **Multi-project** -- Manage multiple repos from one instance, each with its own agent and prompt template
+- **Oban-based job processing** -- Reliable background dispatch with persistence, retries, and scheduling via Postgres-backed queues
+- **Live dashboard** -- See what every agent is doing right now, streaming events via WebSocket
+- **Cost tracking** -- Per-session and per-project token usage
+- **Retry & recovery** -- Exponential backoff on failures, automatic continuation
+- **Isolated workspaces** -- Each agent session gets its own workspace with lifecycle hooks
+- **Encrypted secrets** -- API keys and tokens encrypted at rest
 
 ## Install
 
@@ -24,11 +24,11 @@ docker compose up -d
 
 Open [localhost:4000](http://localhost:4000) to set up your admin account.
 
-The `docker-compose.yml` includes a Postgres 17 database. Secrets are generated automatically on first run and persisted to the data volume.
+This starts both Postgres 17 and the Synkade app. Secrets are generated automatically on first run and persisted to the data volume.
 
 ### Environment variables
 
-All optional — defaults work out of the box.
+All optional -- defaults work out of the box.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -38,4 +38,4 @@ All optional — defaults work out of the box.
 
 ## License
 
-MIT with SaaS restriction — see [LICENSE](LICENSE).
+MIT with SaaS restriction -- see [LICENSE](LICENSE).

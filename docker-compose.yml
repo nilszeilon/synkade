@@ -4,11 +4,26 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: synkade_dev
+      POSTGRES_DB: synkade_prod
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  synkade:
+    image: synkade/synkade:latest
+    entrypoint: ["/app/bin/docker-entrypoint.sh"]
+    ports:
+      - "4000:4000"
+    depends_on:
+      db:
+        condition: service_started
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/synkade_prod
+      - PHX_HOST=localhost
+    volumes:
+      - synkade_data:/app/data
+
 volumes:
   pgdata:
+  synkade_data:
