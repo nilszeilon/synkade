@@ -487,7 +487,7 @@ defmodule SynkadeWeb.Api.AgentIssuesControllerTest do
       conn: conn,
       token: token,
       project: project,
-      issue: issue
+      issue: _issue
     } do
       conn =
         conn

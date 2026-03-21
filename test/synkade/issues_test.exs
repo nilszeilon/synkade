@@ -316,12 +316,11 @@ defmodule Synkade.IssuesTest do
       {:ok, done} = Issues.transition_state(issue, "done")
 
       # Backdate updated_at so interval has elapsed
-      past = DateTime.add(DateTime.utc_now(), -7200, :second) |> DateTime.to_iso8601()
+      past = DateTime.utc_now() |> DateTime.add(-7200, :second) |> DateTime.truncate(:second)
 
-      Synkade.Repo.query!(
-        "UPDATE issues SET updated_at = ?1 WHERE id = ?2",
-        [past, done.id]
-      )
+      done
+      |> Ecto.Changeset.change(updated_at: past)
+      |> Synkade.Repo.update!()
 
       due = Issues.list_due_recurring_issues()
       assert length(due) == 1
