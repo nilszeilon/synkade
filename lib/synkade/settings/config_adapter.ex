@@ -69,8 +69,13 @@ defmodule Synkade.Settings.ConfigAdapter do
   end
 
   defp execution_config(%Setting{} = s) do
+    backend =
+      if Synkade.Deployment.hosted?(),
+        do: "sprites",
+        else: s.execution_backend
+
     %{
-      "backend" => s.execution_backend,
+      "backend" => backend,
       "sprites_token" => s.execution_sprites_token,
       "sprites_org" => s.execution_sprites_org
     }

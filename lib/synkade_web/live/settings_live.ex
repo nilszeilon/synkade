@@ -365,6 +365,7 @@ defmodule SynkadeWeb.SettingsLive do
             Agents
           </button>
           <button
+            :if={not Synkade.Deployment.hosted?()}
             role="tab"
             class={"tab #{if @active_tab == "execution", do: "tab-active"}"}
             phx-click="switch_tab"
@@ -387,11 +388,11 @@ defmodule SynkadeWeb.SettingsLive do
             />
           </div>
 
-          <div class={if @active_tab != "execution", do: "hidden"}>
+          <div :if={not Synkade.Deployment.hosted?()} class={if @active_tab != "execution", do: "hidden"}>
             <.execution_tab form={@form} />
           </div>
 
-          <div :if={@active_tab in ["github", "execution"]} class="mt-6">
+          <div :if={@active_tab == "github" or (@active_tab == "execution" and not Synkade.Deployment.hosted?())} class="mt-6">
             <button type="submit" class="btn btn-primary">Save Settings</button>
           </div>
         </.form>
