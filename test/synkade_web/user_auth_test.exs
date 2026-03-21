@@ -217,28 +217,6 @@ defmodule SynkadeWeb.UserAuthTest do
     end
   end
 
-  describe "redirect_if_user_is_authenticated/2" do
-    setup %{conn: conn} do
-      %{conn: UserAuth.fetch_current_scope_for_user(conn, [])}
-    end
-
-    test "redirects if user is authenticated", %{conn: conn, user: user} do
-      conn =
-        conn
-        |> assign(:current_scope, Scope.for_user(user))
-        |> UserAuth.redirect_if_user_is_authenticated([])
-
-      assert conn.halted
-      assert redirected_to(conn) == ~p"/"
-    end
-
-    test "does not redirect if user is not authenticated and setup is complete", %{conn: conn} do
-      conn = UserAuth.redirect_if_user_is_authenticated(conn, [])
-      refute conn.halted
-      refute conn.status
-    end
-  end
-
   describe "require_authenticated_user/2" do
     setup %{conn: conn} do
       %{conn: UserAuth.fetch_current_scope_for_user(conn, [])}

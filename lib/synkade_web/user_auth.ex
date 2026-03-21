@@ -181,26 +181,6 @@ defmodule SynkadeWeb.UserAuth do
     end
   end
 
-  @doc """
-  Plug for routes that require the user to not be authenticated.
-  """
-  def redirect_if_user_is_authenticated(conn, _opts) do
-    cond do
-      conn.assigns.current_scope ->
-        conn
-        |> redirect(to: signed_in_path(conn))
-        |> halt()
-
-      not Accounts.setup_completed?() ->
-        conn
-        |> redirect(to: ~p"/setup")
-        |> halt()
-
-      true ->
-        conn
-    end
-  end
-
   defp signed_in_path(_conn), do: ~p"/"
 
   @doc """

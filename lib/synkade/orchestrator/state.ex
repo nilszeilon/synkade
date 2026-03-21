@@ -16,7 +16,6 @@ defmodule Synkade.Orchestrator.State do
             runtime_seconds: float()
           },
           agent_totals_by_project: %{String.t() => map()},
-          agent_rate_limits: map() | nil,
           activity_log: list(%{project_name: String.t(), timestamp: DateTime.t()}),
           config_error: String.t() | nil
         }
@@ -35,7 +34,6 @@ defmodule Synkade.Orchestrator.State do
               runtime_seconds: 0.0
             },
             agent_totals_by_project: %{},
-            agent_rate_limits: nil,
             activity_log: [],
             config_error: nil
 
