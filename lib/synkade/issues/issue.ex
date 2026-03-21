@@ -25,6 +25,9 @@ defmodule Synkade.Issues.Issue do
     field :recurrence_interval, :integer, default: 24
     field :recurrence_unit, :string, default: "hours"
 
+    field :last_heartbeat_at, :utc_datetime
+    field :last_heartbeat_message, :string
+
     belongs_to :project, Synkade.Settings.Project
     belongs_to :parent, __MODULE__
     belongs_to :assigned_agent, Synkade.Settings.Agent
@@ -50,7 +53,8 @@ defmodule Synkade.Issues.Issue do
   @optional_fields ~w(body state depth position parent_id
                       agent_output github_issue_url github_pr_url metadata
                       dispatch_message assigned_agent_id
-                      auto_merge recurring recurrence_interval recurrence_unit)a
+                      auto_merge recurring recurrence_interval recurrence_unit
+                      last_heartbeat_at last_heartbeat_message)a
 
   def changeset(issue, attrs) do
     issue

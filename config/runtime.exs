@@ -38,13 +38,16 @@ if config_env() == :prod do
       default: {Cloak.Ciphers.AES.GCM, tag: "AES.GCM.V1", key: Base.decode64!(encryption_key)}
     ]
 
-  database_path = System.get_env("DATABASE_PATH") || "/app/data/synkade.db"
+  database_url =
+    System.get_env("DATABASE_URL") ||
+      raise "environment variable DATABASE_URL is missing."
+
+  maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
 
   config :synkade, Synkade.Repo,
-    database: database_path,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "5"),
-    journal_mode: :wal,
-    busy_timeout: 5000
+    url: database_url,
+    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
+    socket_options: maybe_ipv6
 
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you

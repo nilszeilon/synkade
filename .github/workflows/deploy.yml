@@ -18,6 +18,7 @@ jobs:
       SECRET_KEY_BASE: ${{ secrets.SECRET_KEY_BASE }}
       SETTINGS_ENCRYPTION_KEY: ${{ secrets.SETTINGS_ENCRYPTION_KEY }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
     steps:
       - uses: actions/checkout@v4
@@ -45,6 +46,7 @@ jobs:
             'SECRET_KEY_BASE=$SECRET_KEY_BASE' \
             'SETTINGS_ENCRYPTION_KEY=$SETTINGS_ENCRYPTION_KEY' \
             'RESEND_API_KEY=$RESEND_API_KEY' \
+            'DATABASE_URL=$DATABASE_URL' \
             > .kamal/secrets
 
       - name: Deploy with Kamal

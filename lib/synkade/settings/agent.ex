@@ -15,7 +15,7 @@ defmodule Synkade.Settings.Agent do
     field :oauth_token, Synkade.Encrypted.Binary
     field :model, :string
     field :max_turns, :integer
-    field :allowed_tools, Synkade.Ecto.StringList, default: []
+    field :allowed_tools, {:array, :string}, default: []
     field :system_prompt, :string
     field :api_token_hash, :string
     field :api_token, Synkade.Encrypted.Binary

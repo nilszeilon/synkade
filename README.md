@@ -24,7 +24,7 @@ docker compose up -d
 
 Open [localhost:4000](http://localhost:4000) to set up your admin account.
 
-Secrets are generated automatically on first run and persisted to the data volume.
+The `docker-compose.yml` includes a Postgres 17 database. Secrets are generated automatically on first run and persisted to the data volume.
 
 ### Environment variables
 
@@ -34,7 +34,7 @@ All optional — defaults work out of the box.
 |----------|---------|-------------|
 | `PHX_HOST` | `localhost` | Your domain name |
 | `PORT` | `4000` | HTTP port |
-| `DATABASE_PATH` | `/app/data/synkade.db` | SQLite database location |
+| `DATABASE_URL` | `postgres://postgres:postgres@db:5432/synkade_prod` | PostgreSQL connection URL |
 
 ## License
 

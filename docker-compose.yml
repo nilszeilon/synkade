@@ -1,13 +1,14 @@
 services:
-  synkade:
-    image: synkade/synkade:latest
-    entrypoint: ["/app/bin/docker-entrypoint.sh"]
-    ports:
-      - "4000:4000"
-    volumes:
-      - synkade_data:/app/data
+  db:
+    image: postgres:17
     environment:
-      - PHX_HOST=localhost
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: synkade_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
 
 volumes:
-  synkade_data:
+  pgdata:

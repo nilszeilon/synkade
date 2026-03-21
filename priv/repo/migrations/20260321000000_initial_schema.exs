@@ -1,20 +1,18 @@
 defmodule Synkade.Repo.Migrations.InitialSchema do
   use Ecto.Migration
 
-  def change do
+  def up do
+    execute "CREATE EXTENSION IF NOT EXISTS citext"
+
     # --- settings ---
     create table(:settings, primary_key: false) do
       add :id, :binary_id, primary_key: true
-
       add :github_pat, :binary
       add :github_webhook_secret, :binary
-
       add :execution_backend, :string, default: "local"
       add :execution_sprites_token, :binary
       add :execution_sprites_org, :string
-
       add :theme, :string, default: "ops"
-
       timestamps(type: :utc_datetime)
     end
 
@@ -28,11 +26,10 @@ defmodule Synkade.Repo.Migrations.InitialSchema do
       add :oauth_token, :binary
       add :model, :string
       add :max_turns, :integer
-      add :allowed_tools, :text, default: "[]"
+      add :allowed_tools, {:array, :string}, default: []
       add :system_prompt, :text
       add :api_token_hash, :string
       add :api_token, :binary
-
       timestamps(type: :utc_datetime)
     end
 
@@ -47,7 +44,6 @@ defmodule Synkade.Repo.Migrations.InitialSchema do
       add :tracker_repo, :string
       add :prompt_template, :string
       add :default_agent_id, references(:agents, type: :binary_id, on_delete: :nilify_all)
-
       timestamps(type: :utc_datetime)
     end
 
@@ -56,10 +52,7 @@ defmodule Synkade.Repo.Migrations.InitialSchema do
     # --- issues ---
     create table(:issues, primary_key: false) do
       add :id, :binary_id, primary_key: true
-
-      add :project_id, references(:projects, type: :binary_id, on_delete: :delete_all),
-        null: false
-
+      add :project_id, references(:projects, type: :binary_id, on_delete: :delete_all), null: false
       add :parent_id, references(:issues, type: :binary_id, on_delete: :nilify_all)
       add :body, :text
       add :state, :string, default: "backlog"
@@ -68,14 +61,15 @@ defmodule Synkade.Repo.Migrations.InitialSchema do
       add :agent_output, :text
       add :github_issue_url, :string
       add :github_pr_url, :string
-      add :metadata, :text, default: "{}"
+      add :metadata, :map, default: %{}
       add :dispatch_message, :string
       add :assigned_agent_id, references(:agents, type: :binary_id, on_delete: :nilify_all)
       add :recurring, :boolean, default: false, null: false
       add :recurrence_interval, :integer, default: 24
       add :recurrence_unit, :string, default: "hours"
       add :auto_merge, :boolean, default: false, null: false
-
+      add :last_heartbeat_at, :utc_datetime
+      add :last_heartbeat_message, :text
       timestamps(type: :utc_datetime)
     end
 
@@ -83,7 +77,7 @@ defmodule Synkade.Repo.Migrations.InitialSchema do
     create index(:issues, [:parent_id])
     create index(:issues, [:state])
     create index(:issues, [:project_id, :state])
-    create index(:issues, [:state, :recurring], where: "recurring = 1")
+    create index(:issues, [:state, :recurring], where: "recurring = true")
 
     # --- token_usage ---
     create table(:token_usage, primary_key: false) do
@@ -92,10 +86,48 @@ defmodule Synkade.Repo.Migrations.InitialSchema do
       add :model, :string, null: false
       add :input_tokens, :integer, default: 0, null: false
       add :output_tokens, :integer, default: 0, null: false
-
       timestamps()
     end
 
     create unique_index(:token_usage, [:date, :model])
+
+    # --- users ---
+    create table(:users) do
+      add :email, :citext, null: false
+      add :hashed_password, :string
+      add :confirmed_at, :utc_datetime
+      timestamps(type: :utc_datetime)
+    end
+
+    create unique_index(:users, [:email])
+
+    create table(:users_tokens) do
+      add :user_id, references(:users, on_delete: :delete_all), null: false
+      add :token, :binary, null: false, size: 32
+      add :context, :string, null: false
+      add :sent_to, :string
+      add :authenticated_at, :utc_datetime
+      timestamps(type: :utc_datetime, updated_at: false)
+    end
+
+    create index(:users_tokens, [:user_id])
+    create unique_index(:users_tokens, [:context, :token])
+
+    # --- Oban ---
+    Oban.Migration.up(version: 12)
+  end
+
+  def down do
+    Oban.Migration.down(version: 1)
+
+    drop table(:users_tokens)
+    drop table(:users)
+    drop table(:token_usage)
+    drop table(:issues)
+    drop table(:projects)
+    drop table(:agents)
+    drop table(:settings)
+
+    execute "DROP EXTENSION IF EXISTS citext"
   end
 end

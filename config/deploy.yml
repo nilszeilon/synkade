@@ -27,16 +27,29 @@ env:
   clear:
     PHX_HOST: synkade.com
     PHX_SERVER: "true"
-    DATABASE_PATH: /app/data/synkade.db
     PORT: "4000"
   secret:
     - SECRET_KEY_BASE
     - SETTINGS_ENCRYPTION_KEY
     - RESEND_API_KEY
+    - DATABASE_URL
 
 builder:
   arch: amd64
   remote: ssh://root@116.203.114.129
+
+accessories:
+  db:
+    image: postgres:17
+    host: 116.203.114.129
+    port: 5432
+    env:
+      clear:
+        POSTGRES_DB: synkade_prod
+      secret:
+        - POSTGRES_PASSWORD
+    directories:
+      - data:/var/lib/postgresql/data
 
 ssh:
   user: root
