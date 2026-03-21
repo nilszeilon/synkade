@@ -203,6 +203,28 @@ defmodule Synkade.Issues do
   def complete_issue(%Issue{} = issue), do: transition_state(issue, "done")
   def cancel_issue(%Issue{} = issue), do: transition_state(issue, "cancelled")
 
+  @doc "Update heartbeat timestamp and message for an in-progress issue."
+  def update_issue_heartbeat(issue_id, message \\ nil) do
+    from(i in Issue,
+      where: i.id == ^issue_id
+    )
+    |> Repo.update_all(
+      set: [
+        last_heartbeat_at: DateTime.utc_now(),
+        last_heartbeat_message: message
+      ]
+    )
+  end
+
+  @doc "List all issues in awaiting_review state."
+  def list_awaiting_review_issues do
+    from(i in Issue,
+      where: i.state == "awaiting_review",
+      order_by: [asc: i.inserted_at]
+    )
+    |> Repo.all()
+  end
+
   def dispatch_issue(%Issue{} = issue, dispatch_message, assigned_agent_id \\ nil) do
     {agent_name, agent_kind} =
       case assigned_agent_id do
@@ -233,12 +255,30 @@ defmodule Synkade.Issues do
            }),
          {:ok, ready} <- ensure_backlog(updated),
          {:ok, queued} <- transition_state(ready, "queued") do
+      # Enqueue Oban job for non-pull-based agents
+      unless pull_based_agent?(assigned_agent_id) do
+        %{issue_id: queued.id, project_id: queued.project_id}
+        |> Synkade.Workers.AgentWorker.new()
+        |> Oban.insert()
+      end
+
       {:ok, queued}
     end
   end
 
   defp ensure_backlog(%Issue{state: "backlog"} = issue), do: {:ok, issue}
   defp ensure_backlog(%Issue{} = issue), do: transition_state(issue, "backlog")
+
+  defp pull_based_agent?(nil), do: false
+
+  defp pull_based_agent?(agent_id) do
+    case Synkade.Settings.get_agent!(agent_id) do
+      %{kind: kind} -> Synkade.Settings.Agent.pull_kind?(kind)
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
 
   @doc "Appends an agent output entry to the issue message history."
   def append_agent_output(%Issue{} = issue, agent_output, agent_name \\ nil, agent_kind \\ nil) do

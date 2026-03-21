@@ -9,11 +9,12 @@ config :bcrypt_elixir, :log_rounds, 1
 # to provide built-in test partitioning in CI environment.
 # Run `mix help test` for more information.
 config :synkade, Synkade.Repo,
-  database: Path.expand("../synkade_test#{System.get_env("MIX_TEST_PARTITION")}.db", __DIR__),
-  pool_size: 1,
+  username: "postgres",
+  password: "postgres",
+  hostname: "localhost",
+  database: "synkade_test#{System.get_env("MIX_TEST_PARTITION")}",
   pool: Ecto.Adapters.SQL.Sandbox,
-  journal_mode: :wal,
-  busy_timeout: 5000
+  pool_size: 10
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
@@ -35,6 +36,8 @@ config :synkade, Synkade.Vault,
       {Cloak.Ciphers.AES.GCM,
        tag: "AES.GCM.V1", key: Base.decode64!("dVBuNmtoYXhxNHd5N3FqZGtncjM2aGRrdmZ0cWh5YmE=")}
   ]
+
+config :synkade, Oban, testing: :inline
 
 # Print only warnings and errors during test
 config :logger, level: :warning

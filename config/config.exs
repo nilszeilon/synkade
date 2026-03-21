@@ -73,6 +73,19 @@ config :logger, :default_formatter,
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
+config :synkade, Oban,
+  engine: Oban.Engines.Basic,
+  repo: Synkade.Repo,
+  queues: [agents: 10, default: 5],
+  plugins: [
+    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7},
+    {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(60)},
+    {Oban.Plugins.Cron,
+     crontab: [
+       {"* * * * *", Synkade.Workers.ReconcileWorker}
+     ]}
+  ]
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"
