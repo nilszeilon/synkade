@@ -6,6 +6,8 @@ defmodule Synkade.Settings.Project do
   @timestamps_opts [type: :utc_datetime]
 
   schema "projects" do
+    belongs_to :user, Synkade.Accounts.User
+
     field :name, :string
     field :enabled, :boolean, default: true
     field :tracker_repo, :string
@@ -17,12 +19,12 @@ defmodule Synkade.Settings.Project do
   end
 
   @required_fields ~w(name)a
-  @optional_fields ~w(enabled tracker_repo prompt_template default_agent_id)a
+  @optional_fields ~w(enabled tracker_repo prompt_template default_agent_id user_id)a
 
   def changeset(project, attrs) do
     project
     |> cast(attrs, @required_fields ++ @optional_fields)
     |> validate_required(@required_fields)
-    |> unique_constraint(:name)
+    |> unique_constraint([:user_id, :name])
   end
 end

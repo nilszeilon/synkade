@@ -1,17 +1,20 @@
 defmodule SynkadeWeb.Api.AgentMeControllerTest do
   use SynkadeWeb.ConnCase
 
+  import Synkade.AccountsFixtures
+
   alias Synkade.Settings
   alias Synkade.Issues
 
   setup do
-    {:ok, agent} = Settings.create_agent(%{name: "me-test-agent"})
+    scope = user_scope_fixture()
+    {:ok, agent} = Settings.create_agent(scope, %{name: "me-test-agent"})
     {:ok, token} = Settings.generate_agent_token(agent)
 
     {:ok, project} =
-      Settings.create_project(%{name: "me-test-project", default_agent_id: agent.id})
+      Settings.create_project(scope, %{name: "me-test-project", default_agent_id: agent.id})
 
-    %{agent: agent, token: token, project: project}
+    %{agent: agent, token: token, project: project, scope: scope}
   end
 
   defp auth_conn(conn, token) do
@@ -43,10 +46,11 @@ defmodule SynkadeWeb.Api.AgentMeControllerTest do
     test "includes projects where agent has assigned issues", %{
       conn: conn,
       token: token,
-      agent: agent
+      agent: agent,
+      scope: scope
     } do
       # Create a project where agent is NOT the default
-      {:ok, other_project} = Settings.create_project(%{name: "me-assigned-project"})
+      {:ok, other_project} = Settings.create_project(scope, %{name: "me-assigned-project"})
 
       # Assign an issue to this agent in that project
       {:ok, _issue} =

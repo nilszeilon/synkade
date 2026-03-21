@@ -4,26 +4,25 @@ defmodule Synkade.Settings do
   import Ecto.Query
   alias Synkade.Repo
   alias Synkade.Settings.{Setting, Project, Agent}
+  alias Synkade.Accounts.Scope
 
-  @pubsub_topic "settings:updates"
+  def pubsub_topic(%Scope{user: user}), do: "settings:updates:#{user.id}"
 
-  def pubsub_topic, do: @pubsub_topic
-
-  @doc "Returns the settings row, or nil if none exists."
-  def get_settings do
-    Repo.one(from(s in Setting, limit: 1))
+  @doc "Returns the settings row for the scoped user, or nil if none exists."
+  def get_settings(%Scope{user: user}) do
+    Repo.one(from(s in Setting, where: s.user_id == ^user.id, limit: 1))
   end
 
-  @doc "Returns the settings row, or raises if none exists."
-  def get_settings! do
-    Repo.one!(from(s in Setting, limit: 1))
+  @doc "Returns the settings row for a user_id (for workers, no Scope)."
+  def get_settings_for_user(user_id) do
+    Repo.one(from(s in Setting, where: s.user_id == ^user_id, limit: 1))
   end
 
-  @doc "Creates or updates the single settings row (upsert)."
-  def save_settings(attrs) do
+  @doc "Creates or updates the settings row for the scoped user."
+  def save_settings(%Scope{user: user} = scope, attrs) do
     result =
-      case get_settings() do
-        nil -> %Setting{}
+      case get_settings(scope) do
+        nil -> %Setting{user_id: user.id}
         existing -> existing
       end
       |> Setting.changeset(attrs)
@@ -31,7 +30,7 @@ defmodule Synkade.Settings do
 
     case result do
       {:ok, settings} ->
-        broadcast_update(settings)
+        broadcast_update(scope, settings)
         {:ok, settings}
 
       error ->
@@ -39,9 +38,9 @@ defmodule Synkade.Settings do
     end
   end
 
-  @doc "Saves the theme preference."
-  def save_theme(theme) when is_binary(theme) do
-    setting = get_settings() || %Setting{}
+  @doc "Saves the theme preference for the scoped user."
+  def save_theme(%Scope{user: user} = scope, theme) when is_binary(theme) do
+    setting = get_settings(scope) || %Setting{user_id: user.id}
 
     result =
       setting
@@ -50,7 +49,7 @@ defmodule Synkade.Settings do
 
     case result do
       {:ok, setting} ->
-        broadcast_theme_updated(setting.theme)
+        broadcast_theme_updated(scope, setting.theme)
         {:ok, setting}
 
       error ->
@@ -59,21 +58,26 @@ defmodule Synkade.Settings do
   end
 
   @doc "Returns a changeset for the settings form."
-  def change_settings(setting \\ nil, attrs \\ %{}) do
-    (setting || get_settings() || %Setting{})
+  def change_settings(%Scope{} = scope, setting \\ nil, attrs \\ %{}) do
+    (setting || get_settings(scope) || %Setting{})
     |> Setting.changeset(attrs)
   end
 
   # --- Projects ---
 
-  @doc "Lists all projects."
-  def list_projects do
-    Repo.all(from(p in Project, order_by: [asc: p.name]))
+  @doc "Lists all projects for the scoped user."
+  def list_projects(%Scope{user: user}) do
+    Repo.all(from(p in Project, where: p.user_id == ^user.id, order_by: [asc: p.name]))
   end
 
-  @doc "Lists enabled projects."
-  def list_enabled_projects do
-    Repo.all(from(p in Project, where: p.enabled == true, order_by: [asc: p.name]))
+  @doc "Lists enabled projects for the scoped user."
+  def list_enabled_projects(%Scope{user: user}) do
+    Repo.all(from(p in Project, where: p.user_id == ^user.id and p.enabled == true, order_by: [asc: p.name]))
+  end
+
+  @doc "Lists enabled projects for a user_id (for workers, no Scope)."
+  def list_enabled_projects_for_user(user_id) do
+    Repo.all(from(p in Project, where: p.user_id == ^user_id and p.enabled == true, order_by: [asc: p.name]))
   end
 
   @doc "Gets a single project by ID. Raises if not found."
@@ -86,21 +90,21 @@ defmodule Synkade.Settings do
     Repo.get(Project, id)
   end
 
-  @doc "Gets a single project by name."
-  def get_project_by_name(name) do
-    Repo.get_by(Project, name: name)
+  @doc "Gets a single project by name for the scoped user."
+  def get_project_by_name(%Scope{user: user}, name) do
+    Repo.one(from(p in Project, where: p.user_id == ^user.id and p.name == ^name))
   end
 
-  @doc "Creates a project."
-  def create_project(attrs) do
+  @doc "Creates a project for the scoped user."
+  def create_project(%Scope{user: user} = scope, attrs) do
     result =
-      %Project{}
+      %Project{user_id: user.id}
       |> Project.changeset(attrs)
       |> Repo.insert()
 
     case result do
       {:ok, project} ->
-        broadcast_projects_updated()
+        broadcast_projects_updated(scope)
         {:ok, project}
 
       error ->
@@ -109,7 +113,7 @@ defmodule Synkade.Settings do
   end
 
   @doc "Updates a project."
-  def update_project(%Project{} = project, attrs) do
+  def update_project(%Scope{} = scope, %Project{} = project, attrs) do
     result =
       project
       |> Project.changeset(attrs)
@@ -117,7 +121,7 @@ defmodule Synkade.Settings do
 
     case result do
       {:ok, project} ->
-        broadcast_projects_updated()
+        broadcast_projects_updated(scope)
         {:ok, project}
 
       error ->
@@ -126,12 +130,12 @@ defmodule Synkade.Settings do
   end
 
   @doc "Deletes a project."
-  def delete_project(%Project{} = project) do
+  def delete_project(%Scope{} = scope, %Project{} = project) do
     result = Repo.delete(project)
 
     case result do
       {:ok, project} ->
-        broadcast_projects_updated()
+        broadcast_projects_updated(scope)
         {:ok, project}
 
       error ->
@@ -162,9 +166,14 @@ defmodule Synkade.Settings do
 
   # --- Agents ---
 
-  @doc "Lists all agents."
-  def list_agents do
-    Repo.all(from(a in Agent, order_by: [asc: a.name]))
+  @doc "Lists all agents for the scoped user."
+  def list_agents(%Scope{user: user}) do
+    Repo.all(from(a in Agent, where: a.user_id == ^user.id, order_by: [asc: a.name]))
+  end
+
+  @doc "Lists all agents for a user_id (for workers, no Scope)."
+  def list_agents_for_user(user_id) do
+    Repo.all(from(a in Agent, where: a.user_id == ^user_id, order_by: [asc: a.name]))
   end
 
   @doc "Gets a single agent by ID. Raises if not found."
@@ -172,15 +181,15 @@ defmodule Synkade.Settings do
     Repo.get!(Agent, id)
   end
 
-  @doc "Gets a single agent by name."
-  def get_agent_by_name(name) do
-    Repo.get_by(Agent, name: name)
+  @doc "Gets a single agent by name for the scoped user."
+  def get_agent_by_name(%Scope{user: user}, name) do
+    Repo.one(from(a in Agent, where: a.user_id == ^user.id and a.name == ^name))
   end
 
-  @doc "Creates an agent with an auto-generated API token."
-  def create_agent(attrs) do
+  @doc "Creates an agent with an auto-generated API token for the scoped user."
+  def create_agent(%Scope{user: user} = scope, attrs) do
     result =
-      %Agent{}
+      %Agent{user_id: user.id}
       |> Agent.changeset(attrs)
       |> Repo.insert()
 
@@ -188,7 +197,7 @@ defmodule Synkade.Settings do
       {:ok, agent} ->
         {:ok, _plaintext} = generate_agent_token(agent)
         agent = get_agent!(agent.id)
-        broadcast_agents_updated()
+        broadcast_agents_updated(scope)
         {:ok, agent}
 
       error ->
@@ -197,7 +206,7 @@ defmodule Synkade.Settings do
   end
 
   @doc "Updates an agent."
-  def update_agent(%Agent{} = agent, attrs) do
+  def update_agent(%Scope{} = scope, %Agent{} = agent, attrs) do
     result =
       agent
       |> Agent.changeset(attrs)
@@ -205,7 +214,7 @@ defmodule Synkade.Settings do
 
     case result do
       {:ok, agent} ->
-        broadcast_agents_updated()
+        broadcast_agents_updated(scope)
         {:ok, agent}
 
       error ->
@@ -214,12 +223,12 @@ defmodule Synkade.Settings do
   end
 
   @doc "Deletes an agent."
-  def delete_agent(%Agent{} = agent) do
+  def delete_agent(%Scope{} = scope, %Agent{} = agent) do
     result = Repo.delete(agent)
 
     case result do
       {:ok, agent} ->
-        broadcast_agents_updated()
+        broadcast_agents_updated(scope)
         {:ok, agent}
 
       error ->
@@ -246,7 +255,6 @@ defmodule Synkade.Settings do
 
     case result do
       {:ok, _agent} ->
-        broadcast_agents_updated()
         {:ok, plaintext}
 
       error ->
@@ -265,7 +273,7 @@ defmodule Synkade.Settings do
   end
 
   @doc "Revokes the API token for an agent."
-  def revoke_agent_token(%Agent{} = agent) do
+  def revoke_agent_token(%Scope{} = scope, %Agent{} = agent) do
     result =
       agent
       |> Ecto.Changeset.change(%{api_token_hash: nil, api_token: nil})
@@ -273,7 +281,7 @@ defmodule Synkade.Settings do
 
     case result do
       {:ok, agent} ->
-        broadcast_agents_updated()
+        broadcast_agents_updated(scope)
         {:ok, agent}
 
       error ->
@@ -281,34 +289,48 @@ defmodule Synkade.Settings do
     end
   end
 
-  defp broadcast_theme_updated(theme) do
+  @doc "Regenerates the API token for an agent."
+  def generate_agent_token(%Scope{} = scope, %Agent{} = agent) do
+    result = generate_agent_token(agent)
+
+    case result do
+      {:ok, _plaintext} ->
+        broadcast_agents_updated(scope)
+        result
+
+      error ->
+        error
+    end
+  end
+
+  defp broadcast_theme_updated(%Scope{} = scope, theme) do
     Phoenix.PubSub.broadcast(
       Synkade.PubSub,
-      @pubsub_topic,
+      pubsub_topic(scope),
       {:theme_updated, theme}
     )
   end
 
-  defp broadcast_update(settings) do
+  defp broadcast_update(%Scope{} = scope, settings) do
     Phoenix.PubSub.broadcast(
       Synkade.PubSub,
-      @pubsub_topic,
+      pubsub_topic(scope),
       {:settings_updated, settings}
     )
   end
 
-  defp broadcast_projects_updated do
+  defp broadcast_projects_updated(%Scope{} = scope) do
     Phoenix.PubSub.broadcast(
       Synkade.PubSub,
-      @pubsub_topic,
+      pubsub_topic(scope),
       {:projects_updated}
     )
   end
 
-  defp broadcast_agents_updated do
+  defp broadcast_agents_updated(%Scope{} = scope) do
     Phoenix.PubSub.broadcast(
       Synkade.PubSub,
-      @pubsub_topic,
+      pubsub_topic(scope),
       {:agents_updated}
     )
   end

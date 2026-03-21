@@ -1,13 +1,17 @@
 defmodule SynkadeWeb.GitHub.WebhookControllerTest do
   use SynkadeWeb.ConnCase, async: false
 
+  import Synkade.AccountsFixtures
+
   alias Synkade.Settings
 
   @webhook_secret "test_webhook_secret_123"
 
   setup do
+    scope = user_scope_fixture()
+
     {:ok, _setting} =
-      Settings.save_settings(%{
+      Settings.save_settings(scope, %{
         "github_pat" => "ghp_test123",
         "github_webhook_secret" => @webhook_secret
       })

@@ -1,12 +1,15 @@
 defmodule Synkade.IssuesTest do
   use Synkade.DataCase
 
+  import Synkade.AccountsFixtures
+
   alias Synkade.Issues
   alias Synkade.Issues.Issue
 
   defp create_project(_) do
-    {:ok, project} = Synkade.Settings.create_project(%{name: "test-project"})
-    %{project: project}
+    scope = user_scope_fixture()
+    {:ok, project} = Synkade.Settings.create_project(scope, %{name: "test-project"})
+    %{project: project, scope: scope}
   end
 
   setup :create_project
@@ -40,8 +43,8 @@ defmodule Synkade.IssuesTest do
       assert child.parent_id == parent.id
     end
 
-    test "broadcasts issues_updated", %{project: project} do
-      Phoenix.PubSub.subscribe(Synkade.PubSub, Issues.pubsub_topic())
+    test "broadcasts issues_updated", %{project: project, scope: scope} do
+      Phoenix.PubSub.subscribe(Synkade.PubSub, Issues.pubsub_topic(scope.user.id))
       {:ok, _} = Issues.create_issue(%{body: "# Test", project_id: project.id})
       assert_receive {:issues_updated}
     end
@@ -264,9 +267,9 @@ defmodule Synkade.IssuesTest do
       assert reloaded.dispatch_message == "look into how we can do X"
     end
 
-    test "sets assigned_agent_id when provided", %{project: project} do
+    test "sets assigned_agent_id when provided", %{project: project, scope: scope} do
       {:ok, agent} =
-        Synkade.Settings.create_agent(%{name: "researcher", model: "claude-sonnet-4-5-20250929"})
+        Synkade.Settings.create_agent(scope, %{name: "researcher", model: "claude-sonnet-4-5-20250929"})
 
       {:ok, issue} = Issues.create_issue(%{body: "# Research Y", project_id: project.id})
       {:ok, dispatched} = Issues.dispatch_issue(issue, "investigate Y", agent.id)

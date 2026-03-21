@@ -8,6 +8,8 @@ defmodule Synkade.Settings.Agent do
   @pull_kinds ~w(hermes openclaw)
 
   schema "agents" do
+    belongs_to :user, Synkade.Accounts.User
+
     field :name, :string
     field :kind, :string, default: "claude"
     field :auth_mode, :string, default: "api_key"
@@ -23,13 +25,13 @@ defmodule Synkade.Settings.Agent do
     timestamps()
   end
 
-  @fields ~w(name kind auth_mode api_key oauth_token model max_turns allowed_tools system_prompt)a
+  @fields ~w(name kind auth_mode api_key oauth_token model max_turns allowed_tools system_prompt user_id)a
 
   def changeset(agent, attrs) do
     agent
     |> cast(attrs, @fields)
     |> validate_required([:name])
-    |> unique_constraint(:name)
+    |> unique_constraint([:user_id, :name])
     |> validate_inclusion(:kind, ~w(claude codex opencode hermes openclaw))
     |> validate_inclusion(:auth_mode, ["api_key", "oauth"])
     |> validate_number(:max_turns, greater_than: 0)

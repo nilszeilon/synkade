@@ -27,8 +27,8 @@ defmodule SynkadeWeb.SettingsLiveTest do
     assert html =~ "No agents configured yet"
   end
 
-  test "agents tab shows existing agents", %{conn: conn} do
-    {:ok, _} = Settings.create_agent(%{name: "test-agent", kind: "claude", model: "sonnet"})
+  test "agents tab shows existing agents", %{conn: conn, scope: scope} do
+    {:ok, _} = Settings.create_agent(scope, %{name: "test-agent", kind: "claude", model: "sonnet"})
 
     {:ok, view, _html} = live(conn, "/settings")
     html = view |> element(~s{button[phx-value-tab="agents"]}) |> render_click()

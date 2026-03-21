@@ -3,6 +3,8 @@ defmodule SynkadeWeb.DashboardLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias Synkade.Jobs
+
   setup :register_and_log_in_user
 
   test "renders overview page with token chart when no project selected", %{conn: conn} do
@@ -24,7 +26,7 @@ defmodule SynkadeWeb.DashboardLiveTest do
     assert html =~ "Refresh"
   end
 
-  test "updates in real-time when state_changed is broadcast", %{conn: conn} do
+  test "updates in real-time when state_changed is broadcast", %{conn: conn, scope: scope} do
     {:ok, view, _html} = live(conn, "/")
 
     snapshot = %{
@@ -54,7 +56,7 @@ defmodule SynkadeWeb.DashboardLiveTest do
 
     Phoenix.PubSub.broadcast(
       Synkade.PubSub,
-      "jobs:updates",
+      Jobs.pubsub_topic(scope),
       {:state_changed, snapshot}
     )
 
@@ -62,7 +64,7 @@ defmodule SynkadeWeb.DashboardLiveTest do
     assert html =~ "1 running"
   end
 
-  test "updates config_error in real-time", %{conn: conn} do
+  test "updates config_error in real-time", %{conn: conn, scope: scope} do
     {:ok, view, _html} = live(conn, "/")
 
     snapshot = %{
@@ -77,7 +79,7 @@ defmodule SynkadeWeb.DashboardLiveTest do
 
     Phoenix.PubSub.broadcast(
       Synkade.PubSub,
-      "jobs:updates",
+      Jobs.pubsub_topic(scope),
       {:state_changed, snapshot}
     )
 

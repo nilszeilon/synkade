@@ -18,13 +18,15 @@ defmodule SynkadeWeb.DashboardLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    scope = socket.assigns.current_scope
+
     if connected?(socket) do
-      Phoenix.PubSub.subscribe(Synkade.PubSub, "jobs:updates")
-      Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic())
-      Phoenix.PubSub.subscribe(Synkade.PubSub, Issues.pubsub_topic())
+      Phoenix.PubSub.subscribe(Synkade.PubSub, Jobs.pubsub_topic(scope))
+      Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic(scope))
+      Phoenix.PubSub.subscribe(Synkade.PubSub, Issues.pubsub_topic(scope.user.id))
     end
 
-    state = Jobs.get_state()
+    state = Jobs.get_state(scope)
 
     socket =
       socket
@@ -48,7 +50,7 @@ defmodule SynkadeWeb.DashboardLive do
       |> assign(:board_loading, true)
       |> assign(:board_error, nil)
       |> assign(:modal, nil)
-      |> assign(:agents, Settings.list_agents())
+      |> assign(:agents, Settings.list_agents(scope))
       |> assign(:selected_agent_id, nil)
       |> assign(:view_mode, :board)
       |> assign(:selected_issue, nil)
@@ -77,7 +79,7 @@ defmodule SynkadeWeb.DashboardLive do
 
         params["new"] == "true" ->
           init_create_view(socket, params, fn s ->
-            resolve_db_id(resolve_project(s))
+            resolve_db_id(resolve_project(s), socket.assigns.current_scope)
           end)
 
         true ->
@@ -97,7 +99,7 @@ defmodule SynkadeWeb.DashboardLive do
 
   @impl true
   def handle_info({:jobs_changed}, socket) do
-    state = Jobs.get_state()
+    state = Jobs.get_state(socket.assigns.current_scope)
 
     socket =
       socket
@@ -175,7 +177,7 @@ defmodule SynkadeWeb.DashboardLive do
   @impl true
   def handle_info(:load_board, socket) do
     project = resolve_project(socket)
-    state = Jobs.get_state()
+    state = Jobs.get_state(socket.assigns.current_scope)
 
     socket =
       socket
@@ -205,7 +207,7 @@ defmodule SynkadeWeb.DashboardLive do
               {:error, _} -> []
             end
 
-          db_id = resolve_db_id(project)
+          db_id = resolve_db_id(project, socket.assigns.current_scope)
 
           db_issues =
             if db_id do
@@ -248,7 +250,7 @@ defmodule SynkadeWeb.DashboardLive do
 
   @impl true
   def handle_info({:agents_updated}, socket) do
-    {:noreply, assign(socket, :agents, Settings.list_agents())}
+    {:noreply, assign(socket, :agents, Settings.list_agents(socket.assigns.current_scope))}
   end
 
   @impl true
@@ -281,7 +283,7 @@ defmodule SynkadeWeb.DashboardLive do
 
   @impl true
   def handle_event("refresh", _params, socket) do
-    Jobs.refresh()
+    Jobs.refresh(socket.assigns.current_scope)
 
     if socket.assigns.current_project do
       send(self(), :load_board)
@@ -376,7 +378,7 @@ defmodule SynkadeWeb.DashboardLive do
           %{modal: %{issue: issue}} -> issue
         end
 
-      {agent_name, instruction, agent_id} = resolve_dispatch(message)
+      {agent_name, instruction, agent_id} = resolve_dispatch(socket.assigns.current_scope, message)
 
       case Issues.dispatch_issue(issue, instruction, agent_id) do
         {:ok, _} ->
@@ -658,11 +660,11 @@ defmodule SynkadeWeb.DashboardLive do
     end
   end
 
-  defp resolve_db_id(nil), do: nil
+  defp resolve_db_id(nil, _scope), do: nil
 
-  defp resolve_db_id(project) do
+  defp resolve_db_id(project, scope) do
     Map.get(project, :db_id) ||
-      case Settings.get_project_by_name(project.name) do
+      case Settings.get_project_by_name(scope, project.name) do
         %{id: id} -> id
         _ -> nil
       end

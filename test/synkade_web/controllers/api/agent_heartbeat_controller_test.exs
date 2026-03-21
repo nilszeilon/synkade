@@ -1,15 +1,18 @@
 defmodule SynkadeWeb.Api.AgentHeartbeatControllerTest do
   use SynkadeWeb.ConnCase
 
+  import Synkade.AccountsFixtures
+
   alias Synkade.Settings
   alias Synkade.Issues
 
   setup do
-    {:ok, agent} = Settings.create_agent(%{name: "heartbeat-test-agent"})
+    scope = user_scope_fixture()
+    {:ok, agent} = Settings.create_agent(scope, %{name: "heartbeat-test-agent"})
     {:ok, token} = Settings.generate_agent_token(agent)
 
     {:ok, project} =
-      Settings.create_project(%{name: "heartbeat-test-project", default_agent_id: agent.id})
+      Settings.create_project(scope, %{name: "heartbeat-test-project", default_agent_id: agent.id})
 
     {:ok, issue} =
       Issues.create_issue(%{
@@ -17,7 +20,7 @@ defmodule SynkadeWeb.Api.AgentHeartbeatControllerTest do
         project_id: project.id
       })
 
-    %{agent: agent, token: token, project: project, issue: issue}
+    %{agent: agent, token: token, project: project, issue: issue, scope: scope}
   end
 
   defp auth_conn(conn, token) do
@@ -102,8 +105,8 @@ defmodule SynkadeWeb.Api.AgentHeartbeatControllerTest do
       assert json_response(conn, 404)["error"] == "not found"
     end
 
-    test "returns 403 for unauthorized project", %{conn: conn, token: token} do
-      {:ok, other_project} = Settings.create_project(%{name: "other-heartbeat-project"})
+    test "returns 403 for unauthorized project", %{conn: conn, token: token, scope: scope} do
+      {:ok, other_project} = Settings.create_project(scope, %{name: "other-heartbeat-project"})
 
       {:ok, other_issue} =
         Issues.create_issue(%{

@@ -11,6 +11,8 @@ defmodule Synkade.TokenUsage do
   @timestamps_opts [type: :utc_datetime]
 
   schema "token_usage" do
+    belongs_to :user, Synkade.Accounts.User
+
     field :date, :date
     field :model, :string
     field :input_tokens, :integer, default: 0
@@ -21,18 +23,18 @@ defmodule Synkade.TokenUsage do
 
   def changeset(token_usage, attrs) do
     token_usage
-    |> cast(attrs, [:date, :model, :input_tokens, :output_tokens])
+    |> cast(attrs, [:date, :model, :input_tokens, :output_tokens, :user_id])
     |> validate_required([:date, :model])
-    |> unique_constraint([:date, :model])
+    |> unique_constraint([:user_id, :date, :model])
   end
 
   @doc "Upsert today's token counts for a model (increment)."
-  def record_usage(model, input_tokens, output_tokens)
-      when is_binary(model) and is_integer(input_tokens) and is_integer(output_tokens) do
+  def record_usage(user_id, model, input_tokens, output_tokens)
+      when is_integer(user_id) and is_binary(model) and is_integer(input_tokens) and is_integer(output_tokens) do
     today = Date.utc_today()
 
     Repo.insert(
-      %__MODULE__{date: today, model: model, input_tokens: input_tokens, output_tokens: output_tokens},
+      %__MODULE__{user_id: user_id, date: today, model: model, input_tokens: input_tokens, output_tokens: output_tokens},
       on_conflict:
         from(t in __MODULE__,
           update: [
@@ -42,18 +44,18 @@ defmodule Synkade.TokenUsage do
             ]
           ]
         ),
-      conflict_target: [:date, :model]
+      conflict_target: [:user_id, :date, :model]
     )
   end
 
-  def record_usage(_model, _input, _output), do: :ok
+  def record_usage(_user_id, _model, _input, _output), do: :ok
 
-  @doc "Return daily usage for the last N days."
-  def daily_usage(days \\ 30) do
+  @doc "Return daily usage for the last N days for a user."
+  def daily_usage(user_id, days \\ 30) do
     cutoff = Date.utc_today() |> Date.add(-(days - 1))
 
     from(t in __MODULE__,
-      where: t.date >= ^cutoff,
+      where: t.user_id == ^user_id and t.date >= ^cutoff,
       order_by: [asc: t.date, asc: t.model],
       select: %{date: t.date, model: t.model, input_tokens: t.input_tokens, output_tokens: t.output_tokens}
     )

@@ -6,9 +6,15 @@ defmodule SynkadeWeb.Plugs.Theme do
 
   def call(conn, _opts) do
     theme =
-      case Synkade.Settings.get_settings() do
-        %{theme: theme} when is_binary(theme) -> theme
-        _ -> "ops"
+      case conn.assigns[:current_scope] do
+        %{user: user} when not is_nil(user) ->
+          case Synkade.Settings.get_settings_for_user(user.id) do
+            %{theme: theme} when is_binary(theme) -> theme
+            _ -> "ops"
+          end
+
+        _ ->
+          "ops"
       end
 
     assign(conn, :theme, theme)

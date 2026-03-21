@@ -7,12 +7,14 @@ defmodule SynkadeWeb.ProjectsLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    scope = socket.assigns.current_scope
+
     if connected?(socket) do
-      Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic())
-      Phoenix.PubSub.subscribe(Synkade.PubSub, "jobs:updates")
+      Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic(scope))
+      Phoenix.PubSub.subscribe(Synkade.PubSub, Jobs.pubsub_topic(scope))
     end
 
-    orc_state = Jobs.get_state()
+    orc_state = Jobs.get_state(scope)
 
     {:ok,
      socket
@@ -21,8 +23,8 @@ defmodule SynkadeWeb.ProjectsLive do
      |> assign(:current_project, nil)
      |> assign(:projects, orc_state.projects)
      |> assign(:running, orc_state.running)
-     |> assign(:db_projects, Settings.list_projects())
-     |> assign(:agents, Settings.list_agents())
+     |> assign(:db_projects, Settings.list_projects(scope))
+     |> assign(:agents, Settings.list_agents(scope))
      |> assign(:editing, nil)
      |> assign(:form, nil)}
   end
@@ -70,17 +72,19 @@ defmodule SynkadeWeb.ProjectsLive do
 
   @impl true
   def handle_event("save", %{"project" => params}, socket) do
+    scope = socket.assigns.current_scope
+
     result =
       case socket.assigns.editing do
-        :new -> Settings.create_project(params)
-        %Project{} = project -> Settings.update_project(project, params)
+        :new -> Settings.create_project(scope, params)
+        %Project{} = project -> Settings.update_project(scope, project, params)
       end
 
     case result do
       {:ok, _project} ->
         {:noreply,
          socket
-         |> assign(:db_projects, Settings.list_projects())
+         |> assign(:db_projects, Settings.list_projects(scope))
          |> assign(:editing, nil)
          |> assign(:form, nil)
          |> put_flash(:info, "Project saved.")}
@@ -93,12 +97,13 @@ defmodule SynkadeWeb.ProjectsLive do
   @impl true
   def handle_event("delete", %{"id" => id}, socket) do
     project = Settings.get_project!(id)
+    scope = socket.assigns.current_scope
 
-    case Settings.delete_project(project) do
+    case Settings.delete_project(scope, project) do
       {:ok, _} ->
         {:noreply,
          socket
-         |> assign(:db_projects, Settings.list_projects())
+         |> assign(:db_projects, Settings.list_projects(scope))
          |> assign(:editing, nil)
          |> assign(:form, nil)
          |> put_flash(:info, "Project deleted.")}
@@ -111,10 +116,11 @@ defmodule SynkadeWeb.ProjectsLive do
   @impl true
   def handle_event("toggle_enabled", %{"id" => id}, socket) do
     project = Settings.get_project!(id)
+    scope = socket.assigns.current_scope
 
-    case Settings.update_project(project, %{enabled: !project.enabled}) do
+    case Settings.update_project(scope, project, %{enabled: !project.enabled}) do
       {:ok, _} ->
-        {:noreply, assign(socket, :db_projects, Settings.list_projects())}
+        {:noreply, assign(socket, :db_projects, Settings.list_projects(scope))}
 
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Failed to update project.")}
@@ -123,12 +129,12 @@ defmodule SynkadeWeb.ProjectsLive do
 
   @impl true
   def handle_info({:agents_updated}, socket) do
-    {:noreply, assign(socket, :agents, Settings.list_agents())}
+    {:noreply, assign(socket, :agents, Settings.list_agents(socket.assigns.current_scope))}
   end
 
   @impl true
   def handle_info({:jobs_changed}, socket) do
-    state = Jobs.get_state()
+    state = Jobs.get_state(socket.assigns.current_scope)
 
     {:noreply,
      socket

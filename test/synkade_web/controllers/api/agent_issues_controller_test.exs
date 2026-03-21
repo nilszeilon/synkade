@@ -1,15 +1,18 @@
 defmodule SynkadeWeb.Api.AgentIssuesControllerTest do
   use SynkadeWeb.ConnCase
 
+  import Synkade.AccountsFixtures
+
   alias Synkade.Settings
   alias Synkade.Issues
 
   setup do
-    {:ok, agent} = Settings.create_agent(%{name: "api-test-agent"})
+    scope = user_scope_fixture()
+    {:ok, agent} = Settings.create_agent(scope, %{name: "api-test-agent"})
     {:ok, token} = Settings.generate_agent_token(agent)
 
     {:ok, project} =
-      Settings.create_project(%{name: "api-test-project", default_agent_id: agent.id})
+      Settings.create_project(scope, %{name: "api-test-project", default_agent_id: agent.id})
 
     {:ok, issue} =
       Issues.create_issue(%{
@@ -17,7 +20,7 @@ defmodule SynkadeWeb.Api.AgentIssuesControllerTest do
         project_id: project.id
       })
 
-    %{agent: agent, token: token, project: project, issue: issue}
+    %{agent: agent, token: token, project: project, issue: issue, scope: scope}
   end
 
   defp auth_conn(conn, token) do
@@ -53,8 +56,8 @@ defmodule SynkadeWeb.Api.AgentIssuesControllerTest do
       assert Enum.any?(issues, fn i -> i["id"] == issue.id end)
     end
 
-    test "returns 403 for unauthorized project", %{conn: conn, token: token} do
-      {:ok, other_project} = Settings.create_project(%{name: "other-project"})
+    test "returns 403 for unauthorized project", %{conn: conn, token: token, scope: scope} do
+      {:ok, other_project} = Settings.create_project(scope, %{name: "other-project"})
 
       conn =
         conn
@@ -145,8 +148,8 @@ defmodule SynkadeWeb.Api.AgentIssuesControllerTest do
       assert json_response(conn, 400)["error"] == "project_id is required"
     end
 
-    test "returns 403 for unauthorized project", %{conn: conn, token: token} do
-      {:ok, other_project} = Settings.create_project(%{name: "other-create-project"})
+    test "returns 403 for unauthorized project", %{conn: conn, token: token, scope: scope} do
+      {:ok, other_project} = Settings.create_project(scope, %{name: "other-create-project"})
 
       conn =
         conn
@@ -375,8 +378,8 @@ defmodule SynkadeWeb.Api.AgentIssuesControllerTest do
       assert json_response(conn, 404)["error"] == "not found"
     end
 
-    test "returns 403 for unauthorized project", %{conn: conn, token: token} do
-      {:ok, other_project} = Settings.create_project(%{name: "checkout-other-project"})
+    test "returns 403 for unauthorized project", %{conn: conn, token: token, scope: scope} do
+      {:ok, other_project} = Settings.create_project(scope, %{name: "checkout-other-project"})
 
       {:ok, issue} =
         Issues.create_issue(%{body: "# Other issue", project_id: other_project.id})
@@ -398,10 +401,11 @@ defmodule SynkadeWeb.Api.AgentIssuesControllerTest do
     test "returns issues from all accessible projects", %{
       conn: conn,
       token: token,
-      agent: agent
+      agent: agent,
+      scope: scope
     } do
       {:ok, project2} =
-        Settings.create_project(%{name: "inbox-project-2", default_agent_id: agent.id})
+        Settings.create_project(scope, %{name: "inbox-project-2", default_agent_id: agent.id})
 
       {:ok, issue2} =
         Issues.create_issue(%{body: "# Issue in project 2", project_id: project2.id})
@@ -418,10 +422,11 @@ defmodule SynkadeWeb.Api.AgentIssuesControllerTest do
     test "filters by state across projects", %{
       conn: conn,
       token: token,
-      agent: agent
+      agent: agent,
+      scope: scope
     } do
       {:ok, project2} =
-        Settings.create_project(%{name: "inbox-filter-project", default_agent_id: agent.id})
+        Settings.create_project(scope, %{name: "inbox-filter-project", default_agent_id: agent.id})
 
       {:ok, issue} =
         Issues.create_issue(%{body: "# Queued inbox", project_id: project2.id})
@@ -440,10 +445,11 @@ defmodule SynkadeWeb.Api.AgentIssuesControllerTest do
     test "filters by assigned_to=me across projects", %{
       conn: conn,
       token: token,
-      agent: agent
+      agent: agent,
+      scope: scope
     } do
       {:ok, project2} =
-        Settings.create_project(%{name: "inbox-assigned-project", default_agent_id: agent.id})
+        Settings.create_project(scope, %{name: "inbox-assigned-project", default_agent_id: agent.id})
 
       {:ok, _assigned} =
         Issues.create_issue(%{
@@ -464,8 +470,8 @@ defmodule SynkadeWeb.Api.AgentIssuesControllerTest do
       assert Enum.all?(issues, fn i -> i["assigned_agent_id"] == agent.id end)
     end
 
-    test "excludes issues from inaccessible projects", %{conn: conn, token: token} do
-      {:ok, secret_project} = Settings.create_project(%{name: "secret-project"})
+    test "excludes issues from inaccessible projects", %{conn: conn, token: token, scope: scope} do
+      {:ok, secret_project} = Settings.create_project(scope, %{name: "secret-project"})
 
       {:ok, secret_issue} =
         Issues.create_issue(%{body: "# Secret issue", project_id: secret_project.id})

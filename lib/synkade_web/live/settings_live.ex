@@ -9,14 +9,16 @@ defmodule SynkadeWeb.SettingsLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    scope = socket.assigns.current_scope
+
     if connected?(socket) do
-      Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic())
-      Phoenix.PubSub.subscribe(Synkade.PubSub, "jobs:updates")
+      Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic(scope))
+      Phoenix.PubSub.subscribe(Synkade.PubSub, Jobs.pubsub_topic(scope))
     end
 
-    setting = Settings.get_settings()
-    changeset = Settings.change_settings(setting)
-    orc_state = Jobs.get_state()
+    setting = Settings.get_settings(scope)
+    changeset = Settings.change_settings(scope, setting)
+    orc_state = Jobs.get_state(scope)
     current_theme = (setting && setting.theme) || "ops"
 
     {:ok,
@@ -31,7 +33,7 @@ defmodule SynkadeWeb.SettingsLive do
      |> assign(:current_theme, current_theme)
      |> assign(:connection_status, nil)
      |> assign(:connection_testing, false)
-     |> assign(:agents, Settings.list_agents())
+     |> assign(:agents, Settings.list_agents(scope))
      |> assign(:agent_editing, nil)
      |> assign(:agent_form, nil)
      |> assign(:agent_token_visible, MapSet.new())
@@ -47,7 +49,7 @@ defmodule SynkadeWeb.SettingsLive do
   @impl true
   def handle_event("validate", %{"setting" => params}, socket) do
     changeset =
-      Settings.change_settings(socket.assigns.setting, params)
+      Settings.change_settings(socket.assigns.current_scope, socket.assigns.setting, params)
       |> Map.put(:action, :validate)
 
     {:noreply, assign_form(socket, changeset)}
@@ -55,12 +57,14 @@ defmodule SynkadeWeb.SettingsLive do
 
   @impl true
   def handle_event("save", %{"setting" => params}, socket) do
-    case Settings.save_settings(params) do
+    scope = socket.assigns.current_scope
+
+    case Settings.save_settings(scope, params) do
       {:ok, setting} ->
         {:noreply,
          socket
          |> assign(:setting, setting)
-         |> assign_form(Settings.change_settings(setting))
+         |> assign_form(Settings.change_settings(scope, setting))
          |> put_flash(:info, "Settings saved.")}
 
       {:error, changeset} ->
@@ -149,18 +153,19 @@ defmodule SynkadeWeb.SettingsLive do
   def handle_event("save_agent", %{"agent" => params}, socket) do
     params = normalize_agent_params(params)
     was_new = socket.assigns.agent_editing == :new
+    scope = socket.assigns.current_scope
 
     result =
       case socket.assigns.agent_editing do
-        :new -> Settings.create_agent(params)
-        %Agent{} = agent -> Settings.update_agent(agent, params)
+        :new -> Settings.create_agent(scope, params)
+        %Agent{} = agent -> Settings.update_agent(scope, agent, params)
       end
 
     case result do
       {:ok, agent} ->
         socket =
           socket
-          |> assign(:agents, Settings.list_agents())
+          |> assign(:agents, Settings.list_agents(scope))
           |> put_flash(:info, "Agent saved.")
 
         socket =
@@ -198,12 +203,13 @@ defmodule SynkadeWeb.SettingsLive do
   @impl true
   def handle_event("delete_agent", %{"id" => id}, socket) do
     agent = Settings.get_agent!(id)
+    scope = socket.assigns.current_scope
 
-    case Settings.delete_agent(agent) do
+    case Settings.delete_agent(scope, agent) do
       {:ok, _} ->
         {:noreply,
          socket
-         |> assign(:agents, Settings.list_agents())
+         |> assign(:agents, Settings.list_agents(scope))
          |> assign(:agent_editing, nil)
          |> assign(:agent_form, nil)
          |> put_flash(:info, "Agent deleted.")}
@@ -216,12 +222,13 @@ defmodule SynkadeWeb.SettingsLive do
   @impl true
   def handle_event("generate_agent_token", %{"id" => id}, socket) do
     agent = Settings.get_agent!(id)
+    scope = socket.assigns.current_scope
 
-    case Settings.generate_agent_token(agent) do
+    case Settings.generate_agent_token(scope, agent) do
       {:ok, _plaintext} ->
         {:noreply,
          socket
-         |> assign(:agents, Settings.list_agents())
+         |> assign(:agents, Settings.list_agents(scope))
          |> maybe_refresh_editing(id)
          |> update(:agent_token_visible, &MapSet.put(&1, id))
          |> put_flash(:info, "Token regenerated.")}
@@ -244,12 +251,13 @@ defmodule SynkadeWeb.SettingsLive do
   @impl true
   def handle_event("revoke_agent_token", %{"id" => id}, socket) do
     agent = Settings.get_agent!(id)
+    scope = socket.assigns.current_scope
 
-    case Settings.revoke_agent_token(agent) do
+    case Settings.revoke_agent_token(scope, agent) do
       {:ok, _} ->
         {:noreply,
          socket
-         |> assign(:agents, Settings.list_agents())
+         |> assign(:agents, Settings.list_agents(scope))
          |> maybe_refresh_editing(id)
          |> update(:agent_token_visible, &MapSet.delete(&1, id))
          |> put_flash(:info, "Token revoked.")}
@@ -261,7 +269,7 @@ defmodule SynkadeWeb.SettingsLive do
 
   @impl true
   def handle_event("set_theme", %{"theme" => theme}, socket) do
-    case Settings.save_theme(theme) do
+    case Settings.save_theme(socket.assigns.current_scope, theme) do
       {:ok, _setting} ->
         {:noreply,
          socket
@@ -288,7 +296,7 @@ defmodule SynkadeWeb.SettingsLive do
 
   @impl true
   def handle_info({:agents_updated}, socket) do
-    {:noreply, assign(socket, :agents, Settings.list_agents())}
+    {:noreply, assign(socket, :agents, Settings.list_agents(socket.assigns.current_scope))}
   end
 
   @impl true
@@ -298,7 +306,7 @@ defmodule SynkadeWeb.SettingsLive do
 
   @impl true
   def handle_info({:jobs_changed}, socket) do
-    state = Jobs.get_state()
+    state = Jobs.get_state(socket.assigns.current_scope)
 
     {:noreply,
      socket

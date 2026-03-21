@@ -155,7 +155,7 @@ defmodule SynkadeWeb.IssueLiveHelpers do
   Parse a dispatch message for @agent targeting and resolve the agent_id.
   Returns {agent_name, instruction, agent_id}.
   """
-  def resolve_dispatch(message) do
+  def resolve_dispatch(%Synkade.Accounts.Scope{} = scope, message) do
     {agent_name, instruction} = DispatchParser.parse(message)
 
     agent_id =
@@ -164,7 +164,7 @@ defmodule SynkadeWeb.IssueLiveHelpers do
           nil
 
         name ->
-          case Settings.get_agent_by_name(name) do
+          case Settings.get_agent_by_name(scope, name) do
             nil -> nil
             agent -> agent.id
           end

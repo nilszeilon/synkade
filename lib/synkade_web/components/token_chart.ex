@@ -18,9 +18,11 @@ defmodule SynkadeWeb.Components.TokenChart do
   def assign_chart_data(socket) do
     require Logger
 
+    user_id = socket.assigns.current_scope.user.id
+
     usage =
       try do
-        TokenUsage.daily_usage(30)
+        TokenUsage.daily_usage(user_id, 30)
       catch
         kind, reason ->
           Logger.warning("Failed to load token usage data: #{kind} #{inspect(reason)}")

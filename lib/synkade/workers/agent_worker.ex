@@ -34,8 +34,8 @@ defmodule Synkade.Workers.AgentWorker do
   end
 
   defp run_agent(issue, project_id, job) do
-    with {:ok, setting} <- load_setting(),
-         {:ok, db_project} <- load_project(project_id),
+    with {:ok, db_project} <- load_project(project_id),
+         {:ok, setting} <- load_setting(db_project.user_id),
          {:ok, agent} <- resolve_agent(issue, db_project) do
       # Check per-project concurrency
       max_concurrent = Map.get(db_project, :max_concurrent, 10) || 10
@@ -131,8 +131,8 @@ defmodule Synkade.Workers.AgentWorker do
     e -> Logger.warning("AgentWorker: failed to handle completion: #{inspect(e)}")
   end
 
-  defp load_setting do
-    case Settings.get_settings() do
+  defp load_setting(user_id) do
+    case Settings.get_settings_for_user(user_id) do
       nil -> {:error, "no settings configured"}
       setting -> {:ok, setting}
     end
@@ -148,7 +148,7 @@ defmodule Synkade.Workers.AgentWorker do
   end
 
   defp resolve_agent(issue, db_project) do
-    agents = Settings.list_agents()
+    agents = Settings.list_agents_for_user(db_project.user_id)
     agents_by_id = Map.new(agents, fn a -> {a.id, a} end)
 
     agent =

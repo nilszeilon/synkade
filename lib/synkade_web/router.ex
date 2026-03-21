@@ -38,15 +38,6 @@ defmodule SynkadeWeb.Router do
     end
   end
 
-  scope "/api/v1", SynkadeWeb.Api do
-    pipe_through :api
-
-    get "/state", StateController, :index
-    get "/projects", StateController, :projects
-    get "/projects/:name", StateController, :project
-    post "/refresh", StateController, :refresh
-  end
-
   scope "/api/v1/agent", SynkadeWeb.Api do
     pipe_through :agent_api
 
@@ -58,6 +49,11 @@ defmodule SynkadeWeb.Router do
     post "/issues/:id/checkout", AgentIssuesController, :checkout
     post "/issues/:id/children", AgentIssuesController, :create_children
     post "/heartbeat", AgentHeartbeatController, :create
+
+    get "/state", StateController, :index
+    get "/projects", StateController, :projects
+    get "/projects/:name", StateController, :project
+    post "/refresh", StateController, :refresh
   end
 
   scope "/skills", SynkadeWeb do

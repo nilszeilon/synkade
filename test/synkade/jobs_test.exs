@@ -1,11 +1,18 @@
 defmodule Synkade.JobsTest do
   use Synkade.DataCase
 
+  import Synkade.AccountsFixtures
+
   alias Synkade.Jobs
 
-  describe "get_state/0" do
-    test "returns state map with expected keys" do
-      state = Jobs.get_state()
+  setup do
+    scope = user_scope_fixture()
+    %{scope: scope}
+  end
+
+  describe "get_state/1" do
+    test "returns state map with expected keys", %{scope: scope} do
+      state = Jobs.get_state(scope)
       assert is_map(state.projects)
       assert is_map(state.running)
       assert is_map(state.retry_attempts)

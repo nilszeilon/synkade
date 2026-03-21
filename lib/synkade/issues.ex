@@ -4,10 +4,9 @@ defmodule Synkade.Issues do
   import Ecto.Query
   alias Synkade.Repo
   alias Synkade.Issues.Issue
+  alias Synkade.Settings.Project
 
-  @pubsub_topic "issues:updates"
-
-  def pubsub_topic, do: @pubsub_topic
+  def pubsub_topic(user_id) when is_integer(user_id), do: "issues:updates:#{user_id}"
 
   # --- Valid transitions ---
 
@@ -105,7 +104,7 @@ defmodule Synkade.Issues do
 
     case result do
       {:ok, issue} ->
-        broadcast_update()
+        broadcast_update(issue)
         {:ok, issue}
 
       error ->
@@ -121,7 +120,7 @@ defmodule Synkade.Issues do
 
     case result do
       {:ok, issue} ->
-        broadcast_update()
+        broadcast_update(issue)
         {:ok, issue}
 
       error ->
@@ -134,7 +133,7 @@ defmodule Synkade.Issues do
 
     case result do
       {:ok, issue} ->
-        broadcast_update()
+        broadcast_update(issue)
         {:ok, issue}
 
       error ->
@@ -175,7 +174,7 @@ defmodule Synkade.Issues do
 
     if count == 1 do
       updated = get_issue!(issue.id)
-      broadcast_update()
+      broadcast_update(updated)
       {:ok, updated}
     else
       {:error, :already_claimed}
@@ -385,10 +384,15 @@ defmodule Synkade.Issues do
     from(i in Issue, order_by: [asc: i.position, asc: i.inserted_at])
   end
 
-  defp broadcast_update do
+  defp broadcast_update(%Issue{project_id: project_id}) do
+    user_id = Repo.one(from(p in Project, where: p.id == ^project_id, select: p.user_id))
+    if user_id, do: broadcast_update_for_user(user_id)
+  end
+
+  defp broadcast_update_for_user(user_id) do
     Phoenix.PubSub.broadcast(
       Synkade.PubSub,
-      @pubsub_topic,
+      pubsub_topic(user_id),
       {:issues_updated}
     )
   end

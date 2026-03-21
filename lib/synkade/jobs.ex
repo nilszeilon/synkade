@@ -3,15 +3,19 @@ defmodule Synkade.Jobs do
 
   import Ecto.Query
   alias Synkade.Repo
+  alias Synkade.Accounts.Scope
+
+  def pubsub_topic(%Scope{user: user}), do: "jobs:updates:#{user.id}"
+  def pubsub_topic(user_id) when is_integer(user_id), do: "jobs:updates:#{user_id}"
 
   @doc "Returns state compatible with old Orchestrator.get_state() shape."
-  def get_state do
-    {config_error, projects} = load_projects()
+  def get_state(%Scope{} = scope) do
+    {config_error, projects} = load_projects(scope)
 
     %{
       projects: projects,
-      running: running_agents_map(),
-      retry_attempts: retrying_agents_map(),
+      running: running_agents_map(scope),
+      retry_attempts: retrying_agents_map(scope),
       awaiting_review: %{},
       agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, runtime_seconds: 0.0},
       agent_totals_by_project: %{},
@@ -21,22 +25,28 @@ defmodule Synkade.Jobs do
     }
   end
 
-  @doc "List currently executing agent jobs."
-  def running_agents do
+  @doc "List currently executing agent jobs for user's projects."
+  def running_agents(%Scope{} = scope) do
+    project_ids = user_project_ids(scope)
+
     from(j in Oban.Job,
       where: j.queue == "agents" and j.state == "executing",
       order_by: [asc: j.inserted_at]
     )
     |> Repo.all()
+    |> Enum.filter(fn job -> job.args["project_id"] in project_ids end)
   end
 
-  @doc "List retrying/scheduled agent jobs with attempt > 1."
-  def retrying_agents do
+  @doc "List retrying/scheduled agent jobs with attempt > 1 for user's projects."
+  def retrying_agents(%Scope{} = scope) do
+    project_ids = user_project_ids(scope)
+
     from(j in Oban.Job,
       where: j.queue == "agents" and j.state in ["retryable", "scheduled"] and j.attempt > 1,
       order_by: [asc: j.inserted_at]
     )
     |> Repo.all()
+    |> Enum.filter(fn job -> job.args["project_id"] in project_ids end)
   end
 
   @doc "Count jobs by state for the agents queue."
@@ -63,15 +73,15 @@ defmodule Synkade.Jobs do
   end
 
   @doc "No-op refresh -- Oban handles scheduling. Broadcasts to trigger LiveView re-query."
-  def refresh do
-    Phoenix.PubSub.broadcast(Synkade.PubSub, "jobs:updates", {:jobs_changed})
+  def refresh(%Scope{} = scope) do
+    Phoenix.PubSub.broadcast(Synkade.PubSub, pubsub_topic(scope), {:jobs_changed})
   end
 
-  @doc "Load projects configuration from Settings."
-  def load_projects do
-    settings = try_load(fn -> Synkade.Settings.get_settings() end)
-    projects = try_load(fn -> Synkade.Settings.list_enabled_projects() end) || []
-    agents = try_load(fn -> Synkade.Settings.list_agents() end) || []
+  @doc "Load projects configuration from Settings for the scoped user."
+  def load_projects(%Scope{} = scope) do
+    settings = try_load(fn -> Synkade.Settings.get_settings(scope) end)
+    projects = try_load(fn -> Synkade.Settings.list_enabled_projects(scope) end) || []
+    agents = try_load(fn -> Synkade.Settings.list_agents(scope) end) || []
 
     cond do
       is_nil(settings) ->
@@ -120,9 +130,19 @@ defmodule Synkade.Jobs do
 
   # --- Private ---
 
-  defp running_agents_map do
-    jobs = running_agents()
-    project_cache = load_project_names()
+  defp user_project_ids(%Scope{user: user}) do
+    try do
+      from(p in Synkade.Settings.Project, where: p.user_id == ^user.id, select: p.id)
+      |> Repo.all()
+      |> MapSet.new()
+    catch
+      _, _ -> MapSet.new()
+    end
+  end
+
+  defp running_agents_map(%Scope{} = scope) do
+    jobs = running_agents(scope)
+    project_cache = load_project_names(scope)
 
     Map.new(jobs, fn job ->
       issue_id = job.args["issue_id"]
@@ -153,9 +173,9 @@ defmodule Synkade.Jobs do
     end)
   end
 
-  defp retrying_agents_map do
-    jobs = retrying_agents()
-    project_cache = load_project_names()
+  defp retrying_agents_map(%Scope{} = scope) do
+    jobs = retrying_agents(scope)
+    project_cache = load_project_names(scope)
 
     Map.new(jobs, fn job ->
       issue_id = job.args["issue_id"]
@@ -176,9 +196,9 @@ defmodule Synkade.Jobs do
     end)
   end
 
-  defp load_project_names do
+  defp load_project_names(%Scope{} = scope) do
     try do
-      Synkade.Settings.list_projects()
+      Synkade.Settings.list_projects(scope)
       |> Map.new(fn p -> {p.id, p.name} end)
     catch
       _, _ -> %{}

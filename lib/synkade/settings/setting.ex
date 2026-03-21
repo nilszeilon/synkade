@@ -8,6 +8,8 @@ defmodule Synkade.Settings.Setting do
   @valid_themes ~w(ops copper midnight phantom ember daylight paper)
 
   schema "settings" do
+    belongs_to :user, Synkade.Accounts.User
+
     # GitHub integration
     field :github_pat, Synkade.Encrypted.Binary
     field :github_webhook_secret, Synkade.Encrypted.Binary
@@ -30,7 +32,7 @@ defmodule Synkade.Settings.Setting do
 
   def changeset(setting, attrs) do
     setting
-    |> cast(attrs, @github_fields ++ @execution_fields ++ [:theme])
+    |> cast(attrs, @github_fields ++ @execution_fields ++ [:theme, :user_id])
     |> validate_required([:github_pat])
     |> validate_inclusion(:execution_backend, ["local", "sprites"])
     |> validate_inclusion(:theme, @valid_themes)

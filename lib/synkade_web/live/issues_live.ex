@@ -9,14 +9,16 @@ defmodule SynkadeWeb.IssuesLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    scope = socket.assigns.current_scope
+
     if connected?(socket) do
-      Phoenix.PubSub.subscribe(Synkade.PubSub, Issues.pubsub_topic())
-      Phoenix.PubSub.subscribe(Synkade.PubSub, "jobs:updates")
-      Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic())
+      Phoenix.PubSub.subscribe(Synkade.PubSub, Issues.pubsub_topic(scope.user.id))
+      Phoenix.PubSub.subscribe(Synkade.PubSub, Jobs.pubsub_topic(scope))
+      Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic(scope))
     end
 
-    orc_state = Jobs.get_state()
-    projects = Settings.list_projects()
+    orc_state = Jobs.get_state(scope)
+    projects = Settings.list_projects(scope)
 
     socket =
       socket
@@ -36,7 +38,7 @@ defmodule SynkadeWeb.IssuesLive do
       |> assign(:form_parent_id, nil)
       |> assign(:create_ancestors, [])
       |> assign(:collapsed, MapSet.new())
-      |> assign(:agents, Settings.list_agents())
+      |> assign(:agents, Settings.list_agents(scope))
       |> assign(:selected_agent_id, nil)
       |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
       |> assign(:session_events, [])
@@ -93,7 +95,7 @@ defmodule SynkadeWeb.IssuesLive do
 
   @impl true
   def handle_info({:jobs_changed}, socket) do
-    state = Jobs.get_state()
+    state = Jobs.get_state(socket.assigns.current_scope)
 
     socket =
       socket
@@ -121,12 +123,12 @@ defmodule SynkadeWeb.IssuesLive do
 
   @impl true
   def handle_info({:agents_updated}, socket) do
-    {:noreply, assign(socket, :agents, Settings.list_agents())}
+    {:noreply, assign(socket, :agents, Settings.list_agents(socket.assigns.current_scope))}
   end
 
   @impl true
   def handle_info({:projects_updated}, socket) do
-    projects = Settings.list_projects()
+    projects = Settings.list_projects(socket.assigns.current_scope)
 
     {:noreply,
      socket
@@ -302,7 +304,7 @@ defmodule SynkadeWeb.IssuesLive do
       {:noreply, put_flash(socket, :error, "Dispatch message cannot be empty")}
     else
       issue = socket.assigns.selected_issue.issue
-      {agent_name, instruction, agent_id} = resolve_dispatch(message)
+      {agent_name, instruction, agent_id} = resolve_dispatch(socket.assigns.current_scope, message)
 
       case Issues.dispatch_issue(issue, instruction, agent_id) do
         {:ok, _} ->

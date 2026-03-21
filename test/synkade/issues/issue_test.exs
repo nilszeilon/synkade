@@ -1,10 +1,13 @@
 defmodule Synkade.Issues.IssueTest do
   use Synkade.DataCase
 
+  import Synkade.AccountsFixtures
+
   alias Synkade.Issues.Issue
 
   defp create_project(_) do
-    {:ok, project} = Synkade.Settings.create_project(%{name: "test-project"})
+    scope = user_scope_fixture()
+    {:ok, project} = Synkade.Settings.create_project(scope, %{name: "test-project"})
     %{project: project}
   end
 

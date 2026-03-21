@@ -34,7 +34,7 @@ defmodule Synkade.Workers.ReconcileWorker do
       end
 
     if pr_number && project do
-      setting = Settings.get_settings()
+      setting = Settings.get_settings_for_user(project.user_id)
       agent = resolve_agent(issue, project)
       config = Settings.ConfigAdapter.resolve_project_config(setting, project, agent)
 
@@ -81,7 +81,7 @@ defmodule Synkade.Workers.ReconcileWorker do
   end
 
   defp resolve_agent(issue, project) do
-    agents = Settings.list_agents()
+    agents = Settings.list_agents_for_user(project.user_id)
     agents_by_id = Map.new(agents, fn a -> {a.id, a} end)
 
     case issue.assigned_agent_id do

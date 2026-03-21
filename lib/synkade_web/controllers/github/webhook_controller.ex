@@ -9,8 +9,8 @@ defmodule SynkadeWeb.GitHub.WebhookController do
 
   def handle(conn, _params) do
     with {:ok, raw_body} <- get_raw_body(conn),
-         {:ok, config} <- get_config(),
-         :ok <- verify_signature(conn, raw_body, config) do
+         {:ok, settings} <- get_config(),
+         {:ok, _setting} <- verify_any_signature(conn, raw_body, settings) do
       event = get_req_header(conn, "x-github-event") |> List.first()
       handle_event(event, conn.body_params)
 
@@ -40,10 +40,21 @@ defmodule SynkadeWeb.GitHub.WebhookController do
   end
 
   defp get_config do
-    case Settings.get_settings() do
-      nil -> {:error, :no_config}
-      setting -> {:ok, ConfigAdapter.to_config(setting)}
+    case Synkade.Repo.all(Settings.Setting) do
+      [] -> {:error, :no_config}
+      settings -> {:ok, settings}
     end
+  end
+
+  defp verify_any_signature(conn, raw_body, settings) when is_list(settings) do
+    Enum.find_value(settings, {:error, :invalid_signature}, fn setting ->
+      config = ConfigAdapter.to_config(setting)
+
+      case verify_signature(conn, raw_body, config) do
+        :ok -> {:ok, setting}
+        _ -> nil
+      end
+    end)
   end
 
   defp verify_signature(conn, raw_body, config) do

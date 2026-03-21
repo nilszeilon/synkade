@@ -50,16 +50,16 @@ defmodule SynkadeWeb.ProjectsLiveTest do
     assert html =~ "can&#39;t be blank"
   end
 
-  test "lists existing projects", %{conn: conn} do
-    {:ok, _} = Settings.create_project(%{name: "my-repo", tracker_repo: "acme/repo"})
+  test "lists existing projects", %{conn: conn, scope: scope} do
+    {:ok, _} = Settings.create_project(scope, %{name: "my-repo", tracker_repo: "acme/repo"})
 
     {:ok, _view, html} = live(conn, "/projects")
     assert html =~ "my-repo"
     assert html =~ "acme/repo"
   end
 
-  test "deletes a project", %{conn: conn} do
-    {:ok, project} = Settings.create_project(%{name: "to-delete"})
+  test "deletes a project", %{conn: conn, scope: scope} do
+    {:ok, project} = Settings.create_project(scope, %{name: "to-delete"})
 
     {:ok, view, _html} = live(conn, "/projects")
     assert render(view) =~ "to-delete"

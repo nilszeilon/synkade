@@ -1,13 +1,16 @@
 defmodule SynkadeWeb.Plugs.AgentAuthTest do
   use SynkadeWeb.ConnCase
 
+  import Synkade.AccountsFixtures
+
   alias Synkade.Settings
 
   setup do
-    {:ok, agent} = Settings.create_agent(%{name: "auth-test-agent"})
+    scope = user_scope_fixture()
+    {:ok, agent} = Settings.create_agent(scope, %{name: "auth-test-agent"})
     {:ok, token} = Settings.generate_agent_token(agent)
     agent = Settings.get_agent!(agent.id)
-    %{agent: agent, token: token}
+    %{agent: agent, token: token, scope: scope}
   end
 
   test "authenticates with valid bearer token", %{conn: conn, token: token, agent: agent} do
@@ -38,8 +41,8 @@ defmodule SynkadeWeb.Plugs.AgentAuthTest do
     assert json_response(conn, 401)["error"] == "unauthorized"
   end
 
-  test "returns 401 after token is revoked", %{conn: conn, token: token, agent: agent} do
-    {:ok, _} = Settings.revoke_agent_token(agent)
+  test "returns 401 after token is revoked", %{conn: conn, token: token, agent: agent, scope: scope} do
+    {:ok, _} = Settings.revoke_agent_token(scope, agent)
 
     conn =
       conn
