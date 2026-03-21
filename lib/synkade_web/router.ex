@@ -86,14 +86,16 @@ defmodule SynkadeWeb.Router do
     end
   end
 
-  ## Authentication routes
+  ## Setup route (first-time admin account creation)
 
   scope "/", SynkadeWeb do
-    pipe_through [:browser, :redirect_if_user_is_authenticated]
+    pipe_through [:browser]
 
-    get "/users/register", UserRegistrationController, :new
-    post "/users/register", UserRegistrationController, :create
+    get "/setup", SetupController, :new
+    post "/setup", SetupController, :create
   end
+
+  ## Authentication routes
 
   scope "/", SynkadeWeb do
     pipe_through [:browser, :require_authenticated_user]

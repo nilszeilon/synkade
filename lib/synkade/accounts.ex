@@ -60,6 +60,25 @@ defmodule Synkade.Accounts do
   """
   def get_user!(id), do: Repo.get!(User, id)
 
+  ## Setup
+
+  @doc """
+  Returns true if setup has been completed (at least one user exists).
+  """
+  def setup_completed? do
+    Repo.exists?(User)
+  end
+
+  @doc """
+  Registers the initial admin user during setup.
+  Creates a confirmed user with email and password.
+  """
+  def register_setup_user(attrs) do
+    %User{}
+    |> User.setup_changeset(attrs)
+    |> Repo.insert()
+  end
+
   ## User registration
 
   @doc """

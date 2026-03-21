@@ -1,7 +1,13 @@
 defmodule SynkadeWeb.PageControllerTest do
   use SynkadeWeb.ConnCase
 
-  test "GET / redirects to login when not authenticated", %{conn: conn} do
+  test "GET / redirects to setup when no users exist", %{conn: conn} do
+    conn = get(conn, ~p"/")
+    assert redirected_to(conn) == ~p"/setup"
+  end
+
+  test "GET / redirects to login when not authenticated but setup is complete", %{conn: conn} do
+    Synkade.AccountsFixtures.user_fixture()
     conn = get(conn, ~p"/")
     assert redirected_to(conn) == ~p"/users/log-in"
   end

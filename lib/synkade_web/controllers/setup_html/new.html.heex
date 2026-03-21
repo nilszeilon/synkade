@@ -1,0 +1,44 @@
+<Layouts.app flash={@flash} current_scope={@current_scope}>
+  <div class="mx-auto max-w-sm">
+    <div class="text-center">
+      <.header>
+        Welcome to Synkade
+        <:subtitle>
+          Create your admin account to get started.
+        </:subtitle>
+      </.header>
+    </div>
+
+    <.form :let={f} for={@changeset} action={~p"/setup"}>
+      <.input
+        field={f[:email]}
+        type="email"
+        label="Email"
+        autocomplete="username"
+        spellcheck="false"
+        required
+        phx-mounted={JS.focus()}
+      />
+      <.input
+        field={f[:password]}
+        type="password"
+        label="Password"
+        autocomplete="new-password"
+        spellcheck="false"
+        required
+      />
+      <.input
+        field={f[:password_confirmation]}
+        type="password"
+        label="Confirm password"
+        autocomplete="new-password"
+        spellcheck="false"
+        required
+      />
+
+      <.button phx-disable-with="Creating account..." class="btn btn-primary w-full">
+        Create account
+      </.button>
+    </.form>
+  </div>
+</Layouts.app>

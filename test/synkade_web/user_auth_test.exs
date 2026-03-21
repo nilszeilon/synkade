@@ -232,7 +232,7 @@ defmodule SynkadeWeb.UserAuthTest do
       assert redirected_to(conn) == ~p"/"
     end
 
-    test "does not redirect if user is not authenticated", %{conn: conn} do
+    test "does not redirect if user is not authenticated and setup is complete", %{conn: conn} do
       conn = UserAuth.redirect_if_user_is_authenticated(conn, [])
       refute conn.halted
       refute conn.status

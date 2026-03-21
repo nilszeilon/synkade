@@ -185,12 +185,19 @@ defmodule SynkadeWeb.UserAuth do
   Plug for routes that require the user to not be authenticated.
   """
   def redirect_if_user_is_authenticated(conn, _opts) do
-    if conn.assigns.current_scope do
-      conn
-      |> redirect(to: signed_in_path(conn))
-      |> halt()
-    else
-      conn
+    cond do
+      conn.assigns.current_scope ->
+        conn
+        |> redirect(to: signed_in_path(conn))
+        |> halt()
+
+      not Accounts.setup_completed?() ->
+        conn
+        |> redirect(to: ~p"/setup")
+        |> halt()
+
+      true ->
+        conn
     end
   end
 
@@ -219,14 +226,21 @@ defmodule SynkadeWeb.UserAuth do
   Plug for routes that require the user to be authenticated.
   """
   def require_authenticated_user(conn, _opts) do
-    if conn.assigns.current_scope && conn.assigns.current_scope.user do
-      conn
-    else
-      conn
-      |> put_flash(:error, "You must log in to access this page.")
-      |> maybe_store_return_to()
-      |> redirect(to: ~p"/users/log-in")
-      |> halt()
+    cond do
+      conn.assigns.current_scope && conn.assigns.current_scope.user ->
+        conn
+
+      not Accounts.setup_completed?() ->
+        conn
+        |> redirect(to: ~p"/setup")
+        |> halt()
+
+      true ->
+        conn
+        |> put_flash(:error, "You must log in to access this page.")
+        |> maybe_store_return_to()
+        |> redirect(to: ~p"/users/log-in")
+        |> halt()
     end
   end
 

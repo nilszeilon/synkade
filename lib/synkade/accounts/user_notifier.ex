@@ -5,16 +5,23 @@ defmodule Synkade.Accounts.UserNotifier do
   alias Synkade.Accounts.User
 
   # Delivers the email using the application mailer.
+  # Returns {:ok, :email_not_configured} when no real mail adapter is set.
   defp deliver(recipient, subject, body) do
-    email =
-      new()
-      |> to(recipient)
-      |> from({"Synkade", "noreply@synkade.com"})
-      |> subject(subject)
-      |> text_body(body)
+    adapter = Application.get_env(:synkade, Synkade.Mailer)[:adapter]
 
-    with {:ok, _metadata} <- Mailer.deliver(email) do
-      {:ok, email}
+    if adapter in [nil, Swoosh.Adapters.Local] do
+      {:ok, :email_not_configured}
+    else
+      email =
+        new()
+        |> to(recipient)
+        |> from({"Synkade", "noreply@synkade.com"})
+        |> subject(subject)
+        |> text_body(body)
+
+      with {:ok, _metadata} <- Mailer.deliver(email) do
+        {:ok, email}
+      end
     end
   end
 

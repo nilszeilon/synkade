@@ -107,6 +107,25 @@ defmodule Synkade.Accounts.User do
   end
 
   @doc """
+  A user changeset for initial setup. Validates email and password together,
+  and auto-confirms the account.
+  """
+  def setup_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:email, :password])
+    |> validate_required([:email, :password])
+    |> validate_format(:email, ~r/^[^@,;\s]+@[^@,;\s]+$/,
+      message: "must have the @ sign and no spaces"
+    )
+    |> validate_length(:email, max: 160)
+    |> unsafe_validate_unique(:email, Synkade.Repo)
+    |> unique_constraint(:email)
+    |> validate_confirmation(:password, message: "does not match password")
+    |> validate_password([])
+    |> put_change(:confirmed_at, DateTime.utc_now(:second))
+  end
+
+  @doc """
   Confirms the account by setting `confirmed_at`.
   """
   def confirm_changeset(user) do
