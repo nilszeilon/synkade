@@ -1,7 +1,7 @@
 defmodule SynkadeWeb.SettingsLive do
   use SynkadeWeb, :live_view
 
-  alias Synkade.Orchestrator
+  alias Synkade.Jobs
   alias Synkade.Settings
   alias Synkade.Settings.{Agent, ConnectionTest}
 
@@ -11,12 +11,12 @@ defmodule SynkadeWeb.SettingsLive do
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic())
-      Phoenix.PubSub.subscribe(Synkade.PubSub, Orchestrator.pubsub_topic())
+      Phoenix.PubSub.subscribe(Synkade.PubSub, "orchestrator:updates")
     end
 
     setting = Settings.get_settings()
     changeset = Settings.change_settings(setting)
-    orc_state = Orchestrator.get_state()
+    orc_state = Jobs.get_state()
     current_theme = (setting && setting.theme) || "ops"
 
     {:ok,
@@ -294,6 +294,16 @@ defmodule SynkadeWeb.SettingsLive do
   @impl true
   def handle_info({:projects_updated}, socket) do
     {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:jobs_changed}, socket) do
+    state = Jobs.get_state()
+
+    {:noreply,
+     socket
+     |> assign(:projects, state.projects)
+     |> assign(:running, state.running)}
   end
 
   @impl true

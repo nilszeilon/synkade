@@ -4,18 +4,18 @@ defmodule SynkadeWeb.IssuesLive do
   import SynkadeWeb.Components.IssueView
   import SynkadeWeb.IssueLiveHelpers
 
-  alias Synkade.{Issues, Orchestrator, Settings}
+  alias Synkade.{Issues, Jobs, Settings}
   alias Synkade.Issues.Issue
 
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Synkade.PubSub, Issues.pubsub_topic())
-      Phoenix.PubSub.subscribe(Synkade.PubSub, Orchestrator.pubsub_topic())
+      Phoenix.PubSub.subscribe(Synkade.PubSub, "orchestrator:updates")
       Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic())
     end
 
-    orc_state = Orchestrator.get_state()
+    orc_state = Jobs.get_state()
     projects = Settings.list_projects()
 
     socket =
@@ -87,6 +87,18 @@ defmodule SynkadeWeb.IssuesLive do
       socket
       |> load_issues()
       |> reload_selected_issue(:list)
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:jobs_changed}, socket) do
+    state = Jobs.get_state()
+
+    socket =
+      socket
+      |> assign(:running, state.running)
+      |> assign(:projects, state.projects)
 
     {:noreply, socket}
   end

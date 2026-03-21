@@ -1,7 +1,7 @@
 defmodule SynkadeWeb.ProjectsLive do
   use SynkadeWeb, :live_view
 
-  alias Synkade.Orchestrator
+  alias Synkade.Jobs
   alias Synkade.Settings
   alias Synkade.Settings.Project
 
@@ -9,10 +9,10 @@ defmodule SynkadeWeb.ProjectsLive do
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic())
-      Phoenix.PubSub.subscribe(Synkade.PubSub, Orchestrator.pubsub_topic())
+      Phoenix.PubSub.subscribe(Synkade.PubSub, "orchestrator:updates")
     end
 
-    orc_state = Orchestrator.get_state()
+    orc_state = Jobs.get_state()
 
     {:ok,
      socket
@@ -124,6 +124,16 @@ defmodule SynkadeWeb.ProjectsLive do
   @impl true
   def handle_info({:agents_updated}, socket) do
     {:noreply, assign(socket, :agents, Settings.list_agents())}
+  end
+
+  @impl true
+  def handle_info({:jobs_changed}, socket) do
+    state = Jobs.get_state()
+
+    {:noreply,
+     socket
+     |> assign(:projects, state.projects)
+     |> assign(:running, state.running)}
   end
 
   @impl true

@@ -7,7 +7,7 @@ defmodule SynkadeWeb.IssueLiveHelpers do
   """
 
   import Phoenix.Component, only: [assign: 3]
-  alias Synkade.{Issues, Orchestrator, Settings}
+  alias Synkade.{Issues, Settings}
   alias Synkade.Issues.DispatchParser
 
   # --- Session management ---
@@ -35,9 +35,9 @@ defmodule SynkadeWeb.IssueLiveHelpers do
             running_entry = find_running_entry(socket.assigns.running, issue_id)
 
             if running_entry do
-              topic = Orchestrator.agent_events_topic(issue_id)
+              topic = "agent_events:#{issue_id}"
               Phoenix.PubSub.subscribe(Synkade.PubSub, topic)
-              past_events = Orchestrator.get_issue_events(issue_id)
+              past_events = []
 
               socket
               |> assign(:session_events, past_events)
@@ -55,9 +55,8 @@ defmodule SynkadeWeb.IssueLiveHelpers do
           end
 
         # Check PR status on load for awaiting_review issues
-        if issue.state == "awaiting_review" and issue.github_pr_url do
-          Orchestrator.check_pr_status(issue.id)
-        end
+        # PR status is now checked by ReconcileWorker cron job
+        :ok
 
         socket
         |> assign(:selected_issue, %{issue: issue, ancestors: ancestors})
@@ -113,7 +112,7 @@ defmodule SynkadeWeb.IssueLiveHelpers do
         socket
 
       issue_id ->
-        topic = Orchestrator.agent_events_topic(issue_id)
+        topic = "agent_events:#{issue_id}"
         Phoenix.PubSub.unsubscribe(Synkade.PubSub, topic)
 
         socket

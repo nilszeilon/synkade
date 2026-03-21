@@ -5,7 +5,7 @@ defmodule SynkadeWeb.DashboardLive do
   import SynkadeWeb.Components.TokenChart
   import SynkadeWeb.IssueLiveHelpers
 
-  alias Synkade.{Issues, Orchestrator, Settings}
+  alias Synkade.{Issues, Jobs, Settings}
   alias Synkade.Tracker.Client, as: TrackerClient
   alias Synkade.Workflow.Config
 
@@ -19,12 +19,12 @@ defmodule SynkadeWeb.DashboardLive do
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
-      Phoenix.PubSub.subscribe(Synkade.PubSub, Orchestrator.pubsub_topic())
+      Phoenix.PubSub.subscribe(Synkade.PubSub, "orchestrator:updates")
       Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic())
       Phoenix.PubSub.subscribe(Synkade.PubSub, Issues.pubsub_topic())
     end
 
-    state = Orchestrator.get_state()
+    state = Jobs.get_state()
 
     socket =
       socket
@@ -96,16 +96,18 @@ defmodule SynkadeWeb.DashboardLive do
   end
 
   @impl true
-  def handle_info({:state_changed, snapshot}, socket) do
+  def handle_info({:jobs_changed}, socket) do
+    state = Jobs.get_state()
+
     socket =
       socket
-      |> assign(:running, snapshot.running)
-      |> assign(:retry_attempts, snapshot.retry_attempts)
-      |> assign(:awaiting_review, snapshot.awaiting_review)
-      |> assign(:agent_totals, snapshot.agent_totals)
-      |> assign(:agent_totals_by_project, snapshot.agent_totals_by_project)
-      |> assign(:projects, snapshot.projects)
-      |> assign(:config_error, snapshot.config_error)
+      |> assign(:running, state.running)
+      |> assign(:retry_attempts, state.retry_attempts)
+      |> assign(:awaiting_review, state.awaiting_review)
+      |> assign(:agent_totals, state.agent_totals)
+      |> assign(:agent_totals_by_project, state.agent_totals_by_project)
+      |> assign(:projects, state.projects)
+      |> assign(:config_error, state.config_error)
 
     # Only re-query chart data on overview (chart not shown on project pages)
     socket =
@@ -130,6 +132,21 @@ defmodule SynkadeWeb.DashboardLive do
       else
         socket
       end
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:state_changed, snapshot}, socket) do
+    socket =
+      socket
+      |> assign(:running, snapshot.running)
+      |> assign(:retry_attempts, snapshot.retry_attempts)
+      |> assign(:awaiting_review, Map.get(snapshot, :awaiting_review, %{}))
+      |> assign(:agent_totals, Map.get(snapshot, :agent_totals, %{input_tokens: 0, output_tokens: 0, total_tokens: 0, runtime_seconds: 0.0}))
+      |> assign(:agent_totals_by_project, Map.get(snapshot, :agent_totals_by_project, %{}))
+      |> assign(:projects, snapshot.projects)
+      |> assign(:config_error, snapshot.config_error)
 
     # Update session_id from running entry if viewing detail
     socket = update_session_from_snapshot(socket, snapshot)
@@ -158,7 +175,7 @@ defmodule SynkadeWeb.DashboardLive do
   @impl true
   def handle_info(:load_board, socket) do
     project = resolve_project(socket)
-    state = Orchestrator.get_state()
+    state = Jobs.get_state()
 
     socket =
       socket
@@ -264,7 +281,7 @@ defmodule SynkadeWeb.DashboardLive do
 
   @impl true
   def handle_event("refresh", _params, socket) do
-    Orchestrator.refresh()
+    Jobs.refresh()
 
     if socket.assigns.current_project do
       send(self(), :load_board)

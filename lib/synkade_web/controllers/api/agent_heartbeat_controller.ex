@@ -3,7 +3,6 @@ defmodule SynkadeWeb.Api.AgentHeartbeatController do
 
   alias Synkade.Issues
   alias Synkade.Settings
-  alias Synkade.Orchestrator
 
   @valid_statuses ~w(working error blocked)
 
@@ -17,7 +16,7 @@ defmodule SynkadeWeb.Api.AgentHeartbeatController do
 
       issue ->
         if has_project_access?(agent, issue.project_id) do
-          Orchestrator.heartbeat(issue_id, status, params["message"])
+          Issues.update_issue_heartbeat(issue_id, "[#{status}] #{params["message"] || ""}")
           json(conn, %{ok: true})
         else
           conn |> put_status(403) |> json(%{error: "forbidden"})

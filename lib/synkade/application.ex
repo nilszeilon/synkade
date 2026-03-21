@@ -8,14 +8,14 @@ defmodule Synkade.Application do
   @impl true
   def start(_type, _args) do
     migrate()
+    Synkade.ObanTelemetry.attach()
 
     children = [
       SynkadeWeb.Telemetry,
       Synkade.Vault,
       Synkade.Repo,
       {Phoenix.PubSub, name: Synkade.PubSub},
-      {Task.Supervisor, name: Synkade.TaskSupervisor},
-      Synkade.Orchestrator,
+      {Oban, Application.fetch_env!(:synkade, Oban)},
       # Start to serve requests, typically the last entry
       SynkadeWeb.Endpoint
     ]
