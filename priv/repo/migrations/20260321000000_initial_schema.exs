@@ -4,9 +4,32 @@ defmodule Synkade.Repo.Migrations.InitialSchema do
   def up do
     execute "CREATE EXTENSION IF NOT EXISTS citext"
 
+    # --- users ---
+    create table(:users) do
+      add :email, :citext, null: false
+      add :hashed_password, :string
+      add :confirmed_at, :utc_datetime
+      timestamps(type: :utc_datetime)
+    end
+
+    create unique_index(:users, [:email])
+
+    create table(:users_tokens) do
+      add :user_id, references(:users, on_delete: :delete_all), null: false
+      add :token, :binary, null: false
+      add :context, :string, null: false
+      add :sent_to, :string
+      add :authenticated_at, :utc_datetime
+      timestamps(type: :utc_datetime, updated_at: false)
+    end
+
+    create index(:users_tokens, [:user_id])
+    create unique_index(:users_tokens, [:context, :token])
+
     # --- settings ---
     create table(:settings, primary_key: false) do
       add :id, :binary_id, primary_key: true
+      add :user_id, references(:users, on_delete: :delete_all), null: false
       add :github_pat, :binary
       add :github_webhook_secret, :binary
       add :execution_backend, :string, default: "local"
@@ -16,9 +39,12 @@ defmodule Synkade.Repo.Migrations.InitialSchema do
       timestamps(type: :utc_datetime)
     end
 
+    create unique_index(:settings, [:user_id])
+
     # --- agents ---
     create table(:agents, primary_key: false) do
       add :id, :binary_id, primary_key: true
+      add :user_id, references(:users, on_delete: :delete_all), null: false
       add :name, :string, null: false
       add :kind, :string, default: "claude"
       add :auth_mode, :string, default: "api_key"
@@ -33,12 +59,13 @@ defmodule Synkade.Repo.Migrations.InitialSchema do
       timestamps(type: :utc_datetime)
     end
 
-    create unique_index(:agents, [:name])
+    create unique_index(:agents, [:user_id, :name])
     create unique_index(:agents, [:api_token_hash])
 
     # --- projects ---
     create table(:projects, primary_key: false) do
       add :id, :binary_id, primary_key: true
+      add :user_id, references(:users, on_delete: :delete_all), null: false
       add :name, :string, null: false
       add :enabled, :boolean, default: true
       add :tracker_repo, :string
@@ -47,7 +74,7 @@ defmodule Synkade.Repo.Migrations.InitialSchema do
       timestamps(type: :utc_datetime)
     end
 
-    create unique_index(:projects, [:name])
+    create unique_index(:projects, [:user_id, :name])
 
     # --- issues ---
     create table(:issues, primary_key: false) do
@@ -82,6 +109,7 @@ defmodule Synkade.Repo.Migrations.InitialSchema do
     # --- token_usage ---
     create table(:token_usage, primary_key: false) do
       add :id, :binary_id, primary_key: true
+      add :user_id, references(:users, on_delete: :delete_all), null: false
       add :date, :date, null: false
       add :model, :string, null: false
       add :input_tokens, :integer, default: 0, null: false
@@ -89,29 +117,7 @@ defmodule Synkade.Repo.Migrations.InitialSchema do
       timestamps()
     end
 
-    create unique_index(:token_usage, [:date, :model])
-
-    # --- users ---
-    create table(:users) do
-      add :email, :citext, null: false
-      add :hashed_password, :string
-      add :confirmed_at, :utc_datetime
-      timestamps(type: :utc_datetime)
-    end
-
-    create unique_index(:users, [:email])
-
-    create table(:users_tokens) do
-      add :user_id, references(:users, on_delete: :delete_all), null: false
-      add :token, :binary, null: false
-      add :context, :string, null: false
-      add :sent_to, :string
-      add :authenticated_at, :utc_datetime
-      timestamps(type: :utc_datetime, updated_at: false)
-    end
-
-    create index(:users_tokens, [:user_id])
-    create unique_index(:users_tokens, [:context, :token])
+    create unique_index(:token_usage, [:user_id, :date, :model])
 
     # --- Oban ---
     Oban.Migration.up(version: 12)
@@ -120,13 +126,13 @@ defmodule Synkade.Repo.Migrations.InitialSchema do
   def down do
     Oban.Migration.down(version: 1)
 
-    drop table(:users_tokens)
-    drop table(:users)
-    drop table(:token_usage)
     drop table(:issues)
     drop table(:projects)
     drop table(:agents)
     drop table(:settings)
+    drop table(:token_usage)
+    drop table(:users_tokens)
+    drop table(:users)
 
     execute "DROP EXTENSION IF EXISTS citext"
   end
