@@ -196,5 +196,15 @@ defmodule Synkade.Settings.ConfigAdapterTest do
       assert config["agent"]["kind"] == "codex"
       assert config["agent"]["api_key"] == "sk-codex"
     end
+
+    test "includes user_id from project" do
+      global = %Setting{github_pat: "ghp_test"}
+      project = %Project{name: "test", user_id: "user-abc-123"}
+      agent = %Agent{kind: "claude", auth_mode: "api_key"}
+
+      config = ConfigAdapter.resolve_project_config(global, project, agent)
+
+      assert config["user_id"] == "user-abc-123"
+    end
   end
 end

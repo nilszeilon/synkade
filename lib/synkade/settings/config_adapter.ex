@@ -54,7 +54,9 @@ defmodule Synkade.Settings.ConfigAdapter do
     global_config = to_config(global)
     project_config = project_to_config(project)
     agent_config = agent_to_config(agent)
-    deep_merge(global_config, project_config) |> Map.put("agent", agent_config)
+    deep_merge(global_config, project_config)
+    |> Map.put("agent", agent_config)
+    |> Map.put("user_id", project.user_id)
   end
 
   # --- Setting → config ---

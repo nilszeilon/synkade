@@ -22,14 +22,59 @@ defmodule Synkade.Execution.SpritesTest do
       assert String.length(result) == 63
     end
 
-    test "handles typical project-issue combo" do
-      result = Sprites.sanitize_sprite_name("synkade-my-project-123")
-      assert result == "synkade-my-project-123"
+    test "handles per-user naming pattern" do
+      result = Sprites.sanitize_sprite_name("synkade-u12345")
+      assert result == "synkade-u12345"
+    end
+
+    test "handles user ID with UUID format" do
+      result = Sprites.sanitize_sprite_name("synkade-uabc123-def456")
+      assert result == "synkade-uabc123-def456"
     end
 
     test "handles special characters" do
-      result = Sprites.sanitize_sprite_name("synkade-org/repo-#42")
-      assert result == "synkade-org-repo-42"
+      result = Sprites.sanitize_sprite_name("synkade-u@special!")
+      assert result == "synkade-u-special"
+    end
+  end
+
+  describe "sanitize_path_segment/1" do
+    test "lowercases and replaces invalid chars" do
+      assert Sprites.sanitize_path_segment("My-Project#1") == "my-project-1"
+    end
+
+    test "preserves dots and underscores" do
+      assert Sprites.sanitize_path_segment("my.project_v2") == "my.project_v2"
+    end
+
+    test "collapses consecutive hyphens" do
+      assert Sprites.sanitize_path_segment("foo---bar") == "foo-bar"
+    end
+
+    test "trims leading and trailing hyphens" do
+      assert Sprites.sanitize_path_segment("-foo-bar-") == "foo-bar"
+    end
+  end
+
+  describe "build_bare_repo_path/1" do
+    test "builds path from project name" do
+      assert Sprites.build_bare_repo_path("my-project") == "/repos/my-project.git"
+    end
+
+    test "sanitizes project name" do
+      assert Sprites.build_bare_repo_path("My Project!") == "/repos/my-project.git"
+    end
+  end
+
+  describe "build_worktree_path/2" do
+    test "builds path from project and issue" do
+      assert Sprites.build_worktree_path("my-project", "issue-42") ==
+               "/workspaces/my-project/issue-42"
+    end
+
+    test "sanitizes both segments" do
+      assert Sprites.build_worktree_path("My Project", "Issue #42") ==
+               "/workspaces/my-project/issue-42"
     end
   end
 
