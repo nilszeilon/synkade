@@ -10,7 +10,10 @@ defmodule Synkade.Execution.Local do
 
   @impl true
   def setup_env(config, project_name, issue_identifier) do
-    Manager.ensure_workspace(config, project_name, issue_identifier)
+    with {:ok, workspace} <- Manager.ensure_workspace(config, project_name, issue_identifier) do
+      Synkade.Skills.Writer.write_to_workspace(workspace.path, config, config["skills"])
+      {:ok, workspace}
+    end
   end
 
   @impl true

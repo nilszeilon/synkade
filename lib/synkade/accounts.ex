@@ -74,9 +74,14 @@ defmodule Synkade.Accounts do
   Creates a confirmed user with email and password.
   """
   def register_setup_user(attrs) do
-    %User{}
-    |> User.setup_changeset(attrs)
-    |> Repo.insert()
+    case %User{} |> User.setup_changeset(attrs) |> Repo.insert() do
+      {:ok, user} ->
+        Synkade.Skills.seed_defaults(user.id)
+        {:ok, user}
+
+      error ->
+        error
+    end
   end
 
   ## User registration
@@ -94,9 +99,14 @@ defmodule Synkade.Accounts do
 
   """
   def register_user(attrs) do
-    %User{}
-    |> User.email_changeset(attrs)
-    |> Repo.insert()
+    case %User{} |> User.email_changeset(attrs) |> Repo.insert() do
+      {:ok, user} ->
+        Synkade.Skills.seed_defaults(user.id)
+        {:ok, user}
+
+      error ->
+        error
+    end
   end
 
   ## Settings

@@ -73,6 +73,10 @@ defmodule Synkade.Workers.AgentWorker do
 
     config = ConfigAdapter.resolve_project_config(setting, db_project, agent)
 
+    # Add user's skills to config
+    skills = Synkade.Skills.list_skills_for_user(db_project.user_id)
+    config = Map.put(config, "skills", Synkade.Skills.skills_to_maps(skills))
+
     # Inject Synkade API URL
     config =
       try do

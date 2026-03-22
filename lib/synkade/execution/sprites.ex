@@ -21,6 +21,7 @@ defmodule Synkade.Execution.Sprites do
         case setup_worktree(sprite, config, project_name, issue_identifier) do
           :ok ->
             worktree_path = build_worktree_path(project_name, issue_identifier)
+            write_skills_to_sprite(sprite, worktree_path, config)
 
             {:ok,
              %{
@@ -331,5 +332,24 @@ defmodule Synkade.Execution.Sprites do
     |> Enum.map(fn {key, value} ->
       {to_string(key), to_string(value)}
     end)
+  end
+
+  defp write_skills_to_sprite(sprite, worktree_path, config) do
+    skill_files = Synkade.Skills.Writer.skill_files(config, config["skills"])
+
+    for {relative_path, content} <- skill_files do
+      full_path = Path.join(worktree_path, relative_path)
+      dir = Path.dirname(full_path)
+
+      # Escape content for heredoc
+      escaped = String.replace(content, "'", "'\\''")
+
+      Sprites.cmd(
+        sprite,
+        "sh",
+        ["-c", "mkdir -p #{dir} && cat > #{full_path} << 'SKILL_EOF'\n#{escaped}\nSKILL_EOF"],
+        timeout: 10_000
+      )
+    end
   end
 end
