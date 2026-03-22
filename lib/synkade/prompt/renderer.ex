@@ -7,6 +7,7 @@ defmodule Synkade.Prompt.Renderer do
   {{ issue.body }}
 
   Analyze the issue, implement the fix or feature, and run the test suite to verify your changes.
+  Use the synkade skill for git workflow, PR creation, API access, and status reporting.
   """
 
   @ancestor_template """
@@ -32,136 +33,7 @@ defmodule Synkade.Prompt.Renderer do
   {% endif %}
   """
 
-  @children_suffix """
-
-  If your work produces actionable sub-tasks, output them in this format:
-  <!-- SYNKADE:CHILDREN
-  - body: "# Sub-task title\\n\\nWhat needs to be done"
-  SYNKADE:CHILDREN -->
-  """
-
-  @git_suffix """
-
-  ## Git & Pull Requests
-
-  You have a `GITHUB_TOKEN` environment variable set with a GitHub Personal Access Token.
-  The workspace is a git clone of `{{ tracker_repo }}`.
-
-  After making changes, commit your work and create a pull request using `gh`:
-
-  ```bash
-  git checkout -b fix/{{ issue.identifier }}
-  git add -A
-  git commit -m "Description of changes"
-  gh pr create --title "Short title" --body "Description of what was done"
-  ```
-
-  Always create a PR with your changes so they can be reviewed.
-  """
-
-  @auto_merge_suffix """
-
-  ## Auto-Merge
-
-  This issue has auto-merge enabled. After creating your pull request, merge it directly to main:
-
-  ```bash
-  gh pr merge --merge
-  ```
-
-  Do NOT wait for review — merge immediately after PR creation.
-  """
-
-  @api_suffix """
-
-  ## Synkade Issue API
-
-  You have access to the Synkade issue management API via environment variables:
-  - `SYNKADE_API_URL` — base URL for API calls
-  - `SYNKADE_API_TOKEN` — bearer token for authentication
-
-  Use these to create, list, and update issues at runtime:
-
-  ```bash
-  # List issues for this project
-  curl -s -H "Authorization: Bearer $SYNKADE_API_TOKEN" "$SYNKADE_API_URL/issues?project_id={{ project_id }}"
-
-  # Create a sub-issue
-  curl -s -X POST -H "Authorization: Bearer $SYNKADE_API_TOKEN" -H "Content-Type: application/json" \\
-    -d '{"project_id":"{{ project_id }}","body":"# Sub-task title\\n\\nDetails","parent_id":"{{ issue.id }}"}' \\
-    "$SYNKADE_API_URL/issues"
-
-  # Update an issue (state, description, etc.)
-  curl -s -X PATCH -H "Authorization: Bearer $SYNKADE_API_TOKEN" -H "Content-Type: application/json" \\
-    -d '{"state":"done"}' \\
-    "$SYNKADE_API_URL/issues/<issue_id>"
-
-  # Create multiple child issues at once
-  curl -s -X POST -H "Authorization: Bearer $SYNKADE_API_TOKEN" -H "Content-Type: application/json" \\
-    -d '{"children":[{"body":"# Child 1\\n\\nDetails"},{"body":"# Child 2\\n\\nDetails"}]}' \\
-    "$SYNKADE_API_URL/issues/{{ issue.id }}/children"
-  ```
-
-  Alternatively, you can output children using SYNKADE:CHILDREN markers (see below).
-
-  ### Status Reporting
-
-  Report your status periodically so Synkade knows you're still working:
-
-  ```bash
-  # Report working status (send every 2-3 minutes during long tasks)
-  curl -s -X POST -H "Authorization: Bearer $SYNKADE_API_TOKEN" -H "Content-Type: application/json" \\
-    -d '{"issue_id":"{{ issue.id }}","status":"working","message":"Brief description of current step"}' \\
-    "$SYNKADE_API_URL/heartbeat"
-
-  # Report an error
-  curl -s -X POST -H "Authorization: Bearer $SYNKADE_API_TOKEN" -H "Content-Type: application/json" \\
-    -d '{"issue_id":"{{ issue.id }}","status":"error","message":"What went wrong"}' \\
-    "$SYNKADE_API_URL/heartbeat"
-
-  # Report being blocked
-  curl -s -X POST -H "Authorization: Bearer $SYNKADE_API_TOKEN" -H "Content-Type: application/json" \\
-    -d '{"issue_id":"{{ issue.id }}","status":"blocked","message":"What is blocking progress"}' \\
-    "$SYNKADE_API_URL/heartbeat"
-  ```
-
-  Valid statuses: `working`, `error`, `blocked`. Send a heartbeat every 2-3 minutes during long-running tasks to prevent stall detection from killing your session.
-  """
-
-  @pull_protocol_suffix """
-
-  ## Synkade Agent Protocol (Pull-Based)
-
-  You are a persistent agent connected to Synkade. Between tasks, you can discover and claim new work using the pull-based protocol below.
-
-  ### Discover your identity and projects:
-  ```bash
-  curl -s -H "Authorization: Bearer $SYNKADE_API_TOKEN" "$SYNKADE_API_URL/me"
-  ```
-
-  ### Find available work (queued issues assigned to you):
-  ```bash
-  curl -s -H "Authorization: Bearer $SYNKADE_API_TOKEN" "$SYNKADE_API_URL/issues?state=queued&assigned_to=me"
-  ```
-
-  ### Atomically claim an issue (returns 409 if already claimed):
-  ```bash
-  curl -s -X POST -H "Authorization: Bearer $SYNKADE_API_TOKEN" "$SYNKADE_API_URL/issues/<issue_id>/checkout"
-  ```
-
-  ### Mark issue complete (awaiting review):
-  ```bash
-  curl -s -X PATCH -H "Authorization: Bearer $SYNKADE_API_TOKEN" -H "Content-Type: application/json" \\
-    -d '{"state":"awaiting_review","agent_output":"Summary of completed work"}' \\
-    "$SYNKADE_API_URL/issues/{{ issue.id }}"
-  ```
-
-  ### Workflow: checkout → heartbeat → complete
-  1. Poll `GET /issues?state=queued&assigned_to=me` to find work
-  2. `POST /issues/:id/checkout` to claim it (handles race conditions)
-  3. Send heartbeats every 2-3 minutes while working
-  4. `PATCH /issues/:id` with `state: "awaiting_review"` when done
-  """
+  @auto_merge_line "\nAfter creating the PR, merge it immediately with `gh pr merge --merge`.\n"
 
   @spec render(
           String.t() | nil,
@@ -193,41 +65,13 @@ defmodule Synkade.Prompt.Renderer do
     # Add dispatch message section
     template = template <> @dispatch_template
 
-    # Add git/PR suffix if tracker has a repo and API key (PAT)
-    tracker_repo = get_in(project, [:config, "tracker", "repo"])
-    tracker_api_key = get_in(project, [:config, "tracker", "api_key"])
-
+    # Add auto-merge one-liner if enabled
     template =
-      if tracker_repo && tracker_api_key do
-        git_template = template <> @git_suffix
-
-        if Map.get(issue, :auto_merge) do
-          git_template <> @auto_merge_suffix
-        else
-          git_template
-        end
+      if Map.get(issue, :auto_merge) do
+        template <> @auto_merge_line
       else
         template
       end
-
-    # Add API suffix if Synkade API is configured, otherwise fallback to children markers
-    has_api = get_in(project, [:config, "agent", "synkade_api_url"]) != nil
-    agent_kind = get_in(project, [:config, "agent", "kind"])
-    is_pull_kind = agent_kind in ~w(hermes openclaw)
-
-    template =
-      cond do
-        has_api and is_pull_kind ->
-          template <> @api_suffix <> @pull_protocol_suffix <> @children_suffix
-
-        has_api ->
-          template <> @api_suffix <> @children_suffix
-
-        true ->
-          template <> @children_suffix
-      end
-
-    project_id = get_in(project, [:config, "agent", "synkade_api_url"]) && get_project_id(project)
 
     context =
       %{
@@ -236,9 +80,7 @@ defmodule Synkade.Prompt.Renderer do
         "attempt" => attempt,
         "ancestors" => Enum.map(ancestors, &stringify_keys/1),
         "has_parent" => ancestors != [],
-        "dispatch_message" => dispatch_message,
-        "project_id" => project_id,
-        "tracker_repo" => tracker_repo
+        "dispatch_message" => dispatch_message
       }
 
     with {:ok, parsed} <- parse_template(template),
@@ -284,9 +126,6 @@ defmodule Synkade.Prompt.Renderer do
 
   defp stringify_keys(list) when is_list(list), do: Enum.map(list, &stringify_keys/1)
   defp stringify_keys(value), do: value
-
-  defp get_project_id(%{db_id: id}) when is_binary(id), do: id
-  defp get_project_id(_), do: nil
 
   defp format_errors(errors) when is_list(errors) do
     errors |> Enum.map(&format_error/1) |> Enum.join("; ")

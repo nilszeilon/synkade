@@ -24,10 +24,10 @@ defmodule Synkade.SkillsTest do
       end
     end
 
-    test "includes synkade-create-issues skill" do
+    test "includes synkade skill" do
       defaults = Skills.defaults()
       names = Enum.map(defaults, & &1["name"])
-      assert "synkade-create-issues" in names
+      assert "synkade" in names
     end
   end
 

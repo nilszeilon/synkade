@@ -33,7 +33,7 @@ defmodule Synkade.Skills.WriterTest do
       files = Writer.skill_files(config, @default_skills)
       paths = Enum.map(files, &elem(&1, 0))
 
-      assert ".claude/skills/synkade-create-issues/SKILL.md" in paths
+      assert ".claude/skills/synkade/SKILL.md" in paths
     end
 
     test "returns empty list when no skills provided" do
@@ -59,11 +59,11 @@ defmodule Synkade.Skills.WriterTest do
       config = %{"agent" => %{"kind" => "claude"}, "project_id" => "p1"}
 
       user_skills = [
-        %{"name" => "synkade-create-issues", "content" => "custom content"}
+        %{"name" => "synkade", "content" => "custom content"}
       ]
 
       files = Writer.skill_files(config, user_skills)
-      {_path, content} = Enum.find(files, fn {p, _} -> String.contains?(p, "synkade-create-issues") end)
+      {_path, content} = Enum.find(files, fn {p, _} -> String.contains?(p, "synkade") end)
 
       assert content == "custom content"
     end
@@ -124,7 +124,7 @@ defmodule Synkade.Skills.WriterTest do
       try do
         Writer.write_to_workspace(workspace, config, @default_skills)
 
-        skill_path = Path.join(workspace, ".claude/skills/synkade-create-issues/SKILL.md")
+        skill_path = Path.join(workspace, ".claude/skills/synkade/SKILL.md")
         assert File.exists?(skill_path)
 
         content = File.read!(skill_path)

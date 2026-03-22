@@ -62,7 +62,7 @@ defmodule Synkade.Skills do
   end
 
   def defaults do
-    [synkade_create_issues()]
+    [synkade()]
   end
 
   ## Conversion for config/writer
@@ -75,41 +75,104 @@ defmodule Synkade.Skills do
 
   ## Built-in skill definitions
 
-  defp synkade_create_issues do
+  defp synkade do
     %{
-      "name" => "synkade-create-issues",
+      "name" => "synkade",
       "built_in" => true,
       "content" => """
       ---
-      name: synkade-create-issues
-      description: Create follow-up issues on the Synkade board for future work discovered during this task
+      name: synkade
+      description: Git workflow, Synkade API, status reporting, and pull-based agent protocol
       user-invocable: false
-      allowed-tools: Bash(curl *)
+      allowed-tools: Bash(git *), Bash(gh *), Bash(curl *)
       ---
 
-      When you discover work that is out of scope for your current task — bugs, tech debt,
-      missing tests, follow-up features — create a follow-up issue on the Synkade board.
+      ## Git & Pull Requests
 
-      **When to create issues:**
-      - Bugs you notice but shouldn't fix in this PR
-      - Tech debt that should be addressed separately
-      - Follow-up tasks that logically come after this work
-      - Missing test coverage outside your current scope
+      You have a `GITHUB_TOKEN` environment variable. After making changes, commit and open a PR:
 
-      **How to create an issue:**
+      ```bash
+      git checkout -b fix/short-description
+      git add -A && git commit -m "Description of changes"
+      gh pr create --title "Short title" --body "Description"
+      ```
+
+      Always create a PR with your changes so they can be reviewed.
+
+      ## Synkade API
+
+      Environment variables: `$SYNKADE_API_URL`, `$SYNKADE_API_TOKEN`.
+
+      ```bash
+      # List issues for this project
+      curl -s -H "Authorization: Bearer $SYNKADE_API_TOKEN" \\
+        "$SYNKADE_API_URL/issues?project_id=PROJECT_ID"
+
+      # Create an issue
+      curl -s -X POST "$SYNKADE_API_URL/issues" \\
+        -H "Authorization: Bearer $SYNKADE_API_TOKEN" \\
+        -H "Content-Type: application/json" \\
+        -d '{"project_id":"PROJECT_ID","body":"# Title\\n\\nDetails"}'
+
+      # Update an issue
+      curl -s -X PATCH "$SYNKADE_API_URL/issues/<issue_id>" \\
+        -H "Authorization: Bearer $SYNKADE_API_TOKEN" \\
+        -H "Content-Type: application/json" \\
+        -d '{"state":"done"}'
+
+      # Read issue history
+      curl -s -H "Authorization: Bearer $SYNKADE_API_TOKEN" \\
+        "$SYNKADE_API_URL/issues/<issue_id>"
+      ```
+
+      ## Status Reporting
+
+      Send heartbeats every 2-3 minutes during long tasks to prevent stall detection:
+
+      ```bash
+      curl -s -X POST "$SYNKADE_API_URL/heartbeat" \\
+        -H "Authorization: Bearer $SYNKADE_API_TOKEN" \\
+        -H "Content-Type: application/json" \\
+        -d '{"issue_id":"<issue_id>","status":"working","message":"Brief status"}'
+      ```
+
+      Valid statuses: `working`, `error`, `blocked`.
+
+      ## Follow-Up Issues
+
+      When you discover out-of-scope work (bugs, tech debt, follow-ups), create issues rather than scope-creeping:
+
       ```bash
       curl -s -X POST "$SYNKADE_API_URL/issues" \\
         -H "Authorization: Bearer $SYNKADE_API_TOKEN" \\
         -H "Content-Type: application/json" \\
-        -d '{
-          "project_id": "PROJECT_ID",
-          "body": "# Issue Title\\n\\nDescription of the work needed."
-        }'
+        -d '{"project_id":"PROJECT_ID","body":"# Issue Title\\n\\nDescription"}'
       ```
 
-      The `SYNKADE_API_URL` and `SYNKADE_API_TOKEN` environment variables are available.
+      ## Pull-Based Protocol
 
-      Keep your current task focused. Create issues for tangential work rather than scope-creeping.
+      For persistent agents: discover and claim work between tasks.
+
+      ```bash
+      # Who am I?
+      curl -s -H "Authorization: Bearer $SYNKADE_API_TOKEN" "$SYNKADE_API_URL/me"
+
+      # Find queued work assigned to me
+      curl -s -H "Authorization: Bearer $SYNKADE_API_TOKEN" \\
+        "$SYNKADE_API_URL/issues?state=queued&assigned_to=me"
+
+      # Claim an issue (409 if already claimed)
+      curl -s -X POST -H "Authorization: Bearer $SYNKADE_API_TOKEN" \\
+        "$SYNKADE_API_URL/issues/<issue_id>/checkout"
+
+      # Mark complete
+      curl -s -X PATCH "$SYNKADE_API_URL/issues/<issue_id>" \\
+        -H "Authorization: Bearer $SYNKADE_API_TOKEN" \\
+        -H "Content-Type: application/json" \\
+        -d '{"state":"awaiting_review","agent_output":"Summary of work"}'
+      ```
+
+      Workflow: poll → checkout → heartbeat → complete.
       """
     }
   end

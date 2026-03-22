@@ -78,6 +78,7 @@ defmodule Synkade.Prompt.RendererTest do
       assert rendered =~ "Fix the login bug"
       assert rendered =~ "The login form crashes on empty email."
       assert rendered =~ "implement the fix"
+      assert rendered =~ "synkade skill"
     end
 
     test "returns error for invalid template syntax" do
@@ -86,47 +87,16 @@ defmodule Synkade.Prompt.RendererTest do
     end
   end
 
-  describe "pull protocol suffix for pull-kind agents" do
-    test "includes pull protocol when agent kind is hermes and API configured" do
-      project = %{
-        name: "api",
-        db_id: "proj-123",
-        config: %{
-          "agent" => %{
-            "synkade_api_url" => "https://synkade.test/api/v1/agent",
-            "kind" => "hermes"
-          }
-        }
-      }
-
-      assert {:ok, rendered} = Renderer.render(nil, project, @issue)
-      assert rendered =~ "Synkade Agent Protocol (Pull-Based)"
-      assert rendered =~ "/issues?state=queued&assigned_to=me"
-      assert rendered =~ "/issues/<issue_id>/checkout"
-      assert rendered =~ "returns 409 if already claimed"
+  describe "render/6 with auto_merge" do
+    test "includes auto-merge line when enabled" do
+      issue = Map.put(@issue, :auto_merge, true)
+      assert {:ok, rendered} = Renderer.render(nil, @project, issue)
+      assert rendered =~ "gh pr merge --merge"
     end
 
-    test "omits pull protocol when agent kind is claude" do
-      project = %{
-        name: "api",
-        db_id: "proj-123",
-        config: %{
-          "agent" => %{
-            "synkade_api_url" => "https://synkade.test/api/v1/agent",
-            "kind" => "claude"
-          }
-        }
-      }
-
-      assert {:ok, rendered} = Renderer.render(nil, project, @issue)
-      assert rendered =~ "Synkade Issue API"
-      refute rendered =~ "Synkade Agent Protocol (Pull-Based)"
-    end
-
-    test "omits API suffix entirely when no API URL configured" do
+    test "omits auto-merge line when not enabled" do
       assert {:ok, rendered} = Renderer.render(nil, @project, @issue)
-      refute rendered =~ "Synkade Issue API"
-      refute rendered =~ "Synkade Agent Protocol (Pull-Based)"
+      refute rendered =~ "gh pr merge --merge"
     end
   end
 
