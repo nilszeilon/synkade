@@ -106,6 +106,18 @@ defmodule Synkade.Repo.Migrations.InitialSchema do
     create index(:issues, [:project_id, :state])
     create index(:issues, [:state, :recurring], where: "recurring = true")
 
+    # --- skills ---
+    create table(:skills, primary_key: false) do
+      add :id, :binary_id, primary_key: true
+      add :user_id, references(:users, on_delete: :delete_all), null: false
+      add :name, :string, null: false
+      add :content, :text, null: false
+      add :built_in, :boolean, default: false, null: false
+      timestamps(type: :utc_datetime)
+    end
+
+    create unique_index(:skills, [:user_id, :name])
+
     # --- token_usage ---
     create table(:token_usage, primary_key: false) do
       add :id, :binary_id, primary_key: true
@@ -128,6 +140,7 @@ defmodule Synkade.Repo.Migrations.InitialSchema do
 
     drop table(:issues)
     drop table(:projects)
+    drop table(:skills)
     drop table(:agents)
     drop table(:settings)
     drop table(:token_usage)
