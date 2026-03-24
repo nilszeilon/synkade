@@ -62,7 +62,9 @@ defmodule SynkadeWeb.IssuesLive do
     socket =
       cond do
         params["issue"] ->
-          load_issue_detail(socket, params["issue"], :list)
+          socket
+          |> assign(:view_mode, :list)
+          |> push_navigate(to: "/issues/#{params["issue"]}")
 
         params["new"] == "true" ->
           init_create_view(socket, params, fn s ->
@@ -177,9 +179,7 @@ defmodule SynkadeWeb.IssuesLive do
 
   @impl true
   def handle_event("select_issue", %{"id" => issue_id}, socket) do
-    filter = socket.assigns.state_filter
-    path = issues_path(filter, issue_id)
-    {:noreply, push_patch(socket, to: path)}
+    {:noreply, push_navigate(socket, to: "/issues/#{issue_id}")}
   end
 
   @impl true

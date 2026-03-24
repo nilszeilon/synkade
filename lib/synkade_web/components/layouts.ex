@@ -37,7 +37,7 @@ defmodule SynkadeWeb.Layouts do
   def app(assigns) do
     ~H"""
     <div class="flex min-h-screen">
-      <aside class="w-56 h-screen fixed bg-base-200 flex flex-col border-r border-base-300">
+      <aside class="w-56 h-screen fixed bg-base-300 flex flex-col border-r border-base-300">
         <%!-- Logo --%>
         <div class="border-b border-base-300">
           <a href="/" class="relative flex items-center justify-center">
