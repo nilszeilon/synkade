@@ -223,6 +223,18 @@ defmodule SynkadeWeb.IssueLiveHelpers do
     end
   end
 
+  def format_relative_time(%DateTime{} = dt) do
+    diff = DateTime.diff(DateTime.utc_now(), dt, :second)
+
+    cond do
+      diff < 5 -> "just now"
+      diff < 60 -> "#{diff}s ago"
+      diff < 3600 -> "#{div(diff, 60)}m ago"
+      diff < 86400 -> "#{div(diff, 3600)}h ago"
+      true -> "#{div(diff, 86400)}d ago"
+    end
+  end
+
   def format_relative_time(_), do: nil
 
   # Private helper for form conversion
