@@ -198,6 +198,43 @@ defmodule Synkade.Issues do
     )
   end
 
+  @doc "Count issues by state across all projects for a user."
+  def dashboard_stats(user_id) do
+    from(i in Issue,
+      join: p in Project,
+      on: i.project_id == p.id,
+      where: p.user_id == ^user_id,
+      group_by: i.state,
+      select: {i.state, count(i.id)}
+    )
+    |> Repo.all()
+    |> Map.new()
+  end
+
+  @doc "Recent issues updated across all projects for a user, limited to N."
+  def recent_activity(user_id, limit \\ 10) do
+    from(i in Issue,
+      join: p in Project,
+      on: i.project_id == p.id,
+      where: p.user_id == ^user_id,
+      order_by: [desc: i.updated_at],
+      limit: ^limit,
+      preload: [:project]
+    )
+    |> Repo.all()
+  end
+
+  @doc "Count total completed issues for a user."
+  def completed_count(user_id) do
+    from(i in Issue,
+      join: p in Project,
+      on: i.project_id == p.id,
+      where: p.user_id == ^user_id and i.state == "done",
+      select: count(i.id)
+    )
+    |> Repo.one()
+  end
+
   @doc "List all issues in awaiting_review state."
   def list_awaiting_review_issues do
     from(i in Issue,

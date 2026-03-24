@@ -3,7 +3,8 @@ defmodule SynkadeWeb.Components.TokenChart do
   SVG token usage chart component.
 
   Renders a mirrored bar chart showing daily input/output token usage
-  over the last 30 days, with per-model color coding.
+  over the last 7 days, with per-model color coding and logarithmic scale.
+  Bloomberg-terminal aesthetic: edge-to-edge bars, overlaid labels, no chrome.
   """
   use Phoenix.Component
 
@@ -22,7 +23,7 @@ defmodule SynkadeWeb.Components.TokenChart do
 
     usage =
       try do
-        TokenUsage.daily_usage(user_id, 30)
+        TokenUsage.daily_usage(user_id, 7)
       catch
         kind, reason ->
           Logger.warning("Failed to load token usage data: #{kind} #{inspect(reason)}")
@@ -30,7 +31,7 @@ defmodule SynkadeWeb.Components.TokenChart do
       end
 
     today = Date.utc_today()
-    dates = for i <- 29..0//-1, do: Date.add(today, -i)
+    dates = for i <- 6..0//-1, do: Date.add(today, -i)
 
     models =
       usage
@@ -58,7 +59,7 @@ defmodule SynkadeWeb.Components.TokenChart do
     max_output = days |> Enum.map(& &1.total_output) |> Enum.max(fn -> 0 end)
     max_input = days |> Enum.map(& &1.total_input) |> Enum.max(fn -> 0 end)
     max_val = max(max_output, max_input)
-    y_max = max(max_val, 1000)
+    y_max = max(log_scale(max_val), log_scale(1000))
 
     socket
     |> assign(:chart_days, days)
@@ -75,19 +76,16 @@ defmodule SynkadeWeb.Components.TokenChart do
   attr :dates, :list, required: true
 
   def token_chart(assigns) do
-    chart_w = 900
-    chart_h = 400
-    pad_left = 70
-    pad_right = 20
-    pad_top = 20
-    pad_bottom = 60
-    plot_w = chart_w - pad_left - pad_right
-    plot_h = chart_h - pad_top - pad_bottom
+    chart_w = 600
+    chart_h = 280
+    # No outer padding — bars and grid go edge to edge
+    plot_w = chart_w
+    plot_h = chart_h
 
     num_days = length(assigns.dates)
-    bar_width = if num_days > 0, do: plot_w / num_days * 0.7, else: 10
     gap = if num_days > 0, do: plot_w / num_days, else: 10
-    zero_y = pad_top + plot_h / 2
+    bar_width = gap - 2
+    zero_y = plot_h / 2
     y_max = assigns.y_max
     half_h = plot_h / 2
     colors = @model_colors
@@ -96,12 +94,12 @@ defmodule SynkadeWeb.Components.TokenChart do
       assigns.days
       |> Enum.with_index()
       |> Enum.flat_map(fn {day, i} ->
-        x = pad_left + i * gap + (gap - bar_width) / 2
+        x = i * gap + 1
 
         {output_bars, _} =
           Enum.reduce(day.models, {[], 0}, fn m, {acc, offset} ->
             if m.output > 0 do
-              h = m.output / y_max * half_h
+              h = log_scale(m.output) / y_max * half_h
               y = zero_y - offset - h
               color_idx = Enum.find_index(assigns.models, &(&1 == m.model)) || 0
               color = Enum.at(colors, rem(color_idx, length(colors)))
@@ -124,7 +122,7 @@ defmodule SynkadeWeb.Components.TokenChart do
         {input_bars, _} =
           Enum.reduce(day.models, {[], 0}, fn m, {acc, offset} ->
             if m.input > 0 do
-              h = m.input / y_max * half_h
+              h = log_scale(m.input) / y_max * half_h
               y = zero_y + offset
               color_idx = Enum.find_index(assigns.models, &(&1 == m.model)) || 0
               color = Enum.at(colors, rem(color_idx, length(colors)))
@@ -136,7 +134,7 @@ defmodule SynkadeWeb.Components.TokenChart do
                 h: h,
                 color: color,
                 title: "#{m.model} input: #{format_number(m.input)} on #{day.date}",
-                opacity: "0.6"
+                opacity: "0.5"
               }
 
               {[bar | acc], offset + h}
@@ -153,10 +151,9 @@ defmodule SynkadeWeb.Components.TokenChart do
     x_labels =
       assigns.dates
       |> Enum.with_index()
-      |> Enum.filter(fn {_d, i} -> rem(i, 5) == 0 or i == num_days - 1 end)
       |> Enum.map(fn {date, i} ->
-        x = pad_left + i * gap + gap / 2
-        %{x: x, label: Calendar.strftime(date, "%b %d")}
+        x = i * gap + gap / 2
+        %{x: x, label: Calendar.strftime(date, "%a")}
       end)
 
     legend =
@@ -173,49 +170,34 @@ defmodule SynkadeWeb.Components.TokenChart do
       |> assign(:chart_h, chart_h)
       |> assign(:bars, bars)
       |> assign(:zero_y, zero_y)
-      |> assign(:pad_left, pad_left)
-      |> assign(:pad_right, pad_right)
       |> assign(:plot_w, plot_w)
       |> assign(:y_ticks, y_ticks)
       |> assign(:x_labels, x_labels)
       |> assign(:legend, legend)
 
     ~H"""
-    <div class="overflow-x-auto">
-      <svg
-        viewBox={"0 0 #{@chart_w} #{@chart_h + 30}"}
-        class="w-full max-w-4xl"
-        style="min-height: 300px"
-      >
+    <div>
+      <svg viewBox={"0 0 #{@chart_w} #{@chart_h}"} class="w-full block" preserveAspectRatio="none">
+        <%!-- Grid lines — subtle, edge to edge --%>
         <line
           :for={tick <- @y_ticks}
-          x1={@pad_left}
+          x1="0"
           y1={tick.y}
-          x2={@pad_left + @plot_w}
+          x2={@plot_w}
           y2={tick.y}
           stroke="currentColor"
-          stroke-opacity="0.1"
-          stroke-dasharray="4,4"
+          stroke-opacity="0.06"
         />
+        <%!-- Center line --%>
         <line
-          x1={@pad_left}
+          x1="0"
           y1={@zero_y}
-          x2={@pad_left + @plot_w}
+          x2={@plot_w}
           y2={@zero_y}
           stroke="currentColor"
-          stroke-opacity="0.3"
-          stroke-width="1"
+          stroke-opacity="0.15"
         />
-        <text
-          :for={tick <- @y_ticks}
-          x={@pad_left - 8}
-          y={tick.y + 4}
-          text-anchor="end"
-          class="fill-base-content/50"
-          font-size="11"
-        >
-          {tick.label}
-        </text>
+        <%!-- Bars --%>
         <rect
           :for={bar <- @bars}
           x={bar.x}
@@ -223,50 +205,50 @@ defmodule SynkadeWeb.Components.TokenChart do
           width={bar.w}
           height={max(bar.h, 0)}
           fill={bar.color}
-          opacity={Map.get(bar, :opacity, "1")}
-          rx="2"
+          opacity={Map.get(bar, :opacity, "0.85")}
         >
           <title>{bar.title}</title>
         </rect>
+        <%!-- Y-axis tick labels — overlaid inside left edge --%>
+        <text
+          :for={tick <- Enum.reject(@y_ticks, &(&1.label == "0"))}
+          x="4"
+          y={tick.y - 3}
+          class="fill-base-content/30"
+          font-size="9"
+          font-family="monospace"
+        >
+          {tick.label}
+        </text>
+        <%!-- X-axis day labels — overlaid at bottom of each bar column --%>
         <text
           :for={lbl <- @x_labels}
           x={lbl.x}
-          y={@chart_h - 5}
+          y={@chart_h - 4}
           text-anchor="middle"
-          class="fill-base-content/50"
-          font-size="11"
-          transform={"rotate(-30, #{lbl.x}, #{@chart_h - 5})"}
+          class="fill-base-content/30"
+          font-size="9"
+          font-family="monospace"
         >
           {lbl.label}
         </text>
-        <text
-          x={@pad_left - 8}
-          y={@zero_y - 10}
-          text-anchor="end"
-          class="fill-base-content/40"
-          font-size="10"
-        >
-          Output
+        <%!-- Output / Input labels at center line --%>
+        <text x="4" y={@zero_y - 4} class="fill-base-content/20" font-size="8" font-family="monospace">
+          OUT
         </text>
-        <text
-          x={@pad_left - 8}
-          y={@zero_y + 16}
-          text-anchor="end"
-          class="fill-base-content/40"
-          font-size="10"
-        >
-          Input
+        <text x="4" y={@zero_y + 11} class="fill-base-content/20" font-size="8" font-family="monospace">
+          IN
         </text>
       </svg>
-      <div :if={@legend != []} class="flex flex-wrap gap-4 mt-2 ml-16">
-        <div :for={item <- @legend} class="flex items-center gap-1.5 text-sm">
-          <span class="inline-block w-3 h-3 rounded-sm" style={"background:#{item.color}"}></span>
-          <span class="text-base-content/70">{item.model}</span>
-          <span class="text-base-content/30 text-xs">(solid=output, faded=input)</span>
+      <%!-- Inline legend — compact, below chart with no gap --%>
+      <div :if={@legend != []} class="flex flex-wrap gap-x-3 gap-y-1 mt-1">
+        <div :for={item <- @legend} class="flex items-center gap-1">
+          <span class="inline-block w-2 h-2 rounded-sm" style={"background:#{item.color}"}></span>
+          <span class="text-base-content/40 text-[10px] font-mono">{item.model}</span>
         </div>
       </div>
-      <p :if={@legend == []} class="text-base-content/40 text-sm text-center py-8">
-        No token usage data yet. Data will appear here as agents run.
+      <p :if={@legend == []} class="text-base-content/30 text-xs text-center py-4 font-mono">
+        No data yet
       </p>
     </div>
     """
@@ -304,41 +286,31 @@ defmodule SynkadeWeb.Components.TokenChart do
 
   # --- Private ---
 
-  defp build_y_ticks(y_max, zero_y, half_h) do
-    step = nice_step(y_max)
-    above = for i <- 1..4, i * step <= y_max * 1.1, do: i * step
-    below = Enum.map(above, &(-&1))
+  # log10(n + 1) so that 0 maps to 0, and values scale logarithmically
+  defp log_scale(0), do: 0.0
+  defp log_scale(n) when n > 0, do: :math.log10(n + 1)
+  defp log_scale(n), do: -:math.log10(abs(n) + 1)
+
+  # Build y-axis ticks at powers of 10 (1K, 10K, 100K, 1M, ...)
+  defp build_y_ticks(y_max_log, zero_y, half_h) do
+    powers = [1_000, 10_000, 100_000, 1_000_000, 10_000_000]
+
+    above =
+      powers
+      |> Enum.filter(fn val -> log_scale(val) <= y_max_log * 1.05 end)
 
     above_ticks =
       Enum.map(above, fn val ->
-        y = zero_y - val / y_max * half_h
+        y = zero_y - log_scale(val) / y_max_log * half_h
         %{y: y, label: format_number(val)}
       end)
 
     below_ticks =
-      Enum.map(below, fn val ->
-        y = zero_y - val / y_max * half_h
-        %{y: y, label: format_number(abs(val))}
+      Enum.map(above, fn val ->
+        y = zero_y + log_scale(val) / y_max_log * half_h
+        %{y: y, label: format_number(val)}
       end)
 
     [%{y: zero_y, label: "0"} | above_ticks ++ below_ticks]
-  end
-
-  defp nice_step(max_val) when max_val <= 0, do: 1000
-
-  defp nice_step(max_val) do
-    raw = max_val / 4
-    mag = :math.pow(10, floor(:math.log10(raw)))
-    normalized = raw / mag
-
-    step =
-      cond do
-        normalized <= 1.5 -> 1
-        normalized <= 3.5 -> 2.5
-        normalized <= 7.5 -> 5
-        true -> 10
-      end
-
-    trunc(step * mag)
   end
 end

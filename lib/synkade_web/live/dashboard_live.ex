@@ -63,8 +63,39 @@ defmodule SynkadeWeb.DashboardLive do
       |> assign(:form_parent_id, nil)
       |> assign(:create_ancestors, [])
       |> assign_chart_data()
+      |> assign_dashboard_stats()
 
     {:ok, socket}
+  end
+
+  defp assign_dashboard_stats(socket) do
+    user_id = socket.assigns.current_scope.user.id
+
+    stats =
+      try do
+        Issues.dashboard_stats(user_id)
+      catch
+        _, _ -> %{}
+      end
+
+    activity =
+      try do
+        Issues.recent_activity(user_id, 8)
+      catch
+        _, _ -> []
+      end
+
+    completed =
+      try do
+        Issues.completed_count(user_id)
+      catch
+        _, _ -> 0
+      end
+
+    socket
+    |> assign(:issue_stats, stats)
+    |> assign(:recent_activity, activity)
+    |> assign(:completed_count, completed)
   end
 
   @impl true
@@ -113,12 +144,14 @@ defmodule SynkadeWeb.DashboardLive do
       |> assign(:projects, state.projects)
       |> assign(:config_error, state.config_error)
 
-    # Only re-query chart data on overview (chart not shown on project pages)
+    # Only re-query chart/stats on overview (not shown on project pages)
     socket =
       if socket.assigns.current_project do
         socket
       else
-        assign_chart_data(socket)
+        socket
+        |> assign_chart_data()
+        |> assign_dashboard_stats()
       end
 
     # Re-categorize board issues if on a project page
@@ -168,7 +201,9 @@ defmodule SynkadeWeb.DashboardLive do
 
     socket =
       if !socket.assigns.current_project do
-        assign_chart_data(socket)
+        socket
+        |> assign_chart_data()
+        |> assign_dashboard_stats()
       else
         socket
       end
@@ -802,6 +837,21 @@ defmodule SynkadeWeb.DashboardLive do
 
   defp draggable?(col_id), do: col_id in ["backlog", "queue"]
 
+  defp running_project_count(running, project_name) do
+    Enum.count(running, fn {_k, e} -> e.project_name == project_name end)
+  end
+
+  defp activity_badge_class(state) do
+    case state do
+      "done" -> "badge-success"
+      "in_progress" -> "badge-info"
+      "queued" -> "badge-warning"
+      "awaiting_review" -> "badge-accent"
+      "cancelled" -> "badge-error"
+      _ -> "badge-ghost"
+    end
+  end
+
   # --- Render ---
 
   @impl true
@@ -885,18 +935,23 @@ defmodule SynkadeWeb.DashboardLive do
             />
 
           <% true -> %>
-          <div class="flex items-center justify-between mb-4">
-            <h1 class="text-2xl font-bold">
-              {if @current_project, do: @current_project, else: "Overview"}
-            </h1>
+          <div class="flex items-center justify-between mb-6">
+            <div>
+              <h1 class="text-2xl font-bold">
+                {if @current_project, do: @current_project, else: "Dashboard"}
+              </h1>
+              <p :if={!@current_project} class="text-sm text-base-content/50 mt-0.5">
+                {@current_scope.user.email}
+              </p>
+            </div>
             <div class="flex items-center gap-3">
-              <button phx-click="refresh" class="btn btn-sm btn-primary">
+              <button phx-click="refresh" class="btn btn-sm btn-ghost">
                 <span
                   :if={@current_project && @board_loading}
                   class="loading loading-spinner loading-xs"
                 >
                 </span>
-                Refresh
+                <.icon name="hero-arrow-path" class="size-4" />
               </button>
             </div>
           </div>
@@ -975,36 +1030,132 @@ defmodule SynkadeWeb.DashboardLive do
             </div>
 
           <% else %>
-            <%!-- Overview: Status Cards + Token Usage Chart --%>
-            <div class="grid grid-cols-3 gap-4 mb-4">
-              <div class="card bg-base-200 border border-base-300 p-3">
-                <div class="flex items-center gap-2">
-                  <span class="loading loading-spinner loading-sm text-info"></span>
-                  <span class="text-sm">{map_size(@filtered_running)} running</span>
+            <%!-- Bento Dashboard --%>
+            <div class="grid grid-cols-4 grid-rows-[auto] gap-4">
+              <%!-- Row 1: Stats tiles --%>
+              <div class="card bg-base-200 border border-base-300 p-5 flex flex-col justify-between">
+                <span class="ops-label text-xs text-base-content/50 mb-2">Active Agents</span>
+                <div class="flex items-end gap-2">
+                  <span class="text-4xl font-bold tabular-nums">{map_size(@filtered_running)}</span>
+                  <span
+                    :if={map_size(@filtered_running) > 0}
+                    class="loading loading-ring loading-sm text-primary mb-1"
+                  >
+                  </span>
                 </div>
+                <span
+                  :if={map_size(@filtered_retries) > 0}
+                  class="badge badge-error badge-sm mt-2"
+                >
+                  {map_size(@filtered_retries)} retrying
+                </span>
               </div>
-              <div class="card bg-base-200 border border-base-300 p-3">
-                <div class="flex items-center gap-2">
-                  <span class="badge badge-error badge-xs">retry</span>
-                  <span class="text-sm">{map_size(@filtered_retries)} retry</span>
-                </div>
-              </div>
-              <div class="card bg-base-200 border border-base-300 p-3">
-                <div class="flex items-center gap-2">
-                  <span class="hero-arrow-uturn-down size-4 text-warning"></span>
-                  <span class="text-sm">{map_size(@filtered_awaiting)} review</span>
-                </div>
-              </div>
-            </div>
 
-            <div class="card bg-base-200 border border-base-300 p-4">
-              <h2 class="text-lg font-semibold mb-3">Token Usage — Last 30 Days</h2>
-              <.token_chart
-                days={@chart_days}
-                models={@chart_models}
-                y_max={@chart_y_max}
-                dates={@chart_dates}
-              />
+              <div class="card bg-base-200 border border-base-300 p-5 flex flex-col justify-between">
+                <span class="ops-label text-xs text-base-content/50 mb-2">Completed</span>
+                <span class="text-4xl font-bold tabular-nums text-success">{@completed_count}</span>
+                <span class="text-xs text-base-content/40 mt-2">issues done</span>
+              </div>
+
+              <div class="card bg-base-200 border border-base-300 p-5 flex flex-col justify-between">
+                <span class="ops-label text-xs text-base-content/50 mb-2">In Progress</span>
+                <span class="text-4xl font-bold tabular-nums text-info">
+                  {Map.get(@issue_stats, "in_progress", 0)}
+                </span>
+                <span class="text-xs text-base-content/40 mt-2">
+                  {Map.get(@issue_stats, "queued", 0)} queued
+                </span>
+              </div>
+
+              <div class="card bg-base-200 border border-base-300 p-5 flex flex-col justify-between">
+                <span class="ops-label text-xs text-base-content/50 mb-2">Backlog</span>
+                <span class="text-4xl font-bold tabular-nums">
+                  {Map.get(@issue_stats, "backlog", 0)}
+                </span>
+                <span class="text-xs text-base-content/40 mt-2">
+                  {Map.get(@issue_stats, "awaiting_review", 0)} awaiting review
+                </span>
+              </div>
+
+              <%!-- Row 2: Token chart (wide) + Projects --%>
+              <div class="card bg-base-200 border border-base-300 p-5 col-span-3 row-span-2">
+                <h2 class="ops-label text-xs text-base-content/50 mb-4">Token Usage — Past Week</h2>
+                <.token_chart
+                  days={@chart_days}
+                  models={@chart_models}
+                  y_max={@chart_y_max}
+                  dates={@chart_dates}
+                />
+              </div>
+
+              <div class="card bg-base-200 border border-base-300 p-5 row-span-2 flex flex-col">
+                <h2 class="ops-label text-xs text-base-content/50 mb-4">Projects</h2>
+                <div class="flex flex-col gap-2 flex-1 overflow-y-auto">
+                  <.link
+                    :for={{name, _project} <- @projects}
+                    patch={"/?project=#{name}"}
+                    class="flex items-center justify-between p-3 rounded-lg bg-base-300/50 hover:bg-base-300 transition-colors group"
+                  >
+                    <div class="flex items-center gap-2 min-w-0">
+                      <span class="inline-block w-2 h-2 rounded-full bg-primary shrink-0"></span>
+                      <span class="text-sm truncate">{name}</span>
+                    </div>
+                    <div class="flex items-center gap-1">
+                      <span
+                        :if={running_project_count(@filtered_running, name) > 0}
+                        class="badge badge-primary badge-xs"
+                      >
+                        {running_project_count(@filtered_running, name)}
+                      </span>
+                      <.icon name="hero-chevron-right" class="size-3 text-base-content/30 group-hover:text-base-content/60" />
+                    </div>
+                  </.link>
+                  <p
+                    :if={map_size(@projects) == 0}
+                    class="text-sm text-base-content/40 text-center py-4"
+                  >
+                    No projects yet
+                  </p>
+                </div>
+              </div>
+
+              <%!-- Row 3: Recent Activity (full width) --%>
+              <div class="card bg-base-200 border border-base-300 p-5 col-span-4">
+                <h2 class="ops-label text-xs text-base-content/50 mb-4">Recent Activity</h2>
+                <div class="divide-y divide-base-300">
+                  <div
+                    :for={issue <- @recent_activity}
+                    class="flex items-center gap-4 py-3 first:pt-0 last:pb-0"
+                  >
+                    <span class={[
+                      "badge badge-sm shrink-0",
+                      activity_badge_class(issue.state)
+                    ]}>
+                      {issue.state |> String.replace("_", " ")}
+                    </span>
+                    <div class="flex-1 min-w-0">
+                      <.link
+                        navigate={"/issues/#{issue.id}"}
+                        class="text-sm hover:underline truncate block"
+                      >
+                        {Synkade.Issues.Issue.title(issue)}
+                      </.link>
+                      <span class="text-xs text-base-content/40">
+                        {issue.project.name}
+                      </span>
+                    </div>
+                    <span class="text-xs text-base-content/40 shrink-0 tabular-nums">
+                      {format_relative_time(issue.updated_at)}
+                    </span>
+                  </div>
+                  <p
+                    :if={@recent_activity == []}
+                    class="text-sm text-base-content/40 text-center py-4"
+                  >
+                    No activity yet. Issues will appear here as work progresses.
+                  </p>
+                </div>
+              </div>
             </div>
           <% end %>
         <% end %>
