@@ -70,7 +70,8 @@ defmodule Synkade.MixProject do
       {:gettext, "~> 1.0"},
       {:jason, "~> 1.2"},
       {:bandit, "~> 1.5"},
-      {:sprites, git: "https://github.com/superfly/sprites-ex.git", optional: true}
+      {:sprites, git: "https://github.com/superfly/sprites-ex.git", optional: true},
+      {:mdex, "~> 0.6"}
     ]
   end
 

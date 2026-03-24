@@ -33,6 +33,7 @@ defmodule SynkadeWeb.Router do
       on_mount: [{SynkadeWeb.UserAuth, :require_authenticated}] do
       live "/", DashboardLive
       live "/issues", IssuesLive
+      live "/issues/:id", IdeLive
       live "/settings", SettingsLive
       live "/projects", ProjectsLive
     end

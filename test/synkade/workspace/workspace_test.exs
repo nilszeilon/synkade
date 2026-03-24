@@ -109,6 +109,71 @@ defmodule Synkade.Workspace.WorkspaceTest do
 
       refute File.dir?(Path.join(dir, "api/issue_2"))
     end
+
+    @tag :tmp_dir
+    test "creates git worktree when repo is configured", %{tmp_dir: dir} do
+      # Set up a local "remote" repo to clone from
+      origin = Path.join(dir, "origin_repo")
+      File.mkdir_p!(origin)
+      System.cmd("git", ["init", "-b", "main"], cd: origin)
+      System.cmd("git", ["config", "user.email", "test@test.com"], cd: origin)
+      System.cmd("git", ["config", "user.name", "Test"], cd: origin)
+      File.write!(Path.join(origin, "README.md"), "# Hello\n")
+      System.cmd("git", ["add", "."], cd: origin)
+      System.cmd("git", ["commit", "-m", "init"], cd: origin)
+
+      ws_root = Path.join(dir, "workspaces")
+      File.mkdir_p!(ws_root)
+
+      config = %{
+        "workspace" => %{"root" => ws_root},
+        "tracker" => %{"repo" => origin}
+      }
+
+      assert {:ok, ws} = Manager.ensure_workspace(config, "myapp", "myapp#abc12345")
+      assert File.dir?(ws.path)
+      # Should have the cloned file
+      assert File.exists?(Path.join(ws.path, "README.md"))
+      # Should be on a synkade/* branch
+      {branch, 0} = System.cmd("git", ["branch", "--show-current"], cd: ws.path)
+      assert String.trim(branch) =~ "synkade/"
+      # Main repo should exist separately
+      main_repo = Manager.main_repo_path(ws_root, "myapp")
+      assert File.dir?(Path.join(main_repo, ".git"))
+    end
+
+    @tag :tmp_dir
+    test "second issue gets its own worktree from same repo", %{tmp_dir: dir} do
+      origin = Path.join(dir, "origin_repo")
+      File.mkdir_p!(origin)
+      System.cmd("git", ["init", "-b", "main"], cd: origin)
+      System.cmd("git", ["config", "user.email", "test@test.com"], cd: origin)
+      System.cmd("git", ["config", "user.name", "Test"], cd: origin)
+      File.write!(Path.join(origin, "README.md"), "# Hello\n")
+      System.cmd("git", ["add", "."], cd: origin)
+      System.cmd("git", ["commit", "-m", "init"], cd: origin)
+
+      ws_root = Path.join(dir, "workspaces")
+      File.mkdir_p!(ws_root)
+
+      config = %{
+        "workspace" => %{"root" => ws_root},
+        "tracker" => %{"repo" => origin}
+      }
+
+      assert {:ok, ws1} = Manager.ensure_workspace(config, "myapp", "myapp#issue1")
+      assert {:ok, ws2} = Manager.ensure_workspace(config, "myapp", "myapp#issue2")
+
+      # Different paths
+      assert ws1.path != ws2.path
+      # Both have the file
+      assert File.exists?(Path.join(ws1.path, "README.md"))
+      assert File.exists?(Path.join(ws2.path, "README.md"))
+      # Different branches
+      {b1, 0} = System.cmd("git", ["branch", "--show-current"], cd: ws1.path)
+      {b2, 0} = System.cmd("git", ["branch", "--show-current"], cd: ws2.path)
+      assert String.trim(b1) != String.trim(b2)
+    end
   end
 
 end

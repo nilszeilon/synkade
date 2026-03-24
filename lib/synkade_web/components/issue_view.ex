@@ -25,7 +25,7 @@ defmodule SynkadeWeb.Components.IssueView do
 
     ~H"""
     <div class="max-w-4xl mx-auto">
-      <div class="mb-4">
+      <div class="mb-4 flex items-center gap-2">
         <.link patch={@back_path} class="btn btn-ghost btn-sm gap-1">
           <.icon name="hero-arrow-left" class="size-4" />
           {@back_label}

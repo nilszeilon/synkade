@@ -110,11 +110,209 @@ const AutoScroll = {
   },
 }
 
+const ResizableSplit = {
+  mounted() {
+    const container = this.el
+    const handle = container.querySelector("#ide-drag")
+    const left = container.querySelector("#ide-left")
+    const right = container.querySelector("#ide-right")
+    if (!handle || !left || !right) return
+
+    let dragging = false
+
+    handle.addEventListener("mousedown", (e) => {
+      e.preventDefault()
+      dragging = true
+      document.body.style.cursor = "col-resize"
+      document.body.style.userSelect = "none"
+    })
+
+    document.addEventListener("mousemove", (e) => {
+      if (!dragging) return
+      const rect = container.getBoundingClientRect()
+      const offset = e.clientX - rect.left
+      const total = rect.width
+      const handleWidth = 4
+      const minLeft = 200
+      const minRight = 150
+      const rightWidth = Math.max(minRight, Math.min(total - minLeft - handleWidth, total - offset))
+      const leftWidth = total - rightWidth - handleWidth
+
+      if (leftWidth >= minLeft && rightWidth >= minRight) {
+        left.style.flex = "none"
+        left.style.width = leftWidth + "px"
+        right.style.width = rightWidth + "px"
+      }
+    })
+
+    document.addEventListener("mouseup", () => {
+      if (!dragging) return
+      dragging = false
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+    })
+  },
+}
+
+const DiffComment = {
+  mounted() {
+    let dragStart = null
+    let dragEnd = null
+    let dragging = false
+
+    const allLines = () => Array.from(this.el.querySelectorAll("[id^='diff-line-']"))
+
+    const lineNumber = (el) => {
+      const btn = el.querySelector(".diff-line-btn")
+      return btn ? btn.dataset.line : null
+    }
+
+    const clearHighlight = () => {
+      allLines().forEach((l) => l.classList.remove("!bg-primary/20"))
+    }
+
+    const highlightRange = (startEl, endEl) => {
+      clearHighlight()
+      const lines = allLines()
+      const si = lines.indexOf(startEl)
+      const ei = lines.indexOf(endEl)
+      if (si < 0 || ei < 0) return
+      const [from, to] = si <= ei ? [si, ei] : [ei, si]
+      for (let i = from; i <= to; i++) {
+        lines[i].classList.add("!bg-primary/20")
+      }
+    }
+
+    this.el.addEventListener("mousedown", (e) => {
+      const btn = e.target.closest(".diff-line-btn")
+      if (!btn) return
+      e.preventDefault()
+
+      // Remove any existing comment input
+      const existing = this.el.querySelector(".diff-comment-input")
+      if (existing) existing.remove()
+      clearHighlight()
+
+      const lineDiv = btn.closest("[id^='diff-line-']")
+      if (!lineDiv) return
+
+      dragStart = lineDiv
+      dragEnd = lineDiv
+      dragging = true
+      highlightRange(dragStart, dragEnd)
+    })
+
+    this.el.addEventListener("mousemove", (e) => {
+      if (!dragging) return
+      const lineDiv = e.target.closest("[id^='diff-line-']")
+      if (!lineDiv || !lineNumber(lineDiv)) return
+      dragEnd = lineDiv
+      highlightRange(dragStart, dragEnd)
+    })
+
+    const finishDrag = () => {
+      if (!dragging || !dragStart) return
+      dragging = false
+
+      const lines = allLines()
+      const si = lines.indexOf(dragStart)
+      const ei = lines.indexOf(dragEnd)
+      const [from, to] = si <= ei ? [si, ei] : [ei, si]
+
+      const startLine = lineNumber(lines[from])
+      const endLine = lineNumber(lines[to])
+      const file = lines[from].querySelector(".diff-line-btn")?.dataset.file
+      const lastLineDiv = lines[to]
+      if (!file || !startLine) { clearHighlight(); return }
+
+      const lineLabel = startLine === endLine ? startLine : `${startLine}-${endLine}`
+
+      // Create inline comment form
+      const form = document.createElement("div")
+      form.className = "diff-comment-input flex gap-2 px-3 py-2 bg-base-200 border-y border-base-300"
+      form.innerHTML = `
+        <input type="text" placeholder="Add comment for ${file}:${lineLabel}..."
+          class="input input-xs input-bordered flex-1 font-mono text-xs" autofocus />
+        <button class="btn btn-xs btn-primary">Send</button>
+        <button class="btn btn-xs btn-ghost diff-comment-cancel">Cancel</button>
+      `
+      lastLineDiv.after(form)
+
+      const input = form.querySelector("input")
+      input.focus()
+
+      const submit = () => {
+        const text = input.value.trim()
+        if (text) {
+          this.pushEvent("comment_line", { file, line: lineLabel, text })
+        }
+        form.remove()
+        clearHighlight()
+      }
+
+      form.querySelector(".btn-primary").addEventListener("click", submit)
+      input.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") submit()
+        if (ev.key === "Escape") { form.remove(); clearHighlight() }
+      })
+      form.querySelector(".diff-comment-cancel").addEventListener("click", () => { form.remove(); clearHighlight() })
+    }
+
+    this.el.addEventListener("mouseup", finishDrag)
+  },
+}
+
+const SubmitOnEnter = {
+  mounted() {
+    this.el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault()
+        this.el.closest("form").dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+      }
+    })
+    this.handleEvent("clear_input", () => {
+      this.el.value = ""
+    })
+  },
+}
+
+const DropZone = {
+  mounted() {
+    const overlay = this.el.querySelector("[data-drop-overlay]")
+    if (!overlay) return
+
+    let dragCounter = 0
+
+    this.el.addEventListener("dragenter", (e) => {
+      e.preventDefault()
+      dragCounter++
+      overlay.classList.remove("hidden")
+    })
+
+    this.el.addEventListener("dragleave", (e) => {
+      dragCounter--
+      if (dragCounter <= 0) {
+        dragCounter = 0
+        overlay.classList.add("hidden")
+      }
+    })
+
+    this.el.addEventListener("dragover", (e) => {
+      e.preventDefault()
+    })
+
+    this.el.addEventListener("drop", () => {
+      dragCounter = 0
+      overlay.classList.add("hidden")
+    })
+  },
+}
+
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, KanbanDrag, AutoScroll},
+  hooks: {...colocatedHooks, KanbanDrag, AutoScroll, DiffComment, ResizableSplit, DropZone, SubmitOnEnter},
 })
 
 // Clipboard copy handler for phx:copy events

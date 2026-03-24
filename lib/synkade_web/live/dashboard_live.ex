@@ -75,7 +75,9 @@ defmodule SynkadeWeb.DashboardLive do
     socket =
       cond do
         params["issue"] ->
-          load_issue_detail(socket, params["issue"], :board)
+          socket
+          |> assign(:view_mode, :board)
+          |> push_navigate(to: "/issues/#{params["issue"]}")
 
         params["new"] == "true" ->
           init_create_view(socket, params, fn s ->
@@ -354,9 +356,7 @@ defmodule SynkadeWeb.DashboardLive do
 
   @impl true
   def handle_event("select_issue", %{"id" => issue_id}, socket) do
-    project_name = socket.assigns.current_project
-    path = dashboard_path(project_name, issue_id)
-    {:noreply, push_patch(socket, to: path)}
+    {:noreply, push_navigate(socket, to: "/issues/#{issue_id}")}
   end
 
   @impl true
