@@ -25,6 +25,8 @@ defmodule SynkadeWeb.Layouts do
   attr :flash, :map, required: true, doc: "the map of flash messages"
   attr :projects, :map, default: %{}, doc: "project map from orchestrator"
   attr :running, :map, default: %{}, doc: "running entries for count badges"
+  attr :sidebar_issues, :map, default: %{}, doc: "issues grouped by project_id"
+  attr :sidebar_diff_stats, :map, default: %{}, doc: "issue_id => {adds, dels}"
   attr :active_tab, :atom, default: :dashboard, doc: ":dashboard or :settings"
   attr :current_project, :string, default: nil, doc: "selected project name"
 
@@ -36,8 +38,8 @@ defmodule SynkadeWeb.Layouts do
 
   def app(assigns) do
     ~H"""
-    <div class="flex min-h-screen">
-      <aside class="w-56 h-screen fixed bg-base-300 flex flex-col border-r border-base-300">
+    <div id="app-layout" class="flex min-h-screen" phx-hook="ResizableSidebar">
+      <aside id="sidebar" class="h-screen fixed bg-base-300 flex flex-col border-r border-base-300" style="width: var(--sidebar-w, 14rem); min-width: 180px; max-width: 400px;">
         <%!-- Logo --%>
         <div class="border-b border-base-300">
           <a href="/" class="relative flex items-center justify-center">
@@ -81,25 +83,83 @@ defmodule SynkadeWeb.Layouts do
           <div class="px-3 mb-1">
             <span class="ops-label text-primary/70">Projects</span>
           </div>
-          <ul class="menu menu-sm">
-            <li :for={{name, _project} <- @projects}>
-              <.link
-                patch={"/?project=#{name}"}
-                class={[@current_project == name && "active"]}
+          <div :if={map_size(@projects) == 0} class="px-3 text-base-content/30 text-xs">
+            No projects loaded
+          </div>
+          <div :for={{name, project} <- @projects} class="group/proj space-y-0.5 mt-0.5">
+            <%!-- Project header --%>
+            <div class={[
+              "flex items-center gap-1 px-3 h-8 cursor-pointer rounded-lg mx-1 hover:bg-base-200/50",
+              @current_project == name && "bg-base-200"
+            ]}
+              phx-click={JS.toggle_class("hidden", to: "#project-issues-#{project.db_id}")}
+            >
+              <.icon
+                name="hero-chevron-right"
+                class="size-3 shrink-0 opacity-0 group-hover/proj:opacity-100 transition-transform"
+              />
+              <.link patch={"/?project=#{name}"} class="flex-1 min-w-0 truncate text-xs font-medium">
+                {name}
+              </.link>
+              <span
+                :if={running_count(@running, name) > 0}
+                class="badge badge-xs badge-primary shrink-0"
               >
-                <span class="truncate text-xs">{name}</span>
-                <span
-                  :if={running_count(@running, name) > 0}
-                  class="badge badge-sm badge-primary"
+                {running_count(@running, name)}
+              </span>
+              <span class="hidden group-hover/proj:inline-flex items-center gap-0.5 shrink-0">
+                <.link
+                  navigate="/projects"
+                  class="hover:text-primary"
+                  title="Project settings"
                 >
-                  {running_count(@running, name)}
+                  <.icon name="hero-cog-6-tooth" class="size-3" />
+                </.link>
+                <.link
+                  patch={"/?project=#{name}&new=true&from_tracker=true"}
+                  class="hover:text-primary"
+                  title="Create from issue"
+                >
+                  <.icon name="hero-link" class="size-3" />
+                </.link>
+                <.link
+                  navigate={"/chat/#{name}"}
+                  class="hover:text-primary"
+                  title="New chat"
+                >
+                  <.icon name="hero-plus" class="size-3" />
+                </.link>
+              </span>
+            </div>
+            <%!-- Issues list --%>
+            <div id={"project-issues-#{project.db_id}"} class={["space-y-0.5", @current_project != name && "hidden"]}>
+              <.link
+                :for={issue <- Map.get(@sidebar_issues, project.db_id, [])}
+                navigate={"/issues/#{issue.id}"}
+                class="flex items-center gap-1.5 px-3 h-8 mx-1 rounded-lg hover:bg-base-200/50 min-w-0"
+              >
+                <span class={"w-1.5 h-1.5 rounded-full shrink-0 #{sidebar_state_color(issue.state)}"}>
+                </span>
+                <span class="truncate text-xs flex-1">
+                  {Synkade.Issues.Issue.title(issue)}
+                </span>
+                <% {adds, dels} = Map.get(@sidebar_diff_stats, issue.id, {0, 0}) %>
+                <span
+                  :if={adds > 0 || dels > 0}
+                  class="shrink-0 flex items-center gap-0.5 text-[10px] font-mono"
+                >
+                  <span :if={adds > 0} class="text-success">+{adds}</span>
+                  <span :if={dels > 0} class="text-error">-{dels}</span>
                 </span>
               </.link>
-            </li>
-            <li :if={map_size(@projects) == 0}>
-              <span class="text-base-content/30 text-xs">No projects loaded</span>
-            </li>
-          </ul>
+              <div
+                :if={Map.get(@sidebar_issues, project.db_id, []) == []}
+                class="px-3 py-1.5 text-base-content/30 text-xs"
+              >
+                No active issues
+              </div>
+            </div>
+          </div>
         </nav>
 
         <%!-- Bottom section --%>
@@ -135,7 +195,9 @@ defmodule SynkadeWeb.Layouts do
         </div>
       </aside>
 
-      <main class="ml-56 flex-1 overflow-y-auto min-h-screen">
+      <div id="sidebar-drag" class="fixed top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors z-50 before:content-[''] before:absolute before:inset-y-0 before:-left-1 before:w-3" style="left: var(--sidebar-w, 14rem);"></div>
+
+      <main id="main-content" class="flex-1 overflow-y-auto min-h-screen" style="margin-left: var(--sidebar-w, 14rem);">
         <.flash_group flash={@flash} />
         {render_slot(@inner_block)}
       </main>
@@ -146,6 +208,12 @@ defmodule SynkadeWeb.Layouts do
   defp running_count(running, project_name) do
     Enum.count(running, fn {_key, entry} -> entry.project_name == project_name end)
   end
+
+  defp sidebar_state_color("in_progress"), do: "bg-info"
+  defp sidebar_state_color("queued"), do: "bg-warning"
+  defp sidebar_state_color("awaiting_review"), do: "bg-accent"
+  defp sidebar_state_color("backlog"), do: "bg-base-content/30"
+  defp sidebar_state_color(_), do: "bg-base-content/20"
 
   @doc """
   Shows the flash group with standard titles and content.

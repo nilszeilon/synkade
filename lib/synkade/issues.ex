@@ -19,6 +19,18 @@ defmodule Synkade.Issues do
     "cancelled" => ~w(backlog)
   }
 
+  @doc "Returns active (non-done, non-cancelled) issues grouped by project_id for a user."
+  def list_active_by_user(user_id) do
+    from(i in Issue,
+      join: p in Project,
+      on: i.project_id == p.id,
+      where: p.user_id == ^user_id and i.state not in ["done", "cancelled"],
+      order_by: [asc: i.position, asc: i.inserted_at]
+    )
+    |> Repo.all()
+    |> Enum.group_by(& &1.project_id)
+  end
+
   # --- CRUD ---
 
   def list_issues(project_id, opts \\ []) do

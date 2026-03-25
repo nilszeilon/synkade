@@ -15,6 +15,7 @@ defmodule SynkadeWeb.SettingsLive do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic(scope))
       Phoenix.PubSub.subscribe(Synkade.PubSub, Jobs.pubsub_topic(scope))
+      Phoenix.PubSub.subscribe(Synkade.PubSub, Synkade.Issues.pubsub_topic(scope.user.id))
     end
 
     setting = Settings.get_settings(scope)
@@ -30,6 +31,7 @@ defmodule SynkadeWeb.SettingsLive do
      |> assign(:current_project, nil)
      |> assign(:projects, orc_state.projects)
      |> assign(:running, orc_state.running)
+     |> SynkadeWeb.Sidebar.assign_sidebar(scope)
      |> assign(:active_tab, "github")
      |> assign(:current_theme, current_theme)
      |> assign(:connection_status, nil)
@@ -394,6 +396,12 @@ defmodule SynkadeWeb.SettingsLive do
   end
 
   @impl true
+  def handle_info({:issues_updated}, socket) do
+    {:noreply,
+     SynkadeWeb.Sidebar.assign_sidebar(socket, socket.assigns.current_scope)}
+  end
+
+  @impl true
   def handle_info({:connection_result, result}, socket) do
     status =
       case result do
@@ -411,6 +419,8 @@ defmodule SynkadeWeb.SettingsLive do
       flash={@flash}
       projects={@projects}
       running={@running}
+      sidebar_issues={@sidebar_issues}
+      sidebar_diff_stats={@sidebar_diff_stats}
       active_tab={@nav_active_tab}
       current_project={@current_project}
       current_scope={@current_scope}
