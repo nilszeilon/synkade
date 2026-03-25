@@ -80,8 +80,11 @@ defmodule SynkadeWeb.Layouts do
 
           <div class="divider my-1 px-2 before:bg-base-300 after:bg-base-300"></div>
 
-          <div class="px-3 mb-1">
+          <div class="group/projects-header px-3 mb-1 flex items-center justify-between">
             <span class="ops-label text-primary/70">Projects</span>
+            <.link navigate="/projects" class="hidden group-hover/projects-header:inline-flex hover:text-primary" title="Add project">
+              <.icon name="hero-plus" class="size-3" />
+            </.link>
           </div>
           <div :if={map_size(@projects) == 0} class="px-3 text-base-content/30 text-xs">
             No projects loaded
