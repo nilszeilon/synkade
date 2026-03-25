@@ -168,6 +168,74 @@ defmodule Synkade.Tracker.GitHub do
     end
   end
 
+  @doc """
+  Find an open PR for the given branch. Returns PR info or nil.
+  """
+  def fetch_pr_for_branch(config, branch) do
+    repo = Config.get(config, "tracker", "repo")
+    endpoint = Config.get(config, "tracker", "endpoint") || "https://api.github.com"
+    url = "#{endpoint}/repos/#{repo}/pulls"
+
+    case req_get(url, [state: "open", head: "#{repo_owner(repo)}:#{branch}", per_page: 1], config) do
+      {:ok, %{status: 200, body: [pr | _]}} ->
+        {:ok,
+         %{
+           number: pr["number"],
+           title: pr["title"],
+           url: pr["html_url"],
+           state: pr["state"],
+           mergeable: pr["mergeable"],
+           draft: pr["draft"] || false
+         }}
+
+      {:ok, %{status: 200, body: []}} ->
+        {:ok, nil}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, "GitHub API error #{status}: #{inspect(body)}"}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Fetch combined commit status + check runs for a PR's head SHA.
+  Returns :success, :failure, :pending, or :unknown.
+  """
+  def fetch_pr_checks(config, pr_number) do
+    repo = Config.get(config, "tracker", "repo")
+    endpoint = Config.get(config, "tracker", "endpoint") || "https://api.github.com"
+
+    # First get PR to find head SHA
+    pr_url = "#{endpoint}/repos/#{repo}/pulls/#{pr_number}"
+
+    with {:ok, %{status: 200, body: pr}} <- req_get(pr_url, [], config) do
+      sha = pr["head"]["sha"]
+      status_url = "#{endpoint}/repos/#{repo}/commits/#{sha}/status"
+
+      case req_get(status_url, [], config) do
+        {:ok, %{status: 200, body: body}} ->
+          {:ok, normalize_check_state(body["state"])}
+
+        _ ->
+          {:ok, :unknown}
+      end
+    else
+      _ -> {:ok, :unknown}
+    end
+  end
+
+  defp repo_owner(repo) do
+    repo |> String.split("/") |> List.first()
+  end
+
+  defp normalize_check_state("success"), do: :success
+  defp normalize_check_state("failure"), do: :failure
+  defp normalize_check_state("error"), do: :failure
+  defp normalize_check_state("pending"), do: :pending
+  defp normalize_check_state(_), do: :unknown
+
   # --- Private ---
 
   defp fetch_all_pages(url, params, config, acc \\ []) do

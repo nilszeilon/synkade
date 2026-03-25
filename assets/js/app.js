@@ -151,9 +151,7 @@ const ResizableSplit = {
   mounted() {
     const container = this.el
     const handle = container.querySelector("#ide-drag")
-    const left = container.querySelector("#ide-left")
-    const right = container.querySelector("#ide-right")
-    if (!handle || !left || !right) return
+    if (!handle) return
 
     let dragging = false
 
@@ -176,9 +174,7 @@ const ResizableSplit = {
       const leftWidth = total - rightWidth - handleWidth
 
       if (leftWidth >= minLeft && rightWidth >= minRight) {
-        left.style.flex = "none"
-        left.style.width = leftWidth + "px"
-        right.style.width = rightWidth + "px"
+        container.style.setProperty("--split-right-w", rightWidth + "px")
       }
     })
 

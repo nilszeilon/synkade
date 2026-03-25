@@ -52,6 +52,27 @@ defmodule Synkade.Workspace.Git do
   end
 
   @doc """
+  Returns the number of commits the current branch is ahead of the base branch.
+  Returns 0 on error or if not a git repo.
+  """
+  @spec commits_ahead(String.t(), String.t()) :: non_neg_integer()
+  def commits_ahead(path, base_ref) do
+    case System.cmd("git", ["rev-list", "--count", "#{base_ref}..HEAD"],
+           cd: path,
+           stderr_to_stdout: true
+         ) do
+      {output, 0} ->
+        case Integer.parse(String.trim(output)) do
+          {n, _} -> n
+          :error -> 0
+        end
+
+      _ ->
+        0
+    end
+  end
+
+  @doc """
   Returns a list of changed files compared to the base branch.
   Includes both committed changes on the branch AND uncommitted working tree changes.
   Each entry is a map: `%{status: "M", file: "path/to/file.ex", additions: 10, deletions: 3}`.
