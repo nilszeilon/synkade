@@ -154,8 +154,7 @@ defmodule SynkadeWeb.ProjectsLive do
 
   @impl true
   def handle_info({:issues_updated}, socket) do
-    {:noreply,
-     SynkadeWeb.Sidebar.assign_sidebar(socket, socket.assigns.current_scope)}
+    {:noreply, SynkadeWeb.Sidebar.assign_sidebar(socket, socket.assigns.current_scope)}
   end
 
   @impl true
@@ -183,10 +182,17 @@ defmodule SynkadeWeb.ProjectsLive do
     >
       <div class="max-w-4xl mx-auto px-6 py-6">
         <div class="flex items-center justify-between mb-6">
-          <h1 class="text-2xl font-bold">Projects</h1>
-          <button :if={@editing == nil} phx-click="new" class="btn btn-primary btn-sm">
-            New Project
-          </button>
+          <h1 class="text-2xl font-bold flex items-center gap-2">
+            Projects
+            <button
+              :if={@editing == nil}
+              phx-click="new"
+              class="btn btn-circle btn-ghost btn-sm"
+              title="New Project"
+            >
+              <.icon name="hero-plus" class="size-5" />
+            </button>
+          </h1>
         </div>
 
         <%= if @editing do %>
