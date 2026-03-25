@@ -84,7 +84,7 @@ defmodule SynkadeWeb.IdeLive do
         running_entry = find_running_entry(orc_state.running, issue.id)
 
         {session_events, session_id, session_subscribed} =
-          if issue.state == "in_progress" and running_entry do
+          if issue.state == "in_progress" && running_entry do
             if connected?(socket) do
               Phoenix.PubSub.subscribe(Synkade.PubSub, "agent_events:#{issue.id}")
             end
@@ -169,7 +169,7 @@ defmodule SynkadeWeb.IdeLive do
 
     # If agent just started, subscribe to events
     socket =
-      if running_entry and is_nil(socket.assigns.session_subscribed) do
+      if running_entry && is_nil(socket.assigns.session_subscribed) do
         Phoenix.PubSub.subscribe(Synkade.PubSub, "agent_events:#{socket.assigns.issue.id}")
         schedule_diff_refresh()
 
@@ -182,7 +182,7 @@ defmodule SynkadeWeb.IdeLive do
 
     # If agent stopped, unsubscribe and do final diff refresh
     socket =
-      if is_nil(running_entry) and socket.assigns.session_subscribed do
+      if is_nil(running_entry) && socket.assigns.session_subscribed do
         Phoenix.PubSub.unsubscribe(
           Synkade.PubSub,
           "agent_events:#{socket.assigns.session_subscribed}"
