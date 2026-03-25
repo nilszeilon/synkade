@@ -13,7 +13,7 @@ defmodule Synkade.Issues do
   @transitions %{
     "backlog" => ~w(queued cancelled),
     "queued" => ~w(in_progress backlog cancelled),
-    "in_progress" => ~w(awaiting_review done cancelled),
+    "in_progress" => ~w(awaiting_review done cancelled backlog),
     "awaiting_review" => ~w(queued backlog done cancelled),
     "done" => ~w(backlog cancelled),
     "cancelled" => ~w(backlog)

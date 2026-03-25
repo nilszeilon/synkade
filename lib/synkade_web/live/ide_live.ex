@@ -42,6 +42,7 @@ defmodule SynkadeWeb.IdeLive do
           |> assign(:workspace_path, nil)
           |> assign(:base_branch, "HEAD")
           |> assign(:current_branch, nil)
+          |> assign(:commits_ahead, 0)
           |> assign(:changed_files, [])
           |> assign(:selected_file, nil)
           |> assign(:file_diff, [])
@@ -52,6 +53,8 @@ defmodule SynkadeWeb.IdeLive do
           |> assign(:session_events, [])
           |> assign(:session_id, nil)
           |> assign(:session_subscribed, nil)
+          |> assign(:pr_info, nil)
+          |> assign(:pr_checks, :unknown)
           |> allow_upload(:images,
             accept: ~w(.png .jpg .jpeg .gif .webp),
             max_entries: 5,
@@ -118,6 +121,7 @@ defmodule SynkadeWeb.IdeLive do
           |> assign(:workspace_path, workspace_path)
           |> assign(:base_branch, base_branch)
           |> assign(:current_branch, current_branch)
+          |> assign(:commits_ahead, load_commits_ahead(workspace_path, base_branch))
           |> assign(:changed_files, changed_files)
           |> assign(:selected_file, nil)
           |> assign(:file_diff, [])
@@ -128,11 +132,16 @@ defmodule SynkadeWeb.IdeLive do
           |> assign(:session_events, session_events)
           |> assign(:session_id, session_id)
           |> assign(:session_subscribed, session_subscribed)
+          |> assign(:pr_info, nil)
+          |> assign(:pr_checks, :unknown)
           |> allow_upload(:images,
             accept: ~w(.png .jpg .jpeg .gif .webp),
             max_entries: 5,
             max_file_size: 10_000_000
           )
+
+        # Load PR info async to avoid blocking mount
+        if current_branch, do: send(self(), :load_pr_info)
 
         {:ok, socket}
     end
@@ -190,9 +199,12 @@ defmodule SynkadeWeb.IdeLive do
 
         changed_files = load_changed_files(socket.assigns.workspace_path, socket.assigns.base_branch)
 
+        send(self(), :load_pr_info)
+
         socket
         |> assign(:session_subscribed, nil)
         |> assign(:changed_files, changed_files)
+        |> assign(:commits_ahead, load_commits_ahead(socket.assigns.workspace_path, socket.assigns.base_branch))
         |> maybe_refresh_selected_diff()
       else
         socket
@@ -236,12 +248,45 @@ defmodule SynkadeWeb.IdeLive do
     socket =
       socket
       |> assign(:changed_files, changed_files)
+      |> assign(:commits_ahead, load_commits_ahead(socket.assigns.workspace_path, socket.assigns.base_branch))
       |> maybe_refresh_selected_diff()
 
     # Continue polling if still subscribed
     if socket.assigns.session_subscribed, do: schedule_diff_refresh()
 
     {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info(:load_pr_info, socket) do
+    branch = socket.assigns.current_branch
+
+    if branch do
+      case load_tracker_config(socket) do
+        {:ok, config} ->
+          {pr_info, pr_checks} =
+            case Synkade.Tracker.GitHub.fetch_pr_for_branch(config, branch) do
+              {:ok, %{number: number} = pr} ->
+                checks =
+                  case Synkade.Tracker.GitHub.fetch_pr_checks(config, number) do
+                    {:ok, state} -> state
+                    _ -> :unknown
+                  end
+
+                {pr, checks}
+
+              _ ->
+                {nil, :unknown}
+            end
+
+          {:noreply, socket |> assign(:pr_info, pr_info) |> assign(:pr_checks, pr_checks)}
+
+        _ ->
+          {:noreply, socket}
+      end
+    else
+      {:noreply, socket}
+    end
   end
 
   @impl true
@@ -341,6 +386,40 @@ defmodule SynkadeWeb.IdeLive do
     end
   end
 
+  @impl true
+  def handle_event("create_pr", _params, socket) do
+    issue = socket.assigns.issue
+    if issue do
+      pr_instruction = "Push your changes and create a GitHub pull request for this branch. Use the issue title as the PR title and summarize the changes in the description."
+      handle_existing_dispatch(socket, pr_instruction)
+    else
+      {:noreply, put_flash(socket, :error, "No issue to create PR for")}
+    end
+  end
+
+  @impl true
+  def handle_event("merge_pr", _params, socket) do
+    pr = socket.assigns.pr_info
+    if socket.assigns.issue && pr do
+      handle_existing_dispatch(socket, "Merge the pull request ##{pr.number} on GitHub.")
+    else
+      {:noreply, put_flash(socket, :error, "No PR to merge")}
+    end
+  end
+
+  @impl true
+  def handle_event("fix_checks", _params, socket) do
+    pr = socket.assigns.pr_info
+    if socket.assigns.issue && pr do
+      handle_existing_dispatch(
+        socket,
+        "The CI pipeline is failing on PR ##{pr.number}. Fetch the failing check logs from GitHub, diagnose the failures, and push fixes."
+      )
+    else
+      {:noreply, put_flash(socket, :error, "No PR to fix")}
+    end
+  end
+
   # --- Render ---
 
   @impl true
@@ -386,7 +465,7 @@ defmodule SynkadeWeb.IdeLive do
         </div>
 
         <%!-- Main content: Left (tabs) | Right (changes list) --%>
-        <div id="ide-split" class="flex flex-1 min-h-0" phx-hook="ResizableSplit" phx-update="ignore">
+        <div id="ide-split" class="flex flex-1 min-h-0" phx-hook="ResizableSplit">
           <%!-- Left panel: tabbed content + input --%>
           <div id="ide-left" class="flex flex-col min-w-0" style="flex: 1 1 0%">
             <%!-- Tab bar --%>
@@ -512,10 +591,9 @@ defmodule SynkadeWeb.IdeLive do
                 ]}
               >
                 <div
-                  id="diff-viewer"
+                  id={"diff-viewer-#{@selected_file}"}
                   class="font-mono text-xs"
                   phx-hook="DiffComment"
-                  phx-update="ignore"
                 >
                   <div
                     :for={{line, idx} <- Enum.with_index(@file_diff)}
@@ -644,38 +722,98 @@ defmodule SynkadeWeb.IdeLive do
           <div id="ide-drag" class="w-1 flex-shrink-0 bg-base-300 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors"></div>
 
           <%!-- Right panel: Changes list --%>
-          <div id="ide-right" class="flex flex-col overflow-y-auto min-w-0 bg-base-300" style="width: 320px; flex-shrink: 0">
-            <div class="flex items-center gap-2 px-4 py-2 sticky top-0 bg-base-300 border-b border-base-300 z-10">
-              <span class="text-sm font-semibold">Changes</span>
-              <span class="badge badge-sm badge-ghost">{length(@changed_files)}</span>
+          <div id="ide-right" class="flex flex-col min-w-0 bg-base-100" style="width: var(--split-right-w, 320px); flex-shrink: 0">
+            <%!-- Top bar: PR actions --%>
+            <div :if={@issue} class="flex items-center justify-end gap-2 px-3 py-2 border-b border-base-300">
+              <%= if @pr_info do %>
+                <%!-- PR exists: show checks status + merge button --%>
+                <a href={@pr_info.url} target="_blank" class="flex items-center gap-1.5 text-xs mr-auto min-w-0">
+                  <span class={[
+                    "size-2 rounded-full flex-shrink-0",
+                    case @pr_checks do
+                      :success -> "bg-success"
+                      :failure -> "bg-error"
+                      :pending -> "bg-warning"
+                      _ -> "bg-base-content/20"
+                    end
+                  ]}></span>
+                  <span class="truncate text-base-content/60">#{@pr_info.number}</span>
+                </a>
+                <button
+                  :if={@pr_checks == :failure}
+                  phx-click="fix_checks"
+                  class="btn btn-xs btn-error btn-outline rounded-full gap-1"
+                  disabled={@issue.state == "in_progress"}
+                >
+                  Fix CI
+                </button>
+                <button
+                  phx-click="merge_pr"
+                  class="btn btn-sm btn-outline rounded-full gap-1.5"
+                  disabled={@issue.state == "in_progress" || @pr_checks == :failure}
+                >
+                  <svg class="size-3.5" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8-9a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM4.25 4a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z"></path>
+                  </svg>
+                  Merge PR
+                </button>
+              <% else %>
+                <%!-- No PR: show create button --%>
+                <button
+                  phx-click="create_pr"
+                  class="btn btn-sm btn-outline rounded-full gap-1.5"
+                  disabled={@issue.state == "in_progress"}
+                >
+                  <svg class="size-3.5" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"></path>
+                  </svg>
+                  Create PR
+                </button>
+              <% end %>
             </div>
-            <div :if={@changed_files == []} class="text-sm text-base-content/30 py-6 text-center">
-              No changes detected
+            <%!-- Tab bar --%>
+            <div class="flex items-center gap-4 px-4 border-b border-base-300">
+              <span class="py-2 text-sm font-medium border-b-2 border-primary text-base-content">
+                Changes <span class="text-base-content/40">{length(@changed_files)}</span>
+              </span>
             </div>
-            <div
-              :for={entry <- @changed_files}
-              phx-click="select_file"
-              phx-value-file={entry.file}
-              class={[
-                "flex items-center gap-2 px-4 py-2 cursor-pointer transition-colors",
-                if(@selected_file == entry.file,
-                  do: "bg-base-200",
-                  else: "hover:bg-base-200/50"
-                )
-              ]}
-            >
-              <span class="flex-1 min-w-0 text-sm font-mono truncate">
-                <span class="text-base-content/40">{file_dir(entry.file)}</span><span class="font-semibold text-base-content">{Path.basename(entry.file)}</span>
+            <%!-- Branch status --%>
+            <div :if={@current_branch} class="flex items-center gap-2 px-4 py-1.5 text-xs text-base-content/40 border-b border-base-300">
+              <span class="font-mono truncate">{@current_branch}</span>
+              <span :if={@commits_ahead > 0} class="flex-shrink-0">
+                &middot; {if @commits_ahead == 1, do: "1 commit", else: "#{@commits_ahead} commits"} ahead
               </span>
-              <span class={["text-xs font-mono flex-shrink-0", file_status_color(entry.status)]}>
-                {entry.status}
-              </span>
-              <span :if={entry.additions > 0} class="text-xs font-mono text-success flex-shrink-0">
-                +{entry.additions}
-              </span>
-              <span :if={entry.deletions > 0} class="text-xs font-mono text-error flex-shrink-0">
-                -{entry.deletions}
-              </span>
+            </div>
+            <%!-- File list --%>
+            <div class="flex-1 overflow-y-auto">
+              <div :if={@changed_files == []} class="text-sm text-base-content/30 py-8 text-center">
+                No changes detected
+              </div>
+              <div
+                :for={entry <- @changed_files}
+                phx-click="select_file"
+                phx-value-file={entry.file}
+                class={[
+                  "flex items-center gap-2 px-4 py-1.5 cursor-pointer transition-colors",
+                  if(@selected_file == entry.file,
+                    do: "bg-base-200",
+                    else: "hover:bg-base-200/50"
+                  )
+                ]}
+              >
+                <span class="flex-1 min-w-0 text-sm font-mono truncate">
+                  <span class="text-base-content/40">{file_dir(entry.file)}</span><span class="font-semibold">{Path.basename(entry.file)}</span>
+                </span>
+                <span class={["text-xs font-mono flex-shrink-0", file_status_color(entry.status)]}>
+                  {entry.status}
+                </span>
+                <span :if={entry.additions > 0} class="text-xs font-mono text-success flex-shrink-0">
+                  +{entry.additions}
+                </span>
+                <span :if={entry.deletions > 0} class="text-xs font-mono text-error flex-shrink-0">
+                  -{entry.deletions}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -699,10 +837,12 @@ defmodule SynkadeWeb.IdeLive do
     ~H"""
     <%= case @group.type do %>
       <% :tools -> %>
-        <%!-- Collapsed tool calls --%>
-        <div class="flex items-center gap-1.5 text-xs text-base-content/40">
-          <.icon name="hero-wrench-screwdriver" class="size-3" />
-          <span>{length(@group.events)} tool call{if length(@group.events) != 1, do: "s"}</span>
+        <%!-- Tool calls with names --%>
+        <div class="space-y-0.5">
+          <div :for={ev <- @group.events} class="flex items-center gap-1.5 text-xs text-base-content/40">
+            <.icon name="hero-wrench-screwdriver" class="size-3 flex-shrink-0" />
+            <span class="font-mono truncate">{tool_label(ev)}</span>
+          </div>
         </div>
       <% :text -> %>
         <%!-- Agent text message --%>
@@ -752,7 +892,7 @@ defmodule SynkadeWeb.IdeLive do
               [%{type: :tools, events: [event]} | acc]
           end
 
-        "assistant" ->
+        type when type in ~w(assistant text) ->
           msg = event.message || ""
 
           if msg != "" do
@@ -761,7 +901,7 @@ defmodule SynkadeWeb.IdeLive do
             acc
           end
 
-        "result" ->
+        type when type in ~w(result step_finish) ->
           msg = event.message || ""
           if msg != "", do: [%{type: :result, text: msg} | acc], else: acc
 
@@ -773,6 +913,17 @@ defmodule SynkadeWeb.IdeLive do
       end
     end)
     |> Enum.reverse()
+  end
+
+  defp tool_label(ev) do
+    raw = ev.raw || %{}
+    part = raw["part"] || %{}
+
+    name =
+      raw["tool"] || raw["name"] || part["tool"] || part["name"] || part["toolName"] || ev.type || "tool"
+
+    suffix = if ev.type == "tool_result", do: " done", else: ""
+    "#{name}#{suffix}"
   end
 
   defp has_preceding_text?(groups) do
@@ -794,7 +945,7 @@ defmodule SynkadeWeb.IdeLive do
       |> hd()
       |> String.slice(0..59)
 
-    body = "# #{title}\n\n#{full_message}"
+    body = "# #{title}"
 
     case Issues.create_issue(%{project_id: project.id, body: body}) do
       {:ok, issue} ->
@@ -869,10 +1020,34 @@ defmodule SynkadeWeb.IdeLive do
   defp detect_branches(nil), do: {"HEAD", nil}
 
   defp detect_branches(path) do
-    if File.dir?(path) and File.dir?(Path.join(path, ".git")) do
+    if File.dir?(path) && File.exists?(Path.join(path, ".git")) do
       {Git.detect_base_branch(path), Git.current_branch(path)}
     else
       {"HEAD", nil}
+    end
+  end
+
+  defp load_tracker_config(socket) do
+    scope = socket.assigns.current_scope
+    project = socket.assigns.project
+
+    with setting when not is_nil(setting) <- Settings.get_settings_for_user(scope.user.id),
+         agents = Settings.list_agents(scope),
+         agent when not is_nil(agent) <-
+           Enum.find(agents, fn a -> a.id == project.default_agent_id end) || List.first(agents) do
+      {:ok, ConfigAdapter.resolve_project_config(setting, project, agent)}
+    else
+      _ -> :error
+    end
+  end
+
+  defp load_commits_ahead(nil, _base_ref), do: 0
+
+  defp load_commits_ahead(path, base_ref) do
+    if File.dir?(path) && File.exists?(Path.join(path, ".git")) do
+      Git.commits_ahead(path, base_ref)
+    else
+      0
     end
   end
 
