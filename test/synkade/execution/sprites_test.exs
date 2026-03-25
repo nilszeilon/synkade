@@ -109,6 +109,40 @@ defmodule Synkade.Execution.SpritesTest do
       result = Sprites.build_env_list(config)
       assert {"CLAUDE_CODE_OAUTH_TOKEN", "oauth-token-123"} in result
     end
+
+    test "injects SPRITE_PREVIEW_URL when sprites_org is configured" do
+      config = %{
+        "user_id" => "abc123",
+        "agent" => %{"auth_mode" => "api_key", "api_key" => "sk-test"},
+        "execution" => %{"sprites_org" => "myorg"}
+      }
+
+      result = Sprites.build_env_list(config)
+      assert {"SPRITE_PREVIEW_URL", "https://synkade-uabc123-myorg.sprites.dev"} in result
+      assert {"SPRITE_NAME", "synkade-uabc123"} in result
+    end
+
+    test "does not inject SPRITE_PREVIEW_URL when sprites_org is nil" do
+      config = %{
+        "user_id" => "abc123",
+        "agent" => %{"auth_mode" => "api_key", "api_key" => "sk-test"},
+        "execution" => %{"sprites_org" => nil}
+      }
+
+      result = Sprites.build_env_list(config)
+      refute Enum.any?(result, fn {k, _} -> k == "SPRITE_PREVIEW_URL" end)
+    end
+
+    test "does not inject SPRITE_PREVIEW_URL when sprites_org is empty string" do
+      config = %{
+        "user_id" => "abc123",
+        "agent" => %{"auth_mode" => "api_key", "api_key" => "sk-test"},
+        "execution" => %{"sprites_org" => ""}
+      }
+
+      result = Sprites.build_env_list(config)
+      refute Enum.any?(result, fn {k, _} -> k == "SPRITE_PREVIEW_URL" end)
+    end
   end
 
   describe "await_event/2" do
