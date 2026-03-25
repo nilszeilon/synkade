@@ -34,6 +34,7 @@ defmodule SynkadeWeb.Router do
       live "/", DashboardLive
       live "/issues", IssuesLive
       live "/issues/:id", IdeLive
+      live "/chat/:project_name", IdeLive
       live "/settings", SettingsLive
       live "/projects", ProjectsLive
     end

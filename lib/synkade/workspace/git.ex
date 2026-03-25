@@ -58,7 +58,7 @@ defmodule Synkade.Workspace.Git do
   """
   @spec changed_files(String.t(), String.t()) :: {:ok, [map()]} | {:error, term()}
   def changed_files(path, base_ref) do
-    if not File.dir?(Path.join(path, ".git")) do
+    if not File.exists?(Path.join(path, ".git")) do
       {:ok, []}
     else
       # Diff working tree against base branch — shows all changes (committed + uncommitted)
@@ -210,6 +210,45 @@ defmodule Synkade.Workspace.Git do
     |> String.split("\n")
     |> parse_lines(nil, nil, [])
     |> Enum.reverse()
+  end
+
+  @doc """
+  Returns `{additions, deletions}` totals for the workspace vs its base branch.
+  Fast — uses `git diff --shortstat`. Returns `{0, 0}` on error or missing workspace.
+  """
+  @spec diff_shortstat(String.t() | nil) :: {non_neg_integer(), non_neg_integer()}
+  def diff_shortstat(nil), do: {0, 0}
+
+  def diff_shortstat(path) do
+    if File.exists?(Path.join(path, ".git")) do
+      base = detect_base_branch(path)
+
+      case System.cmd("git", ["diff", "--shortstat", base],
+             cd: path,
+             stderr_to_stdout: true
+           ) do
+        {output, 0} -> parse_shortstat(output)
+        _ -> {0, 0}
+      end
+    else
+      {0, 0}
+    end
+  end
+
+  defp parse_shortstat(output) do
+    adds =
+      case Regex.run(~r/(\d+) insertion/, output) do
+        [_, n] -> String.to_integer(n)
+        _ -> 0
+      end
+
+    dels =
+      case Regex.run(~r/(\d+) deletion/, output) do
+        [_, n] -> String.to_integer(n)
+        _ -> 0
+      end
+
+    {adds, dels}
   end
 
   # --- Private helpers ---

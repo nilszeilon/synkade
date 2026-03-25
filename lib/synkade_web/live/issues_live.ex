@@ -38,6 +38,7 @@ defmodule SynkadeWeb.IssuesLive do
       |> assign(:form_parent_id, nil)
       |> assign(:create_ancestors, [])
       |> assign(:collapsed, MapSet.new())
+      |> SynkadeWeb.Sidebar.assign_sidebar(scope)
       |> assign(:agents, Settings.list_agents(scope))
       |> assign(:selected_agent_id, nil)
       |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
@@ -91,6 +92,7 @@ defmodule SynkadeWeb.IssuesLive do
       socket
       |> load_issues()
       |> reload_selected_issue(:list)
+      |> SynkadeWeb.Sidebar.assign_sidebar(socket.assigns.current_scope)
 
     {:noreply, socket}
   end
@@ -419,6 +421,8 @@ defmodule SynkadeWeb.IssuesLive do
       flash={@flash}
       projects={@projects}
       running={@running}
+      sidebar_issues={@sidebar_issues}
+      sidebar_diff_stats={@sidebar_diff_stats}
       active_tab={@active_tab}
       current_project={@current_project}
       current_scope={@current_scope}

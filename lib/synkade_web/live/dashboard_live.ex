@@ -40,6 +40,7 @@ defmodule SynkadeWeb.DashboardLive do
       |> assign(:agent_totals_by_project, state.agent_totals_by_project)
       |> assign(:projects, state.projects)
       |> assign(:config_error, state.config_error)
+      |> SynkadeWeb.Sidebar.assign_sidebar(scope)
       |> assign(:board_columns, @board_columns)
       |> assign(:board_issues, %{
         "backlog" => [],
@@ -200,13 +201,17 @@ defmodule SynkadeWeb.DashboardLive do
     socket = reload_selected_issue(socket, :board)
 
     socket =
-      if !socket.assigns.current_project do
-        socket
-        |> assign_chart_data()
-        |> assign_dashboard_stats()
-      else
-        socket
-      end
+      socket
+      |> SynkadeWeb.Sidebar.assign_sidebar(socket.assigns.current_scope)
+      |> then(fn s ->
+        if !s.assigns.current_project do
+          s
+          |> assign_chart_data()
+          |> assign_dashboard_stats()
+        else
+          s
+        end
+      end)
 
     {:noreply, socket}
   end
@@ -900,6 +905,8 @@ defmodule SynkadeWeb.DashboardLive do
       flash={@flash}
       projects={@projects}
       running={@running}
+      sidebar_issues={@sidebar_issues}
+      sidebar_diff_stats={@sidebar_diff_stats}
       active_tab={@active_tab}
       current_project={@current_project}
       current_scope={@current_scope}

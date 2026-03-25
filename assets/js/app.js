@@ -17,6 +17,12 @@
 // If you have dependencies that try to import CSS, esbuild will generate a separate `app.css` file.
 // To load it, simply add a second `<link>` to your `root.html.heex` file.
 
+// Restore persisted sidebar width before first paint to prevent layout flash.
+;(function () {
+  var w = localStorage.getItem("sidebar-width")
+  if (w) document.documentElement.style.setProperty("--sidebar-w", w + "px")
+})()
+
 // Include phoenix_html to handle method=PUT/DELETE in forms and buttons.
 import "phoenix_html"
 // Establish Phoenix Socket and LiveView configuration.
@@ -107,6 +113,37 @@ const AutoScroll = {
   },
   destroyed() {
     if (this.observer) this.observer.disconnect()
+  },
+}
+
+const ResizableSidebar = {
+  mounted() {
+    const handle = document.getElementById("sidebar-drag")
+    if (!handle) return
+
+    let dragging = false
+
+    handle.addEventListener("mousedown", (e) => {
+      e.preventDefault()
+      dragging = true
+      document.body.style.cursor = "col-resize"
+      document.body.style.userSelect = "none"
+    })
+
+    document.addEventListener("mousemove", (e) => {
+      if (!dragging) return
+      const w = Math.max(180, Math.min(400, e.clientX))
+      document.documentElement.style.setProperty("--sidebar-w", w + "px")
+    })
+
+    document.addEventListener("mouseup", () => {
+      if (!dragging) return
+      dragging = false
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      const w = getComputedStyle(document.documentElement).getPropertyValue("--sidebar-w").trim()
+      localStorage.setItem("sidebar-width", parseInt(w, 10))
+    })
   },
 }
 
@@ -312,7 +349,7 @@ const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, KanbanDrag, AutoScroll, DiffComment, ResizableSplit, DropZone, SubmitOnEnter},
+  hooks: {...colocatedHooks, KanbanDrag, AutoScroll, DiffComment, ResizableSplit, ResizableSidebar, DropZone, SubmitOnEnter},
 })
 
 // Clipboard copy handler for phx:copy events

@@ -12,6 +12,56 @@ defmodule SynkadeWeb.IdeLive do
   alias Synkade.Workflow.Config
 
   @impl true
+  def mount(%{"project_name" => project_name}, _session, socket) do
+    scope = socket.assigns.current_scope
+
+    case Settings.get_project_by_name(scope, project_name) do
+      nil ->
+        {:ok, push_navigate(socket, to: "/")}
+
+      project ->
+        if connected?(socket) do
+          Phoenix.PubSub.subscribe(Synkade.PubSub, Issues.pubsub_topic(scope.user.id))
+          Phoenix.PubSub.subscribe(Synkade.PubSub, Jobs.pubsub_topic(scope))
+        end
+
+        orc_state = Jobs.get_state(scope)
+
+        socket =
+          socket
+          |> assign(:page_title, "New chat — #{project.name}")
+          |> assign(:active_tab, :issues)
+          |> assign(:current_project, project.name)
+          |> assign(:issue, nil)
+          |> assign(:ancestors, [])
+          |> assign(:project, project)
+          |> assign(:projects, orc_state.projects)
+          |> assign(:running, orc_state.running)
+          |> SynkadeWeb.Sidebar.assign_sidebar(scope)
+          |> assign(:running_entry, nil)
+          |> assign(:workspace_path, nil)
+          |> assign(:base_branch, "HEAD")
+          |> assign(:current_branch, nil)
+          |> assign(:changed_files, [])
+          |> assign(:selected_file, nil)
+          |> assign(:file_diff, [])
+          |> assign(:left_tab, :chat)
+          |> assign(:agents, Settings.list_agents(scope))
+          |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
+          |> assign(:attachments, [])
+          |> assign(:session_events, [])
+          |> assign(:session_id, nil)
+          |> assign(:session_subscribed, nil)
+          |> allow_upload(:images,
+            accept: ~w(.png .jpg .jpeg .gif .webp),
+            max_entries: 5,
+            max_file_size: 10_000_000
+          )
+
+        {:ok, socket}
+    end
+  end
+
   def mount(%{"id" => issue_id}, _session, socket) do
     scope = socket.assigns.current_scope
 
@@ -63,6 +113,7 @@ defmodule SynkadeWeb.IdeLive do
           |> assign(:project, project)
           |> assign(:projects, orc_state.projects)
           |> assign(:running, orc_state.running)
+          |> SynkadeWeb.Sidebar.assign_sidebar(scope)
           |> assign(:running_entry, running_entry)
           |> assign(:workspace_path, workspace_path)
           |> assign(:base_branch, base_branch)
@@ -103,6 +154,15 @@ defmodule SynkadeWeb.IdeLive do
   end
 
   @impl true
+  def handle_info({:jobs_changed}, %{assigns: %{issue: nil}} = socket) do
+    state = Jobs.get_state(socket.assigns.current_scope)
+
+    {:noreply,
+     socket
+     |> assign(:running, state.running)
+     |> assign(:projects, state.projects)}
+  end
+
   def handle_info({:jobs_changed}, socket) do
     state = Jobs.get_state(socket.assigns.current_scope)
     running_entry = find_running_entry(state.running, socket.assigns.issue.id)
@@ -148,6 +208,11 @@ defmodule SynkadeWeb.IdeLive do
   end
 
   @impl true
+  def handle_info({:issues_updated}, %{assigns: %{issue: nil}} = socket) do
+    {:noreply,
+     SynkadeWeb.Sidebar.assign_sidebar(socket, socket.assigns.current_scope)}
+  end
+
   def handle_info({:issues_updated}, socket) do
     case Issues.get_issue(socket.assigns.issue.id) do
       nil ->
@@ -155,7 +220,12 @@ defmodule SynkadeWeb.IdeLive do
 
       updated ->
         ancestors = Issues.ancestor_chain(updated)
-        {:noreply, socket |> assign(:issue, updated) |> assign(:ancestors, ancestors)}
+
+        {:noreply,
+         socket
+         |> assign(:issue, updated)
+         |> assign(:ancestors, ancestors)
+         |> SynkadeWeb.Sidebar.assign_sidebar(socket.assigns.current_scope)}
     end
   end
 
@@ -216,30 +286,11 @@ defmodule SynkadeWeb.IdeLive do
     if full_message == "" do
       {:noreply, put_flash(socket, :error, "Message cannot be empty")}
     else
-      issue = socket.assigns.issue
-
-      {agent_name, instruction, agent_id} =
-        SynkadeWeb.IssueLiveHelpers.resolve_dispatch(socket.assigns.current_scope, full_message)
-
-      case Issues.dispatch_issue(issue, instruction, agent_id) do
-        {:ok, _} ->
-          socket =
-            socket
-            |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
-            |> assign(:attachments, [])
-            |> push_event("clear_input", %{})
-            |> put_flash(
-              :info,
-              "Dispatched" <> if(agent_name, do: " to #{agent_name}", else: "")
-            )
-
-          {:noreply, socket}
-
-        {:error, :invalid_transition} ->
-          {:noreply, put_flash(socket, :error, "Cannot dispatch from current state")}
-
-        {:error, _} ->
-          {:noreply, put_flash(socket, :error, "Failed to dispatch")}
+      # Draft mode: create issue from first message, then redirect
+      if is_nil(socket.assigns.issue) do
+        handle_draft_dispatch(socket, full_message)
+      else
+        handle_existing_dispatch(socket, full_message)
       end
     end
   end
@@ -294,7 +345,11 @@ defmodule SynkadeWeb.IdeLive do
 
   @impl true
   def render(assigns) do
-    messages = (assigns.issue.metadata || %{})["messages"] || []
+    messages =
+      if assigns.issue,
+        do: (assigns.issue.metadata || %{})["messages"] || [],
+        else: []
+
     assigns = assign(assigns, :messages, messages)
 
     ~H"""
@@ -302,6 +357,8 @@ defmodule SynkadeWeb.IdeLive do
       flash={@flash}
       projects={@projects}
       running={@running}
+      sidebar_issues={@sidebar_issues}
+      sidebar_diff_stats={@sidebar_diff_stats}
       active_tab={@active_tab}
       current_project={@current_project}
       current_scope={@current_scope}
@@ -312,8 +369,13 @@ defmodule SynkadeWeb.IdeLive do
           <.link navigate="/issues" class="btn btn-ghost btn-xs gap-1">
             <.icon name="hero-arrow-left" class="size-3" />
           </.link>
-          <span class={"badge badge-xs #{state_badge_class(@issue.state)}"}>{@issue.state}</span>
-          <h1 class="text-sm font-semibold truncate flex-1">{Issue.title(@issue)}</h1>
+          <%= if @issue do %>
+            <span class={"badge badge-xs #{state_badge_class(@issue.state)}"}>{@issue.state}</span>
+            <h1 class="text-sm font-semibold truncate flex-1">{Issue.title(@issue)}</h1>
+          <% else %>
+            <span class="badge badge-xs badge-ghost">draft</span>
+            <h1 class="text-sm font-semibold truncate flex-1">New chat — {@project.name}</h1>
+          <% end %>
           <span :if={@current_branch} class="text-xs font-mono text-base-content/40 flex-shrink-0">
             {@base_branch} ← {@current_branch}
           </span>
@@ -370,8 +432,14 @@ defmodule SynkadeWeb.IdeLive do
                   class="flex-1 overflow-y-auto px-4 py-4 space-y-4"
                   phx-hook="AutoScroll"
                 >
+                  <%!-- Draft mode hint --%>
+                  <div :if={is_nil(@issue) && @messages == []} class="flex flex-col items-center justify-center h-full text-base-content/30">
+                    <.icon name="hero-chat-bubble-left-right" class="size-8 mb-2" />
+                    <span class="text-sm">Send a message to start working on {@project.name}</span>
+                  </div>
+
                   <%!-- Issue context --%>
-                  <div :if={body_without_title(@issue.body) || @ancestors != []} class="space-y-2 mb-2">
+                  <div :if={@issue && (body_without_title(@issue.body) || @ancestors != [])} class="space-y-2 mb-2">
                     <div :for={ancestor <- Enum.reverse(@ancestors)} class="text-xs text-base-content/40">
                       {Issue.title(ancestor)}
                     </div>
@@ -415,7 +483,7 @@ defmodule SynkadeWeb.IdeLive do
 
                   <%!-- Live agent session --%>
                   <div
-                    :if={@issue.state == "in_progress" && (@session_events != [] || @session_id)}
+                    :if={@issue && @issue.state == "in_progress" && (@session_events != [] || @session_id)}
                     class="space-y-3"
                   >
                     <.chat_event_group
@@ -712,6 +780,73 @@ defmodule SynkadeWeb.IdeLive do
       %{type: :text} -> true
       _ -> false
     end)
+  end
+
+  # --- Dispatch Helpers ---
+
+  defp handle_draft_dispatch(socket, full_message) do
+    project = socket.assigns.project
+
+    # Derive title: first line or first 60 chars
+    title =
+      full_message
+      |> String.split("\n", parts: 2)
+      |> hd()
+      |> String.slice(0..59)
+
+    body = "# #{title}\n\n#{full_message}"
+
+    case Issues.create_issue(%{project_id: project.id, body: body}) do
+      {:ok, issue} ->
+        {agent_name, instruction, agent_id} =
+          SynkadeWeb.IssueLiveHelpers.resolve_dispatch(socket.assigns.current_scope, full_message)
+
+        case Issues.dispatch_issue(issue, instruction, agent_id) do
+          {:ok, _} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Created and dispatched" <> if(agent_name, do: " to #{agent_name}", else: ""))
+             |> push_navigate(to: "/issues/#{issue.id}")}
+
+          {:error, _} ->
+            # Issue created but dispatch failed — still navigate to it
+            {:noreply,
+             socket
+             |> put_flash(:info, "Issue created")
+             |> push_navigate(to: "/issues/#{issue.id}")}
+        end
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Failed to create issue")}
+    end
+  end
+
+  defp handle_existing_dispatch(socket, full_message) do
+    issue = socket.assigns.issue
+
+    {agent_name, instruction, agent_id} =
+      SynkadeWeb.IssueLiveHelpers.resolve_dispatch(socket.assigns.current_scope, full_message)
+
+    case Issues.dispatch_issue(issue, instruction, agent_id) do
+      {:ok, _} ->
+        socket =
+          socket
+          |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
+          |> assign(:attachments, [])
+          |> push_event("clear_input", %{})
+          |> put_flash(
+            :info,
+            "Dispatched" <> if(agent_name, do: " to #{agent_name}", else: "")
+          )
+
+        {:noreply, socket}
+
+      {:error, :invalid_transition} ->
+        {:noreply, put_flash(socket, :error, "Cannot dispatch from current state")}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Failed to dispatch")}
+    end
   end
 
   # --- Private Helpers ---
