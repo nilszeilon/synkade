@@ -40,20 +40,6 @@ defmodule SynkadeWeb.Layouts do
     ~H"""
     <div id="app-layout" class="flex min-h-screen" phx-hook="ResizableSidebar">
       <aside id="sidebar" class="h-screen fixed bg-base-300 flex flex-col border-r border-base-300" style="width: var(--sidebar-w, 14rem); min-width: 180px; max-width: 400px;">
-        <%!-- Logo --%>
-        <div class="border-b border-base-300">
-          <a href="/" class="relative flex items-center justify-center">
-            <span
-              class="inline-block w-32 h-32 bg-primary"
-              style="mask-image: url('/images/cicada.svg'); mask-size: contain; mask-repeat: no-repeat; mask-position: center; -webkit-mask-image: url('/images/cicada.svg'); -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center;"
-            >
-            </span>
-            <span class="absolute bottom-2 ops-label text-primary text-xs tracking-widest">
-              Synkade
-            </span>
-          </a>
-        </div>
-
         <%!-- Navigation --%>
         <nav class="flex-1 overflow-y-auto px-2 pt-3">
           <ul class="menu menu-sm">
