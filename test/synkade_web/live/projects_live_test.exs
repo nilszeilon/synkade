@@ -10,7 +10,7 @@ defmodule SynkadeWeb.ProjectsLiveTest do
   test "renders projects page", %{conn: conn} do
     {:ok, _view, html} = live(conn, "/projects")
     assert html =~ "Projects"
-    assert html =~ "New Project"
+    assert html =~ "hero-plus"
   end
 
   test "shows empty state when no projects", %{conn: conn} do
@@ -20,14 +20,14 @@ defmodule SynkadeWeb.ProjectsLiveTest do
 
   test "opens new project form", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/projects")
-    html = view |> element("button", "New Project") |> render_click()
+    html = view |> element("button[title=\"New Project\"]") |> render_click()
     assert html =~ "New Project"
     assert html =~ "Name"
   end
 
   test "creates a project", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/projects")
-    view |> element("button", "New Project") |> render_click()
+    view |> element("button[title=\"New Project\"]") |> render_click()
 
     view
     |> form("form", project: %{name: "test-project", tracker_repo: "acme/api"})
@@ -40,7 +40,7 @@ defmodule SynkadeWeb.ProjectsLiveTest do
 
   test "shows validation error for missing name", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/projects")
-    view |> element("button", "New Project") |> render_click()
+    view |> element("button[title=\"New Project\"]") |> render_click()
 
     html =
       view
