@@ -328,10 +328,31 @@ defmodule Synkade.Execution.Sprites do
 
   @doc false
   def build_env_list(config) do
-    AgentClient.build_env(config)
-    |> Enum.map(fn {key, value} ->
-      {to_string(key), to_string(value)}
-    end)
+    base =
+      AgentClient.build_env(config)
+      |> Enum.map(fn {key, value} ->
+        {to_string(key), to_string(value)}
+      end)
+
+    # Inject sprite preview URL when org is configured
+    case Config.get(config, "execution", "sprites_org") do
+      nil ->
+        base
+
+      "" ->
+        base
+
+      org ->
+        user_id = config["user_id"]
+        sprite_name = sanitize_sprite_name("synkade-u#{user_id}")
+        preview_url = "https://#{sprite_name}-#{org}.sprites.dev"
+
+        [
+          {"SPRITE_PREVIEW_URL", preview_url},
+          {"SPRITE_NAME", sprite_name}
+          | base
+        ]
+    end
   end
 
   defp write_skills_to_sprite(sprite, worktree_path, config) do
