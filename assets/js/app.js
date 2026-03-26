@@ -116,6 +116,27 @@ const AutoScroll = {
   },
 }
 
+const CmdK = {
+  mounted() {
+    this._handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault()
+        this.pushEvent("open_picker", {})
+      }
+    }
+    window.addEventListener("keydown", this._handler)
+  },
+  destroyed() {
+    window.removeEventListener("keydown", this._handler)
+  },
+}
+
+const AutoFocus = {
+  mounted() {
+    this.el.focus()
+  },
+}
+
 const ResizableSidebar = {
   mounted() {
     const handle = document.getElementById("sidebar-drag")
@@ -341,11 +362,20 @@ const DropZone = {
   },
 }
 
+const CursorEnd = {
+  mounted() {
+    const el = this.el
+    const len = el.value.length
+    el.focus()
+    el.setSelectionRange(len, len)
+  },
+}
+
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, KanbanDrag, AutoScroll, DiffComment, ResizableSplit, ResizableSidebar, DropZone, SubmitOnEnter},
+  hooks: {...colocatedHooks, KanbanDrag, AutoScroll, DiffComment, ResizableSplit, ResizableSidebar, DropZone, SubmitOnEnter, CursorEnd, CmdK, AutoFocus},
 })
 
 // Clipboard copy handler for phx:copy events

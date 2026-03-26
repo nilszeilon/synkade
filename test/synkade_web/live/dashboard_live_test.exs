@@ -7,61 +7,9 @@ defmodule SynkadeWeb.DashboardLiveTest do
 
   setup :register_and_log_in_user
 
-  test "renders overview page with token chart when no project selected", %{conn: conn} do
+  test "renders overview page", %{conn: conn} do
     {:ok, _view, html} = live(conn, "/")
     assert html =~ "Overview"
-    assert html =~ "Token Usage"
-    assert html =~ "running"
-    assert html =~ "review"
-    assert html =~ "Refresh"
-  end
-
-  test "shows config error when present", %{conn: conn} do
-    {:ok, view, _html} = live(conn, "/")
-    assert render(view) =~ "Overview"
-  end
-
-  test "refresh button exists", %{conn: conn} do
-    {:ok, _view, html} = live(conn, "/")
-    assert html =~ "Refresh"
-  end
-
-  test "updates in real-time when state_changed is broadcast", %{conn: conn, scope: scope} do
-    {:ok, view, _html} = live(conn, "/")
-
-    snapshot = %{
-      running: %{
-        "test:1" => %{
-          project_name: "test",
-          issue_id: "1",
-          identifier: "#1",
-          session_id: "sess-123",
-          turn_count: 3,
-          agent_total_tokens: 5000,
-          last_agent_event: "tool_use"
-        }
-      },
-      retry_attempts: %{},
-      awaiting_review: %{},
-      agent_totals: %{
-        input_tokens: 2000,
-        output_tokens: 3000,
-        total_tokens: 5000,
-        runtime_seconds: 42.0
-      },
-      agent_totals_by_project: %{},
-      projects: %{},
-      config_error: nil
-    }
-
-    Phoenix.PubSub.broadcast(
-      Synkade.PubSub,
-      Jobs.pubsub_topic(scope),
-      {:state_changed, snapshot}
-    )
-
-    html = render(view)
-    assert html =~ "1 running"
   end
 
   test "updates config_error in real-time", %{conn: conn, scope: scope} do

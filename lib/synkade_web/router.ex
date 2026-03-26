@@ -30,7 +30,7 @@ defmodule SynkadeWeb.Router do
     pipe_through [:browser, :require_authenticated_user]
 
     live_session :require_authenticated,
-      on_mount: [{SynkadeWeb.UserAuth, :require_authenticated}] do
+      on_mount: [{SynkadeWeb.UserAuth, :require_authenticated}, {SynkadeWeb.Picker, :picker}] do
       live "/", DashboardLive
       live "/issues", IssuesLive
       live "/issues/:id", IdeLive

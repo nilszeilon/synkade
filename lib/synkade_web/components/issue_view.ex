@@ -342,11 +342,13 @@ defmodule SynkadeWeb.Components.IssueView do
             </div>
             <div class="form-control">
               <textarea
+                id="issue-body-input"
                 name="issue[body]"
                 placeholder="# Issue title\n\nDescribe the issue..."
                 class="textarea textarea-bordered w-full font-mono min-h-32"
                 rows="8"
                 phx-debounce="300"
+                phx-hook={if(@form[:body].value && @form[:body].value != "", do: "CursorEnd")}
               ><%= @form[:body].value %></textarea>
             </div>
           </div>

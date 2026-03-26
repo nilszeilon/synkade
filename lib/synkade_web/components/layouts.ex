@@ -34,10 +34,13 @@ defmodule SynkadeWeb.Layouts do
     default: nil,
     doc: "the current [scope](https://hexdocs.pm/phoenix/scopes.html)"
 
+  attr :picker, :map, default: %{open: false, query: "", results: [], loading: false}
+
   slot :inner_block, required: true
 
   def app(assigns) do
     ~H"""
+    <div id="app-cmdk" phx-hook="CmdK"></div>
     <div id="app-layout" class="flex min-h-screen" phx-hook="ResizableSidebar">
       <aside id="sidebar" class="h-screen fixed bg-base-300 flex flex-col border-r border-base-300" style="width: var(--sidebar-w, 14rem); min-width: 180px; max-width: 400px;">
         <%!-- Navigation --%>
@@ -66,8 +69,11 @@ defmodule SynkadeWeb.Layouts do
 
           <div class="divider my-1 px-2 before:bg-base-300 after:bg-base-300"></div>
 
-          <div class="px-3 mb-1">
+          <div class="px-3 mb-1 flex items-center justify-between">
             <span class="ops-label text-primary/70">Projects</span>
+            <.link navigate="/projects" title="Add project" class="text-primary/50 hover:text-primary transition-colors">
+              <.icon name="hero-plus" class="size-3.5" />
+            </.link>
           </div>
           <div :if={map_size(@projects) == 0} class="px-3 text-base-content/30 text-xs">
             No projects loaded
@@ -104,7 +110,7 @@ defmodule SynkadeWeb.Layouts do
                 <.link
                   patch={"/?project=#{name}&new=true&from_tracker=true"}
                   class="hover:text-primary"
-                  title="Create from issue"
+                  title="Pick from tracker"
                 >
                   <.icon name="hero-link" class="size-3" />
                 </.link>
@@ -187,6 +193,8 @@ defmodule SynkadeWeb.Layouts do
         <.flash_group flash={@flash} />
         {render_slot(@inner_block)}
       </main>
+
+      <SynkadeWeb.Picker.picker picker={@picker} />
     </div>
     """
   end
