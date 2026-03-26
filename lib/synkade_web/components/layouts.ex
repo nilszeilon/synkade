@@ -168,16 +168,6 @@ defmodule SynkadeWeb.Layouts do
               </.link>
             </li>
           </ul>
-          <div :if={@current_scope} class="border-t border-base-300 mt-2 pt-2 px-2">
-            <div class="text-xs text-base-content/60 truncate">{@current_scope.user.email}</div>
-            <.link
-              href="/users/log-out"
-              method="delete"
-              class="text-xs text-error/70 hover:text-error mt-1 inline-block"
-            >
-              Log out
-            </.link>
-          </div>
         </div>
       </aside>
 
