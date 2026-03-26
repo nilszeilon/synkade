@@ -326,14 +326,3 @@ body {
 .prose-chat a { text-decoration: underline; opacity: 0.85; }
 .prose-chat a:hover { opacity: 1; }
 .prose-chat hr { border-color: oklch(from currentColor l 0 0 / 0.15); margin: 0.75em 0; }
-
-/* Kanban column diagonal line background */
-.kanban-column {
-  background-image: repeating-linear-gradient(
-    -45deg,
-    transparent,
-    transparent 6px,
-    rgba(255, 255, 255, 0.12) 6px,
-    rgba(255, 255, 255, 0.12) 7px
-  );
-}

@@ -84,7 +84,7 @@ defmodule SynkadeWeb.Layouts do
                 name="hero-chevron-right"
                 class="size-3 shrink-0 opacity-0 group-hover/proj:opacity-100 transition-transform"
               />
-              <.link patch={"/?project=#{name}"} class="flex-1 min-w-0 truncate text-xs font-medium">
+              <.link patch={"/projects/#{name}"} class="flex-1 min-w-0 truncate text-xs font-medium">
                 {name}
               </.link>
               <span
@@ -102,7 +102,7 @@ defmodule SynkadeWeb.Layouts do
                   <.icon name="hero-cog-6-tooth" class="size-3" />
                 </.link>
                 <.link
-                  patch={"/?project=#{name}&new=true&from_tracker=true"}
+                  patch={"/projects/#{name}?new=true&from_tracker=true"}
                   class="hover:text-primary"
                   title="Create from issue"
                 >
