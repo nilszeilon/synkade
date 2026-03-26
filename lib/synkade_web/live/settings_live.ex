@@ -508,6 +508,16 @@ defmodule SynkadeWeb.SettingsLive do
         <div class={if @active_tab != "skills", do: "hidden"}>
           <.skills_tab skills={@skills} skill_form={@skill_form} />
         </div>
+
+        <div class="border-t border-base-300 mt-8 pt-6">
+          <.link
+            href="/users/log-out"
+            method="delete"
+            class="btn btn-outline btn-error btn-sm"
+          >
+            Log out
+          </.link>
+        </div>
       </div>
     </Layouts.app>
     """

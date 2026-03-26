@@ -11,9 +11,8 @@ defmodule SynkadeWeb.DashboardLive do
 
   @board_columns [
     %{"id" => "backlog", "name" => "Backlog"},
-    %{"id" => "queue", "name" => "Queue"},
-    %{"id" => "in_progress", "name" => "In Progress"},
-    %{"id" => "human_review", "name" => "Human Review"}
+    %{"id" => "worked_on", "name" => "Worked On"},
+    %{"id" => "done", "name" => "Done"}
   ]
 
   @impl true
@@ -44,10 +43,10 @@ defmodule SynkadeWeb.DashboardLive do
       |> assign(:board_columns, @board_columns)
       |> assign(:board_issues, %{
         "backlog" => [],
-        "queue" => [],
-        "in_progress" => [],
-        "human_review" => []
+        "worked_on" => [],
+        "done" => []
       })
+      |> assign(:done_total, 0)
       |> assign(:board_loading, true)
       |> assign(:board_error, nil)
       |> assign(:modal, nil)
@@ -105,7 +104,9 @@ defmodule SynkadeWeb.DashboardLive do
 
   @impl true
   def handle_params(params, _uri, socket) do
-    socket = assign(socket, :current_project, params["project"])
+    # Support both /projects/:name path param and ?project= query param (legacy)
+    project_name = params["name"] || params["project"]
+    socket = assign(socket, :current_project, project_name)
 
     # Handle view mode from URL params
     socket =
@@ -140,10 +141,10 @@ defmodule SynkadeWeb.DashboardLive do
 
           socket
           |> assign(:selected_issue, nil)
-          |> assign(:view_mode, if(params["project"], do: :board, else: :overview))
+          |> assign(:view_mode, if(project_name, do: :board, else: :overview))
       end
 
-    if connected?(socket) && params["project"] && socket.assigns.view_mode not in [:detail, :create] do
+    if connected?(socket) && project_name && socket.assigns.view_mode not in [:detail, :create] do
       send(self(), :load_board)
     end
 
@@ -182,6 +183,8 @@ defmodule SynkadeWeb.DashboardLive do
         if project do
           dispatch_labels = Config.tracker_labels(project.config) || []
           board_issues = recategorize_from_assigns(socket, project.name, dispatch_labels)
+          # Preserve done column (loaded separately)
+          board_issues = Map.put(board_issues, "done", Map.get(socket.assigns.board_issues, "done", []))
           assign(socket, :board_issues, board_issues)
         else
           socket
@@ -252,10 +255,10 @@ defmodule SynkadeWeb.DashboardLive do
           socket
           |> assign(:board_issues, %{
             "backlog" => [],
-            "queue" => [],
-            "in_progress" => [],
-            "human_review" => []
+            "worked_on" => [],
+            "done" => []
           })
+          |> assign(:done_total, 0)
           |> assign(:board_loading, false)
           |> assign(:board_error, "No project configured")
 
@@ -300,8 +303,25 @@ defmodule SynkadeWeb.DashboardLive do
               socket.assigns.awaiting_review
             )
 
+          # Load done issues from DB (limit 10, track total)
+          {done_issues, done_total} =
+            if db_id do
+              try do
+                all_done = Issues.list_issues_filtered(db_id, ["done", "cancelled"])
+                done_mapped = Enum.map(all_done, &db_issue_to_tracker_issue(&1, project.name))
+                {Enum.take(done_mapped, 10), length(done_mapped)}
+              catch
+                _, _ -> {[], 0}
+              end
+            else
+              {[], 0}
+            end
+
+          board_issues = Map.put(board_issues, "done", done_issues)
+
           socket
           |> assign(:board_issues, board_issues)
+          |> assign(:done_total, done_total)
           |> assign(:board_loading, false)
           |> assign(:board_error, nil)
       end
@@ -778,23 +798,25 @@ defmodule SynkadeWeb.DashboardLive do
   # --- Private helpers ---
 
   defp dashboard_path(project_name, issue_id \\ nil) do
-    params = %{}
-    params = if project_name, do: Map.put(params, "project", project_name), else: params
-    params = if issue_id, do: Map.put(params, "issue", issue_id), else: params
+    cond do
+      project_name && issue_id ->
+        # Redirect to issue detail
+        "/projects/#{project_name}?" <> URI.encode_query(%{"issue" => issue_id})
 
-    if params == %{} do
-      "/"
-    else
-      "/?" <> URI.encode_query(params)
+      project_name ->
+        "/projects/#{project_name}"
+
+      true ->
+        "/"
     end
   end
 
   defp new_issue_path(project_name, opts \\ []) do
+    base = if project_name, do: "/projects/#{project_name}", else: "/"
     params = %{"new" => "true"}
-    params = if project_name, do: Map.put(params, "project", project_name), else: params
     params = if opts[:parent_id], do: Map.put(params, "parent_id", opts[:parent_id]), else: params
     params = if opts[:body], do: Map.put(params, "body", opts[:body]), else: params
-    "/?" <> URI.encode_query(params)
+    base <> "?" <> URI.encode_query(params)
   end
 
   # --- Board helpers ---
@@ -833,7 +855,7 @@ defmodule SynkadeWeb.DashboardLive do
          retry_attempts,
          awaiting_review
        ) do
-    base = %{"backlog" => [], "queue" => [], "in_progress" => [], "human_review" => []}
+    base = %{"backlog" => [], "worked_on" => []}
 
     Enum.reduce(issues, base, fn issue, acc ->
       key = "#{project_name}:#{issue.id}"
@@ -841,22 +863,16 @@ defmodule SynkadeWeb.DashboardLive do
       column =
         cond do
           Map.has_key?(running, key) or Map.has_key?(retry_attempts, key) ->
-            "in_progress"
+            "worked_on"
 
           Map.has_key?(awaiting_review, key) ->
-            "human_review"
+            "worked_on"
 
-          issue.state in ["in_progress"] ->
-            "in_progress"
-
-          issue.state in ["awaiting_review"] ->
-            "human_review"
-
-          issue.state in ["queued"] ->
-            "queue"
+          issue.state in ["in_progress", "awaiting_review", "queued"] ->
+            "worked_on"
 
           dispatch_labels != [] and Enum.any?(dispatch_labels, &(&1 in issue.labels)) ->
-            "queue"
+            "worked_on"
 
           true ->
             "backlog"
@@ -867,10 +883,10 @@ defmodule SynkadeWeb.DashboardLive do
   end
 
   defp recategorize_from_assigns(socket, project_name, dispatch_labels) do
+    # Only recategorize backlog + worked_on (done is loaded separately)
     all_issues =
-      socket.assigns.board_issues
-      |> Map.values()
-      |> List.flatten()
+      (Map.get(socket.assigns.board_issues, "backlog", []) ++
+         Map.get(socket.assigns.board_issues, "worked_on", []))
 
     categorize_by_state(
       all_issues,
@@ -882,7 +898,7 @@ defmodule SynkadeWeb.DashboardLive do
     )
   end
 
-  defp move_card_in_assigns(socket, issue_id, from_col, to_col, dispatch_labels) do
+  defp move_card_in_assigns(socket, issue_id, from_col, to_col, _dispatch_labels) do
     board_issues = socket.assigns.board_issues
 
     {card, from_list} =
@@ -895,19 +911,6 @@ defmodule SynkadeWeb.DashboardLive do
       end
 
     if card do
-      updated_labels =
-        case {from_col, to_col} do
-          {"backlog", "queue"} ->
-            Enum.uniq(card.labels ++ dispatch_labels)
-
-          {"queue", "backlog"} ->
-            Enum.reject(card.labels, &(&1 in dispatch_labels))
-
-          _ ->
-            card.labels
-        end
-
-      card = %{card | labels: updated_labels}
       to_list = Map.get(board_issues, to_col, []) ++ [card]
 
       board_issues =
@@ -954,8 +957,6 @@ defmodule SynkadeWeb.DashboardLive do
   defp is_db_issue?(issue_id) do
     String.length(issue_id) == 36 and String.contains?(issue_id, "-")
   end
-
-  defp draggable?(col_id), do: col_id in ["backlog", "queue"]
 
   defp running_project_count(running, project_name) do
     Enum.count(running, fn {_k, e} -> e.project_name == project_name end)
@@ -1093,31 +1094,16 @@ defmodule SynkadeWeb.DashboardLive do
               </div>
             <% end %>
 
-            <div
-              id="kanban-board"
-              phx-hook="KanbanDrag"
-              class="flex gap-4 overflow-x-auto pb-4"
-              style="min-height: 60vh;"
-            >
+            <div id="kanban-board" class="grid grid-cols-3 gap-4 pb-4 h-[calc(100vh-8rem)]">
               <%= for col <- @board_columns do %>
-                <div
-                  class="kanban-column flex-shrink-0 w-72 bg-base-200 border border-base-300 p-3"
-                  data-column={col["id"]}
-                  data-droppable={to_string(draggable?(col["id"]))}
-                >
+                <div class="flex flex-col bg-base-300 border border-base-300 rounded-xl p-3 min-h-0">
                   <div class="flex items-center justify-between mb-3">
                     <h3 class="font-semibold text-sm">
                       {col["name"]}
-                      <span
-                        :if={col["id"] in ["in_progress", "human_review"]}
-                        class="text-xs text-base-content/40 font-normal ml-1"
-                      >
-                        auto
-                      </span>
                     </h3>
                     <div class="flex items-center gap-1">
                       <span class="badge badge-ghost badge-sm">
-                        {length(Map.get(@board_issues, col["id"], []))}
+                        {if col["id"] == "done", do: @done_total, else: length(Map.get(@board_issues, col["id"], []))}
                       </span>
                       <button
                         :if={col["id"] == "backlog"}
@@ -1129,12 +1115,11 @@ defmodule SynkadeWeb.DashboardLive do
                       </button>
                     </div>
                   </div>
-                  <div class="kanban-drop-zone flex flex-col gap-2 min-h-[100px]">
+                  <div class="flex flex-col gap-2 overflow-y-auto flex-1">
                     <%= for issue <- Map.get(@board_issues, col["id"], []) do %>
                       <.issue_card
                         issue={issue}
                         column={col["id"]}
-                        draggable={draggable?(col["id"])}
                         status={
                           issue_status(
                             issue,
@@ -1216,7 +1201,7 @@ defmodule SynkadeWeb.DashboardLive do
                 <div class="flex flex-col gap-2 flex-1 overflow-y-auto">
                   <.link
                     :for={{name, _project} <- @projects}
-                    patch={"/?project=#{name}"}
+                    patch={"/projects/#{name}"}
                     class="flex items-center justify-between p-3 rounded-lg bg-base-300/50 hover:bg-base-300 transition-colors group"
                   >
                     <div class="flex items-center gap-2 min-w-0">
@@ -1406,38 +1391,25 @@ defmodule SynkadeWeb.DashboardLive do
 
   attr :issue, :map, required: true
   attr :column, :string, required: true
-  attr :draggable, :boolean, default: true
   attr :status, :any, default: nil
   attr :clickable, :boolean, default: false
   attr :current_project, :string, default: nil
 
   defp issue_card(assigns) do
+    # Backlog → issue editor, Worked On → IDE chat, Done → IDE
+    assigns = assign(assigns, :link_target, card_link(assigns.column, assigns.issue, assigns.clickable))
+
     ~H"""
-    <div
-      class={[
-        "kanban-card card card-compact bg-base-100 border border-base-300",
-        if(@draggable, do: "cursor-grab active:cursor-grabbing", else: "cursor-default"),
-        @clickable && "hover:ring-1 hover:ring-primary/30"
-      ]}
-      draggable={to_string(@draggable)}
-      data-issue-id={@issue.id}
-      data-column={@column}
+    <.link
+      :if={@link_target}
+      navigate={@link_target}
+      class="card card-compact bg-base-100 border border-base-300 hover:ring-1 hover:ring-primary/30 cursor-pointer transition-shadow"
     >
       <div class="card-body p-3">
         <div class="flex items-start justify-between gap-2">
           <div class="flex-1 min-w-0">
             <p class="text-xs text-base-content/50 font-mono">{@issue.identifier}</p>
-            <%= if @clickable do %>
-              <.link
-                patch={dashboard_path(@current_project, @issue.id)}
-                class="text-sm font-medium leading-tight truncate block hover:underline"
-                onclick="event.stopPropagation()"
-              >
-                {@issue.title}
-              </.link>
-            <% else %>
-              <p class="text-sm font-medium leading-tight truncate">{@issue.title}</p>
-            <% end %>
+            <p class="text-sm font-medium leading-tight truncate">{@issue.title}</p>
           </div>
         </div>
 
@@ -1474,7 +1446,7 @@ defmodule SynkadeWeb.DashboardLive do
             </div>
           <% {:review, entry} -> %>
             <div class="mt-1">
-              <a href={entry.pr_url} target="_blank" class="link link-primary text-xs">
+              <a href={entry.pr_url} target="_blank" class="link link-primary text-xs" onclick="event.stopPropagation()">
                 PR #{entry.pr_number}
               </a>
               <span :if={entry.agent_name} class="text-xs text-base-content/50 ml-1">
@@ -1483,21 +1455,34 @@ defmodule SynkadeWeb.DashboardLive do
             </div>
           <% _ -> %>
         <% end %>
-
-        <%= if @issue.url do %>
-          <div class="mt-1">
-            <a
-              href={@issue.url}
-              target="_blank"
-              class="text-xs text-base-content/40 hover:text-base-content/60"
-            >
-              View issue
-            </a>
+      </div>
+    </.link>
+    <div
+      :if={!@link_target}
+      class="card card-compact bg-base-100 border border-base-300"
+    >
+      <div class="card-body p-3">
+        <div class="flex items-start justify-between gap-2">
+          <div class="flex-1 min-w-0">
+            <p class="text-xs text-base-content/50 font-mono">{@issue.identifier}</p>
+            <p class="text-sm font-medium leading-tight truncate">{@issue.title}</p>
           </div>
-        <% end %>
+        </div>
       </div>
     </div>
     """
+  end
+
+  defp card_link(column, issue, clickable?) do
+    case {column, clickable?} do
+      # Backlog: go to issue editor (IDE view)
+      {"backlog", true} -> "/issues/#{issue.id}"
+      # Worked on: go to IDE to continue prompting
+      {"worked_on", true} -> "/issues/#{issue.id}"
+      # Done: go to IDE to review
+      {"done", true} -> "/issues/#{issue.id}"
+      _ -> nil
+    end
   end
 
 end
