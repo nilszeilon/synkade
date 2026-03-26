@@ -180,6 +180,7 @@ defmodule SynkadeWeb.ProjectsLive do
       active_tab={@nav_active_tab}
       current_project={@current_project}
       current_scope={@current_scope}
+      picker={@picker}
     >
       <div class="max-w-4xl mx-auto px-6 py-6">
         <div class="flex items-center justify-between mb-6">

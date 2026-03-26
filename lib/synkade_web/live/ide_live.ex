@@ -441,6 +441,7 @@ defmodule SynkadeWeb.IdeLive do
       active_tab={@active_tab}
       current_project={@current_project}
       current_scope={@current_scope}
+      picker={@picker}
     >
       <div class="flex flex-col h-screen">
         <%!-- Top bar --%>

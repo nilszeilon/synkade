@@ -62,6 +62,10 @@ defmodule SynkadeWeb.DashboardLive do
       |> assign(:form_project_id, nil)
       |> assign(:form_parent_id, nil)
       |> assign(:create_ancestors, [])
+      |> assign(:tracker_issues, [])
+      |> assign(:tracker_filter, "")
+      |> assign(:tracker_loading, false)
+      |> assign(:tracker_open, false)
       |> assign_chart_data()
       |> assign_dashboard_stats()
 
@@ -111,6 +115,21 @@ defmodule SynkadeWeb.DashboardLive do
           socket
           |> assign(:view_mode, :board)
           |> push_navigate(to: "/issues/#{params["issue"]}")
+
+        params["new"] == "true" && params["from_tracker"] == "true" ->
+          socket = unsubscribe_session(socket)
+
+          socket =
+            socket
+            |> assign(:selected_issue, nil)
+            |> assign(:view_mode, if(params["project"], do: :board, else: :overview))
+            |> assign(:tracker_open, true)
+            |> assign(:tracker_issues, [])
+            |> assign(:tracker_filter, "")
+            |> assign(:tracker_loading, true)
+
+          if connected?(socket), do: send(self(), :load_tracker_issues)
+          socket
 
         params["new"] == "true" ->
           init_create_view(socket, params, fn s ->
@@ -308,6 +327,28 @@ defmodule SynkadeWeb.DashboardLive do
       end
 
     {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info(:load_tracker_issues, socket) do
+    project = resolve_project(socket)
+
+    tracker_issues =
+      case project do
+        nil ->
+          []
+
+        project ->
+          case TrackerClient.fetch_all_issues(project.config, project.name, states: ["open"]) do
+            {:ok, issues} -> Enum.sort_by(issues, & &1.created_at, {:desc, DateTime})
+            {:error, _} -> []
+          end
+      end
+
+    {:noreply,
+     socket
+     |> assign(:tracker_issues, tracker_issues)
+     |> assign(:tracker_loading, false)}
   end
 
   @impl true
@@ -518,8 +559,81 @@ defmodule SynkadeWeb.DashboardLive do
   @impl true
   def handle_event("new_issue", params, socket) do
     parent_id = params["parent_id"]
-    path = new_issue_path(socket.assigns.current_project, parent_id)
+    path = new_issue_path(socket.assigns.current_project, parent_id: parent_id)
     {:noreply, push_patch(socket, to: path)}
+  end
+
+  @impl true
+  def handle_event("tracker_filter", %{"filter" => filter} = params, socket) do
+    # Submit (Enter) vs change
+    if params["_target"] == nil do
+      # Form was submitted — pick top match or create new
+      filter_down = String.downcase(filter)
+
+      filtered =
+        if filter_down == "" do
+          socket.assigns.tracker_issues
+        else
+          Enum.filter(socket.assigns.tracker_issues, fn issue ->
+            String.contains?(String.downcase(issue.title), filter_down) ||
+              String.contains?(String.downcase(issue.identifier), filter_down)
+          end)
+        end
+
+      case filtered do
+        [top | _] ->
+          handle_event("pick_tracker_issue", %{"id" => top.id}, socket)
+
+        [] when filter != "" ->
+          {:noreply,
+           socket
+           |> assign(:tracker_open, false)
+           |> push_patch(to: new_issue_path(socket.assigns.current_project, body: "# #{filter}\n\n"))}
+
+        _ ->
+          {:noreply, socket}
+      end
+    else
+      {:noreply, assign(socket, :tracker_filter, filter)}
+    end
+  end
+
+  @impl true
+  def handle_event("close_tracker", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:tracker_open, false)
+     |> push_patch(to: dashboard_path(socket.assigns.current_project))}
+  end
+
+  @impl true
+  def handle_event("pick_tracker_issue", %{"id" => tracker_id}, socket) do
+    issue = Enum.find(socket.assigns.tracker_issues, &(&1.id == tracker_id))
+
+    if issue do
+      project = resolve_project(socket)
+      project_id = resolve_db_id(project, socket.assigns.current_scope)
+
+      body = "# #{issue.title}\n\n#{issue.description || ""}"
+
+      case Issues.create_issue(%{
+             "body" => body,
+             "project_id" => project_id,
+             "github_issue_url" => issue.url
+           }) do
+        {:ok, created} ->
+          {:noreply,
+           socket
+           |> assign(:tracker_open, false)
+           |> put_flash(:info, "Issue imported from tracker")
+           |> push_navigate(to: "/issues/#{created.id}")}
+
+        {:error, _} ->
+          {:noreply, put_flash(socket, :error, "Failed to import issue")}
+      end
+    else
+      {:noreply, put_flash(socket, :error, "Issue not found")}
+    end
   end
 
   @impl true
@@ -697,10 +811,11 @@ defmodule SynkadeWeb.DashboardLive do
     end
   end
 
-  defp new_issue_path(project_name, parent_id \\ nil) do
+  defp new_issue_path(project_name, opts \\ []) do
     base = if project_name, do: "/projects/#{project_name}", else: "/"
     params = %{"new" => "true"}
-    params = if parent_id, do: Map.put(params, "parent_id", parent_id), else: params
+    params = if opts[:parent_id], do: Map.put(params, "parent_id", opts[:parent_id]), else: params
+    params = if opts[:body], do: Map.put(params, "body", opts[:body]), else: params
     base <> "?" <> URI.encode_query(params)
   end
 
@@ -911,6 +1026,7 @@ defmodule SynkadeWeb.DashboardLive do
       active_tab={@active_tab}
       current_project={@current_project}
       current_scope={@current_scope}
+      picker={@picker}
     >
       <div class="px-6 py-4">
         <%= cond do %>
@@ -1152,11 +1268,95 @@ defmodule SynkadeWeb.DashboardLive do
           <% end %>
         <% end %>
       </div>
+      <.tracker_picker
+        :if={@tracker_open}
+        issues={@tracker_issues}
+        filter={@tracker_filter}
+        loading={@tracker_loading}
+        new_issue_path={new_issue_path(@current_project)}
+      />
     </Layouts.app>
     """
   end
 
   # --- Components ---
+
+  attr :issues, :list, required: true
+  attr :filter, :string, required: true
+  attr :loading, :boolean, required: true
+  attr :new_issue_path, :string, required: true
+
+  defp tracker_picker(assigns) do
+    filter = String.downcase(assigns.filter)
+
+    filtered =
+      if filter == "" do
+        assigns.issues
+      else
+        Enum.filter(assigns.issues, fn issue ->
+          String.contains?(String.downcase(issue.title), filter) ||
+            String.contains?(String.downcase(issue.identifier), filter)
+        end)
+      end
+
+    assigns = assign(assigns, :filtered_issues, filtered)
+
+    ~H"""
+    <div
+      class="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]"
+      phx-window-keydown="close_tracker"
+      phx-key="Escape"
+    >
+      <div class="fixed inset-0 bg-black/40" phx-click="close_tracker"></div>
+      <div class="relative w-full max-w-lg mx-4 bg-base-100 rounded-xl shadow-2xl border border-base-300 overflow-hidden">
+        <form phx-change="tracker_filter" phx-submit="tracker_filter" class="p-3">
+          <input
+            type="text"
+            name="filter"
+            placeholder="Search issues..."
+            value={@filter}
+            phx-debounce="150"
+            class="input input-bordered w-full"
+            autofocus
+          />
+        </form>
+
+        <div class="max-h-72 overflow-y-auto px-2 pb-2">
+          <div :if={@loading} class="flex items-center gap-2 text-base-content/50 py-6 justify-center">
+            <span class="loading loading-spinner loading-sm"></span>
+            <span class="text-sm">Loading issues...</span>
+          </div>
+
+          <div :if={!@loading} class="space-y-0.5">
+            <div
+              :for={{issue, idx} <- Enum.with_index(@filtered_issues)}
+              phx-click="pick_tracker_issue"
+              phx-value-id={issue.id}
+              class={[
+                "flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors",
+                if(idx == 0 && @filter != "", do: "bg-base-200", else: "hover:bg-base-200")
+              ]}
+            >
+              <span class="text-xs text-base-content/40 font-mono shrink-0">{issue.identifier}</span>
+              <span class="text-sm flex-1 min-w-0 truncate">{issue.title}</span>
+              <kbd :if={idx == 0 && @filter != ""} class="kbd kbd-xs text-base-content/30">↵</kbd>
+            </div>
+
+            <div :if={@filtered_issues == [] && @filter != ""} class="flex items-center gap-3 px-3 py-2 rounded-lg bg-base-200">
+              <.icon name="hero-plus" class="size-4 text-primary shrink-0" />
+              <span class="text-sm flex-1 min-w-0 truncate">Create "{@filter}"</span>
+              <kbd class="kbd kbd-xs text-base-content/30">↵</kbd>
+            </div>
+
+            <div :if={@filtered_issues == [] && @filter == "" && @issues == []} class="py-6 text-center">
+              <p class="text-base-content/50 text-sm">No open issues</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
 
   attr :modal, :map, required: true
 

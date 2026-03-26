@@ -73,7 +73,9 @@ defmodule SynkadeWeb.IssueLiveHelpers do
     parent_id = params["parent_id"]
     project_id = resolve_project_id.(socket)
 
-    changeset = Issues.change_issue(%Issues.Issue{}, %{parent_id: parent_id})
+    initial_attrs = %{parent_id: parent_id}
+    initial_attrs = if params["body"], do: Map.put(initial_attrs, :body, params["body"]), else: initial_attrs
+    changeset = Issues.change_issue(%Issues.Issue{}, initial_attrs)
 
     create_ancestors =
       case parent_id do
