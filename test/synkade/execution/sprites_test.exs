@@ -147,8 +147,8 @@ defmodule Synkade.Execution.SpritesTest do
 
   describe "await_event/2" do
     test "receives sprites stdout format" do
-      # Use a struct-like map that matches the Sprites.Command pattern
-      cmd = %{ref: make_ref(), pid: self(), sprite: nil, owner: self(), tty_mode: false}
+      ref = make_ref()
+      cmd = %{ref: ref, pid: self(), sprite: nil, owner: self(), tty_mode: false}
 
       session = %{
         session_id: nil,
@@ -158,15 +158,16 @@ defmodule Synkade.Execution.SpritesTest do
         agent_session: nil
       }
 
-      # Send a sprites-format message to self
-      send(self(), {:stdout, cmd, ~s({"type":"assistant","message":"hello"})})
+      # Sprites.Command sends {:stdout, %{ref: ref}, data} — match real message format
+      send(self(), {:stdout, %{ref: ref}, ~s({"type":"assistant","message":"hello"})})
 
       assert {:data, data} = Sprites.await_event(session, 5_000)
       assert data == ~s({"type":"assistant","message":"hello"})
     end
 
-    test "receives sprites exit format" do
-      cmd = %{ref: make_ref(), pid: self(), sprite: nil, owner: self(), tty_mode: false}
+    test "receives sprites stderr format" do
+      ref = make_ref()
+      cmd = %{ref: ref, pid: self(), sprite: nil, owner: self(), tty_mode: false}
 
       session = %{
         session_id: nil,
@@ -176,13 +177,48 @@ defmodule Synkade.Execution.SpritesTest do
         agent_session: nil
       }
 
-      send(self(), {:exit, cmd, 0})
+      send(self(), {:stderr, %{ref: ref}, "some warning"})
+
+      assert {:data, "some warning"} = Sprites.await_event(session, 5_000)
+    end
+
+    test "receives sprites exit format" do
+      ref = make_ref()
+      cmd = %{ref: ref, pid: self(), sprite: nil, owner: self(), tty_mode: false}
+
+      session = %{
+        session_id: nil,
+        env_ref: nil,
+        events: [],
+        backend_data: %{command: cmd},
+        agent_session: nil
+      }
+
+      send(self(), {:exit, %{ref: ref}, 0})
 
       assert {:exit, 0} = Sprites.await_event(session, 5_000)
     end
 
+    test "receives sprites error format" do
+      ref = make_ref()
+      cmd = %{ref: ref, pid: self(), sprite: nil, owner: self(), tty_mode: false}
+
+      session = %{
+        session_id: nil,
+        env_ref: nil,
+        events: [],
+        backend_data: %{command: cmd},
+        agent_session: nil
+      }
+
+      send(self(), {:error, %{ref: ref}, :connection_lost})
+
+      assert {:exit, {:error, :connection_lost}} = Sprites.await_event(session, 5_000)
+    end
+
     test "returns timeout when no messages" do
-      cmd = %{ref: make_ref(), pid: self(), sprite: nil, owner: self(), tty_mode: false}
+      ref = make_ref()
+      cmd = %{ref: ref, pid: self(), sprite: nil, owner: self(), tty_mode: false}
 
       session = %{
         session_id: nil,
@@ -196,8 +232,9 @@ defmodule Synkade.Execution.SpritesTest do
     end
 
     test "ignores messages for other commands" do
-      cmd = %{ref: make_ref(), pid: self(), sprite: nil, owner: self(), tty_mode: false}
-      other_cmd = %{ref: make_ref(), pid: self(), sprite: nil, owner: self(), tty_mode: false}
+      ref = make_ref()
+      other_ref = make_ref()
+      cmd = %{ref: ref, pid: self(), sprite: nil, owner: self(), tty_mode: false}
 
       session = %{
         session_id: nil,
@@ -207,7 +244,7 @@ defmodule Synkade.Execution.SpritesTest do
         agent_session: nil
       }
 
-      send(self(), {:stdout, other_cmd, "wrong command"})
+      send(self(), {:stdout, %{ref: other_ref}, "wrong command"})
 
       assert :timeout = Sprites.await_event(session, 50)
     end

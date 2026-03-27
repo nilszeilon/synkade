@@ -118,14 +118,20 @@ defmodule Synkade.Execution.Sprites do
 
   @impl true
   def await_event(session, timeout_ms) do
-    cmd = session.backend_data.command
+    ref = session.backend_data.command.ref
 
     receive do
-      {:stdout, ^cmd, data} ->
+      {:stdout, %{ref: ^ref}, data} ->
         {:data, data}
 
-      {:exit, ^cmd, code} ->
+      {:stderr, %{ref: ^ref}, data} ->
+        {:data, data}
+
+      {:exit, %{ref: ^ref}, code} ->
         {:exit, code}
+
+      {:error, %{ref: ^ref}, reason} ->
+        {:exit, {:error, reason}}
     after
       timeout_ms ->
         :timeout
@@ -255,13 +261,17 @@ defmodule Synkade.Execution.Sprites do
         {:error, "git fetch failed with exit code #{fetch_exit}"}
       else
         # 3. Create worktree if it doesn't exist
+        # Use `git rev-parse` to check for a valid worktree (not `test -d`
+        # which passes for leftover empty directories).
+        # Bare clones have local branches (not origin/*), so use HEAD.
+        # Remove stale directory first — `git worktree add` refuses existing dirs.
         {_output, wt_exit} =
           Sprites.cmd(
             sprite,
             "sh",
             [
               "-c",
-              "test -d #{worktree_path} || git -C #{bare_path} worktree add #{worktree_path} origin/HEAD"
+              "git -C #{worktree_path} rev-parse --git-dir >/dev/null 2>&1 || (rm -rf #{worktree_path} && git -C #{bare_path} worktree add #{worktree_path} HEAD)"
             ],
             timeout: 60_000
           )
