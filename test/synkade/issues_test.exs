@@ -62,11 +62,11 @@ defmodule Synkade.IssuesTest do
       {:ok, _} = Issues.create_issue(%{body: "# Backlog", project_id: project.id})
 
       {:ok, _} =
-        Issues.create_issue(%{body: "# Queued", project_id: project.id, state: "queued"})
+        Issues.create_issue(%{body: "# Worked On", project_id: project.id, state: "worked_on"})
 
-      queued = Issues.list_issues(project.id, state: "queued")
-      assert length(queued) == 1
-      assert Issue.title(hd(queued)) == "Queued"
+      worked_on = Issues.list_issues(project.id, state: "worked_on")
+      assert length(worked_on) == 1
+      assert Issue.title(hd(worked_on)) == "Worked On"
     end
 
     test "filters by parent_id", %{project: project} do
@@ -124,93 +124,62 @@ defmodule Synkade.IssuesTest do
   end
 
   describe "transition_state/2" do
-    test "backlog -> queued", %{project: project} do
+    test "backlog -> worked_on", %{project: project} do
       {:ok, issue} =
         Issues.create_issue(%{body: "# Test", project_id: project.id, state: "backlog"})
 
-      assert {:ok, updated} = Issues.transition_state(issue, "queued")
-      assert updated.state == "queued"
+      assert {:ok, updated} = Issues.transition_state(issue, "worked_on")
+      assert updated.state == "worked_on"
     end
 
-    test "queued -> in_progress", %{project: project} do
+    test "backlog -> done", %{project: project} do
       {:ok, issue} =
-        Issues.create_issue(%{body: "# Test", project_id: project.id, state: "queued"})
-
-      assert {:ok, updated} = Issues.transition_state(issue, "in_progress")
-      assert updated.state == "in_progress"
-    end
-
-    test "in_progress -> awaiting_review", %{project: project} do
-      {:ok, issue} =
-        Issues.create_issue(%{body: "# Test", project_id: project.id, state: "in_progress"})
-
-      assert {:ok, updated} = Issues.transition_state(issue, "awaiting_review")
-      assert updated.state == "awaiting_review"
-    end
-
-    test "in_progress -> done", %{project: project} do
-      {:ok, issue} =
-        Issues.create_issue(%{body: "# Test", project_id: project.id, state: "in_progress"})
+        Issues.create_issue(%{body: "# Test", project_id: project.id, state: "backlog"})
 
       assert {:ok, updated} = Issues.transition_state(issue, "done")
       assert updated.state == "done"
     end
 
-    test "awaiting_review -> done", %{project: project} do
+    test "worked_on -> done", %{project: project} do
       {:ok, issue} =
-        Issues.create_issue(%{body: "# Test", project_id: project.id, state: "awaiting_review"})
+        Issues.create_issue(%{body: "# Test", project_id: project.id, state: "worked_on"})
 
       assert {:ok, updated} = Issues.transition_state(issue, "done")
       assert updated.state == "done"
     end
 
-    test "any -> cancelled", %{project: project} do
-      for state <- ~w(backlog queued in_progress awaiting_review done) do
-        {:ok, issue} =
-          Issues.create_issue(%{
-            body: "# Test #{state}",
-            project_id: project.id,
-            state: state
-          })
+    test "worked_on -> backlog", %{project: project} do
+      {:ok, issue} =
+        Issues.create_issue(%{body: "# Test", project_id: project.id, state: "worked_on"})
 
-        assert {:ok, updated} = Issues.transition_state(issue, "cancelled")
-        assert updated.state == "cancelled"
-      end
+      assert {:ok, updated} = Issues.transition_state(issue, "backlog")
+      assert updated.state == "backlog"
     end
 
-    test "rejects invalid transition", %{project: project} do
+    test "done -> backlog (reopen)", %{project: project} do
       {:ok, issue} =
-        Issues.create_issue(%{body: "# Test", project_id: project.id, state: "backlog"})
-
-      assert {:error, :invalid_transition} = Issues.transition_state(issue, "done")
-    end
-
-    test "cancelled can reopen to backlog", %{project: project} do
-      {:ok, issue} =
-        Issues.create_issue(%{body: "# Test", project_id: project.id, state: "cancelled"})
+        Issues.create_issue(%{body: "# Test", project_id: project.id, state: "done"})
 
       assert {:ok, reopened} = Issues.transition_state(issue, "backlog")
       assert reopened.state == "backlog"
     end
+
+    test "rejects invalid transition", %{project: project} do
+      {:ok, issue} =
+        Issues.create_issue(%{body: "# Test", project_id: project.id, state: "done"})
+
+      assert {:error, :invalid_transition} = Issues.transition_state(issue, "worked_on")
+    end
   end
 
   describe "convenience functions" do
-    test "queue_issue/1", %{project: project} do
-      {:ok, issue} = Issues.create_issue(%{body: "# Test", project_id: project.id})
-      assert {:ok, %{state: "queued"}} = Issues.queue_issue(issue)
-    end
-
     test "complete_issue/1", %{project: project} do
       {:ok, issue} =
-        Issues.create_issue(%{body: "# Test", project_id: project.id, state: "in_progress"})
+        Issues.create_issue(%{body: "# Test", project_id: project.id, state: "worked_on"})
 
       assert {:ok, %{state: "done"}} = Issues.complete_issue(issue)
     end
 
-    test "cancel_issue/1", %{project: project} do
-      {:ok, issue} = Issues.create_issue(%{body: "# Test", project_id: project.id})
-      assert {:ok, %{state: "cancelled"}} = Issues.cancel_issue(issue)
-    end
   end
 
   describe "ancestor_chain/1" do
@@ -240,28 +209,28 @@ defmodule Synkade.IssuesTest do
     end
   end
 
-  describe "list_queued_issues/1" do
-    test "returns queued issues ordered by inserted_at (FIFO)", %{project: project} do
+  describe "list_worked_on_issues/1" do
+    test "returns worked_on issues ordered by inserted_at (FIFO)", %{project: project} do
       {:ok, _} =
-        Issues.create_issue(%{body: "# First", project_id: project.id, state: "queued"})
+        Issues.create_issue(%{body: "# First", project_id: project.id, state: "worked_on"})
 
       {:ok, _} =
-        Issues.create_issue(%{body: "# Second", project_id: project.id, state: "queued"})
+        Issues.create_issue(%{body: "# Second", project_id: project.id, state: "worked_on"})
 
       {:ok, _} =
         Issues.create_issue(%{body: "# Backlog", project_id: project.id, state: "backlog"})
 
-      queued = Issues.list_queued_issues(project.id)
-      assert length(queued) == 2
-      assert Enum.map(queued, &Issue.title/1) == ["First", "Second"]
+      worked_on = Issues.list_worked_on_issues(project.id)
+      assert length(worked_on) == 2
+      assert Enum.map(worked_on, &Issue.title/1) == ["First", "Second"]
     end
   end
 
   describe "dispatch_issue/3" do
-    test "sets dispatch_message and transitions to queued", %{project: project} do
+    test "sets dispatch_message and transitions to worked_on", %{project: project} do
       {:ok, issue} = Issues.create_issue(%{body: "# Research X", project_id: project.id})
       {:ok, dispatched} = Issues.dispatch_issue(issue, "look into how we can do X")
-      assert dispatched.state == "queued"
+      assert dispatched.state == "worked_on"
 
       reloaded = Issues.get_issue!(issue.id)
       assert reloaded.dispatch_message == "look into how we can do X"
@@ -273,7 +242,7 @@ defmodule Synkade.IssuesTest do
 
       {:ok, issue} = Issues.create_issue(%{body: "# Research Y", project_id: project.id})
       {:ok, dispatched} = Issues.dispatch_issue(issue, "investigate Y", agent.id)
-      assert dispatched.state == "queued"
+      assert dispatched.state == "worked_on"
 
       reloaded = Issues.get_issue!(issue.id)
       assert reloaded.dispatch_message == "investigate Y"
@@ -284,8 +253,7 @@ defmodule Synkade.IssuesTest do
       {:ok, issue} =
         Issues.create_issue(%{body: "# Done issue", project_id: project.id, state: "done"})
 
-      assert {:ok, queued} = Issues.dispatch_issue(issue, "try again")
-      assert queued.state == "queued"
+      assert {:error, :invalid_transition} = Issues.dispatch_issue(issue, "try again")
     end
   end
 
@@ -310,7 +278,7 @@ defmodule Synkade.IssuesTest do
         Issues.create_issue(%{
           body: "# Due recurring",
           project_id: project.id,
-          state: "in_progress",
+          state: "worked_on",
           recurring: true,
           recurrence_interval: 1
         })
@@ -335,7 +303,7 @@ defmodule Synkade.IssuesTest do
         Issues.create_issue(%{
           body: "# Not yet due",
           project_id: project.id,
-          state: "in_progress",
+          state: "worked_on",
           recurring: true,
           recurrence_interval: 24
         })
@@ -352,7 +320,7 @@ defmodule Synkade.IssuesTest do
         Issues.create_issue(%{
           body: "# Not recurring",
           project_id: project.id,
-          state: "in_progress",
+          state: "worked_on",
           recurring: false
         })
 
@@ -362,14 +330,14 @@ defmodule Synkade.IssuesTest do
       assert due == []
     end
 
-    test "cycle_recurring_issue transitions done→queued and appends system message", %{
+    test "cycle_recurring_issue transitions done→worked_on and appends system message", %{
       project: project
     } do
       {:ok, issue} =
         Issues.create_issue(%{
           body: "# Recurring task",
           project_id: project.id,
-          state: "in_progress",
+          state: "worked_on",
           recurring: true,
           recurrence_interval: 1
         })
@@ -377,7 +345,7 @@ defmodule Synkade.IssuesTest do
       {:ok, done} = Issues.transition_state(issue, "done")
       {:ok, cycled} = Issues.cycle_recurring_issue(done)
 
-      assert cycled.state == "queued"
+      assert cycled.state == "worked_on"
 
       reloaded = Issues.get_issue!(cycled.id)
       messages = reloaded.metadata["messages"]

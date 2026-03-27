@@ -31,7 +31,7 @@ defmodule SynkadeWeb.IssueLiveHelpers do
 
         # Subscribe to agent events if issue is in_progress
         socket =
-          if issue.state == "in_progress" do
+          if issue.state == "worked_on" do
             running_entry = find_running_entry(socket.assigns.running, issue_id)
 
             if running_entry do
@@ -205,11 +205,8 @@ defmodule SynkadeWeb.IssueLiveHelpers do
 
   @doc "CSS class for issue state badges."
   def state_badge_class("backlog"), do: "badge-ghost"
-  def state_badge_class("queued"), do: "badge-info"
-  def state_badge_class("in_progress"), do: "badge-warning"
-  def state_badge_class("awaiting_review"), do: "badge-secondary"
+  def state_badge_class("worked_on"), do: "badge-info"
   def state_badge_class("done"), do: "badge-success"
-  def state_badge_class("cancelled"), do: "badge-error"
   def state_badge_class(_), do: "badge-ghost"
 
   @doc "Format monotonic timestamp as relative time string."

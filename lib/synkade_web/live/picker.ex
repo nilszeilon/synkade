@@ -82,7 +82,7 @@ defmodule SynkadeWeb.Picker do
     issues =
       Issue
       |> Synkade.Repo.all()
-      |> Enum.reject(&(&1.state in ~w(done cancelled)))
+      |> Enum.reject(&(&1.state == "done"))
       |> Enum.sort_by(& &1.inserted_at, {:desc, DateTime})
 
     if query == "" do
@@ -175,8 +175,6 @@ defmodule SynkadeWeb.Picker do
     """
   end
 
-  defp state_color("in_progress"), do: "bg-success"
-  defp state_color("awaiting_review"), do: "bg-warning"
-  defp state_color("queued"), do: "bg-info"
+  defp state_color("worked_on"), do: "bg-info"
   defp state_color(_), do: "bg-base-content/20"
 end

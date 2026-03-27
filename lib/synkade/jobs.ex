@@ -16,7 +16,7 @@ defmodule Synkade.Jobs do
       projects: projects,
       running: running_agents_map(scope),
       retry_attempts: retrying_agents_map(scope),
-      awaiting_review: %{},
+      awaiting_review: %{},  # stub: kept for snapshot compat
       agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, runtime_seconds: 0.0},
       agent_totals_by_project: %{},
       config_error: config_error,
@@ -70,6 +70,29 @@ defmodule Synkade.Jobs do
           fragment("?->>'project_id' = ?", j.args, ^project_id_str)
     )
     |> Repo.aggregate(:count)
+  end
+
+  @doc "Cancel all executing/available agent jobs for a given issue."
+  def cancel_jobs_for_issue(issue_id) do
+    require Logger
+    issue_id_str = to_string(issue_id)
+
+    queryable =
+      from(j in Oban.Job,
+        where:
+          j.queue == "agents" and j.state in ["executing", "available", "scheduled", "retryable"] and
+            fragment("?->>'issue_id' = ?", j.args, ^issue_id_str)
+      )
+
+    case Oban.cancel_all_jobs(queryable) do
+      {:ok, count} ->
+        Logger.info("Jobs.cancel_jobs_for_issue: cancelled #{count} jobs for issue #{issue_id}")
+        {:ok, count}
+
+      other ->
+        Logger.warning("Jobs.cancel_jobs_for_issue: unexpected result #{inspect(other)}")
+        other
+    end
   end
 
   @doc "No-op refresh -- Oban handles scheduling. Broadcasts to trigger LiveView re-query."
@@ -144,7 +167,24 @@ defmodule Synkade.Jobs do
     jobs = running_agents(scope)
     project_cache = load_project_names(scope)
 
-    Map.new(jobs, fn job ->
+    # Filter out jobs whose issues have been archived (state = done)
+    done_issue_ids =
+      jobs
+      |> Enum.map(& &1.args["issue_id"])
+      |> Enum.reject(&is_nil/1)
+      |> then(fn ids ->
+        if ids == [] do
+          MapSet.new()
+        else
+          from(i in Synkade.Issues.Issue, where: i.id in ^ids and i.state == "done", select: i.id)
+          |> Repo.all()
+          |> MapSet.new()
+        end
+      end)
+
+    jobs
+    |> Enum.reject(fn job -> MapSet.member?(done_issue_ids, job.args["issue_id"]) end)
+    |> Map.new(fn job ->
       issue_id = job.args["issue_id"]
       project_id = job.args["project_id"]
       project_name = Map.get(project_cache, project_id, "unknown")
@@ -154,7 +194,7 @@ defmodule Synkade.Jobs do
         project_name: project_name,
         issue_id: issue_id,
         identifier: "#{project_name}##{String.slice(issue_id || "", 0..7)}",
-        issue_state: "in_progress",
+        issue_state: "worked_on",
         session_id: nil,
         last_agent_event: nil,
         last_agent_timestamp: nil,

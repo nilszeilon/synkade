@@ -125,16 +125,15 @@ defmodule SynkadeWeb.Layouts do
             </div>
             <%!-- Issues list --%>
             <div id={"project-issues-#{project.db_id}"} class={["space-y-0.5", @current_project != name && "hidden"]}>
-              <.link
+              <div
                 :for={issue <- Map.get(@sidebar_issues, project.db_id, [])}
-                navigate={"/issues/#{issue.id}"}
-                class="flex items-center gap-1.5 px-3 h-8 mx-1 rounded-lg hover:bg-base-200/50 min-w-0"
+                class="flex items-center gap-1.5 px-3 h-8 mx-1 rounded-lg hover:bg-base-200/50 min-w-0 group/issue"
               >
                 <span class={"w-1.5 h-1.5 rounded-full shrink-0 #{sidebar_state_color(issue.state)}"}>
                 </span>
-                <span class="truncate text-xs flex-1">
+                <.link navigate={"/issues/#{issue.id}"} class="truncate text-xs flex-1">
                   {Synkade.Issues.Issue.title(issue)}
-                </span>
+                </.link>
                 <% {adds, dels} = Map.get(@sidebar_diff_stats, issue.id, {0, 0}) %>
                 <span
                   :if={adds > 0 || dels > 0}
@@ -143,7 +142,16 @@ defmodule SynkadeWeb.Layouts do
                   <span :if={adds > 0} class="text-success">+{adds}</span>
                   <span :if={dels > 0} class="text-error">-{dels}</span>
                 </span>
-              </.link>
+                <button
+                  :if={issue.state != "done"}
+                  phx-click="complete_issue"
+                  phx-value-id={issue.id}
+                  class="shrink-0 opacity-0 group-hover/issue:opacity-100 transition-opacity text-base-content/40 hover:text-base-content"
+                  title="Archive issue"
+                >
+                  <.icon name="hero-archive-box-arrow-down" class="size-3.5" />
+                </button>
+              </div>
               <div
                 :if={Map.get(@sidebar_issues, project.db_id, []) == []}
                 class="px-3 py-1.5 text-base-content/30 text-xs"
@@ -193,9 +201,7 @@ defmodule SynkadeWeb.Layouts do
     Enum.count(running, fn {_key, entry} -> entry.project_name == project_name end)
   end
 
-  defp sidebar_state_color("in_progress"), do: "bg-info"
-  defp sidebar_state_color("queued"), do: "bg-warning"
-  defp sidebar_state_color("awaiting_review"), do: "bg-accent"
+  defp sidebar_state_color("worked_on"), do: "bg-info"
   defp sidebar_state_color("backlog"), do: "bg-base-content/30"
   defp sidebar_state_color(_), do: "bg-base-content/20"
 

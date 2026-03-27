@@ -116,6 +116,22 @@ defmodule SynkadeWeb.ProjectsLive do
   end
 
   @impl true
+  def handle_event("complete_issue", %{"id" => issue_id}, socket) do
+    issue = Synkade.Issues.get_issue!(issue_id)
+
+    case Synkade.Issues.complete_issue(issue) do
+      {:ok, _} ->
+        {:noreply,
+         socket
+         |> SynkadeWeb.Sidebar.assign_sidebar(socket.assigns.current_scope)
+         |> put_flash(:info, "Issue archived")}
+
+      {:error, :invalid_transition} ->
+        {:noreply, put_flash(socket, :error, "Cannot archive from current state")}
+    end
+  end
+
+  @impl true
   def handle_event("toggle_enabled", %{"id" => id}, socket) do
     project = Settings.get_project!(id)
     scope = socket.assigns.current_scope

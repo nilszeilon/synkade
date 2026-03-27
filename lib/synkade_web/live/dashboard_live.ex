@@ -277,7 +277,7 @@ defmodule SynkadeWeb.DashboardLive do
             if db_id do
               try do
                 Issues.list_issues(db_id)
-                |> Enum.reject(fn i -> i.state in ["done", "cancelled"] end)
+                |> Enum.reject(fn i -> i.state == "done" end)
                 |> Enum.map(&db_issue_to_tracker_issue(&1, project.name))
               catch
                 _, _ -> []
@@ -307,7 +307,7 @@ defmodule SynkadeWeb.DashboardLive do
           {done_issues, done_total} =
             if db_id do
               try do
-                all_done = Issues.list_issues_filtered(db_id, ["done", "cancelled"])
+                all_done = Issues.list_issues_filtered(db_id, ["done"])
                 done_mapped = Enum.map(all_done, &db_issue_to_tracker_issue(&1, project.name))
                 {Enum.take(done_mapped, 10), length(done_mapped)}
               catch
@@ -404,10 +404,10 @@ defmodule SynkadeWeb.DashboardLive do
       "to_column" => to_col
     } = params
 
-    allowed_transitions = [{"backlog", "queue"}, {"queue", "backlog"}]
+    allowed_transitions = [{"backlog", "worked_on"}, {"worked_on", "backlog"}]
 
     if {from_col, to_col} in allowed_transitions do
-      new_state = if to_col == "queue", do: "queued", else: "backlog"
+      new_state = if to_col == "worked_on", do: "worked_on", else: "backlog"
 
       case Issues.get_issue(issue_id) do
         nil ->
@@ -429,12 +429,12 @@ defmodule SynkadeWeb.DashboardLive do
 
                 Task.start(fn ->
                   case {from_col, to_col} do
-                    {"backlog", "queue"} ->
+                    {"backlog", "worked_on"} ->
                       Enum.each(dispatch_labels, fn label ->
                         TrackerClient.add_issue_label(config, project_name, issue_id, label)
                       end)
 
-                    {"queue", "backlog"} ->
+                    {"worked_on", "backlog"} ->
                       Enum.each(dispatch_labels, fn label ->
                         TrackerClient.remove_issue_label(config, project_name, issue_id, label)
                       end)
@@ -510,25 +510,25 @@ defmodule SynkadeWeb.DashboardLive do
   end
 
   @impl true
-  def handle_event("cancel_issue", %{"id" => issue_id}, socket) do
+  def handle_event("complete_issue", %{"id" => issue_id}, socket) do
     case Issues.get_issue(issue_id) do
       nil ->
         {:noreply, put_flash(socket, :error, "Issue not found")}
 
       issue ->
-        case Issues.cancel_issue(issue) do
+        case Issues.complete_issue(issue) do
           {:ok, _} ->
             send(self(), :load_board)
-            {:noreply, put_flash(socket, :info, "Issue cancelled")}
+            {:noreply, put_flash(socket, :info, "Issue marked done")}
 
           {:error, :invalid_transition} ->
-            {:noreply, put_flash(socket, :error, "Cannot cancel from current state")}
+            {:noreply, put_flash(socket, :error, "Cannot complete from current state")}
         end
     end
   end
 
   @impl true
-  def handle_event("unqueue_issue", %{"id" => issue_id}, socket) do
+  def handle_event("move_to_backlog", %{"id" => issue_id}, socket) do
     case Issues.get_issue(issue_id) do
       nil ->
         {:noreply, put_flash(socket, :error, "Issue not found")}
@@ -868,7 +868,7 @@ defmodule SynkadeWeb.DashboardLive do
           Map.has_key?(awaiting_review, key) ->
             "worked_on"
 
-          issue.state in ["in_progress", "awaiting_review", "queued"] ->
+          issue.state == "worked_on" ->
             "worked_on"
 
           dispatch_labels != [] and Enum.any?(dispatch_labels, &(&1 in issue.labels)) ->
@@ -965,10 +965,7 @@ defmodule SynkadeWeb.DashboardLive do
   defp activity_badge_class(state) do
     case state do
       "done" -> "badge-success"
-      "in_progress" -> "badge-info"
-      "queued" -> "badge-warning"
-      "awaiting_review" -> "badge-accent"
-      "cancelled" -> "badge-error"
+      "worked_on" -> "badge-info"
       _ -> "badge-ghost"
     end
   end
@@ -1166,12 +1163,9 @@ defmodule SynkadeWeb.DashboardLive do
               </div>
 
               <div class="card bg-base-200 border border-base-300 p-5 flex flex-col justify-between">
-                <span class="ops-label text-xs text-base-content/50 mb-2">In Progress</span>
+                <span class="ops-label text-xs text-base-content/50 mb-2">Worked On</span>
                 <span class="text-4xl font-bold tabular-nums text-info">
-                  {Map.get(@issue_stats, "in_progress", 0)}
-                </span>
-                <span class="text-xs text-base-content/40 mt-2">
-                  {Map.get(@issue_stats, "queued", 0)} queued
+                  {Map.get(@issue_stats, "worked_on", 0)}
                 </span>
               </div>
 
@@ -1179,9 +1173,6 @@ defmodule SynkadeWeb.DashboardLive do
                 <span class="ops-label text-xs text-base-content/50 mb-2">Backlog</span>
                 <span class="text-4xl font-bold tabular-nums">
                   {Map.get(@issue_stats, "backlog", 0)}
-                </span>
-                <span class="text-xs text-base-content/40 mt-2">
-                  {Map.get(@issue_stats, "awaiting_review", 0)} awaiting review
                 </span>
               </div>
 

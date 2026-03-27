@@ -157,9 +157,9 @@ defmodule Synkade.Skills do
       # Who am I?
       curl -s -H "Authorization: Bearer $SYNKADE_API_TOKEN" "$SYNKADE_API_URL/me"
 
-      # Find queued work assigned to me
+      # Find work assigned to me
       curl -s -H "Authorization: Bearer $SYNKADE_API_TOKEN" \\
-        "$SYNKADE_API_URL/issues?state=queued&assigned_to=me"
+        "$SYNKADE_API_URL/issues?state=worked_on&assigned_to=me"
 
       # Claim an issue (409 if already claimed)
       curl -s -X POST -H "Authorization: Bearer $SYNKADE_API_TOKEN" \\
@@ -169,7 +169,7 @@ defmodule Synkade.Skills do
       curl -s -X PATCH "$SYNKADE_API_URL/issues/<issue_id>" \\
         -H "Authorization: Bearer $SYNKADE_API_TOKEN" \\
         -H "Content-Type: application/json" \\
-        -d '{"state":"awaiting_review","agent_output":"Summary of work"}'
+        -d '{"state":"done","agent_output":"Summary of work"}'
       ```
 
       Workflow: poll → checkout → heartbeat → complete.

@@ -30,7 +30,9 @@ defmodule SynkadeWeb.IssuesLive do
       |> assign(:db_projects, projects)
       |> assign(:state_filter, nil)
       |> assign(:project_names, Map.new(projects, &{&1.id, &1.name}))
-      |> assign(:issues, [])
+      |> assign(:worked_on_issues, [])
+      |> assign(:backlog_issues, [])
+      |> assign(:done_issues, [])
       |> assign(:selected_issue, nil)
       |> assign(:view_mode, :list)
       |> assign(:form, nil)
@@ -267,23 +269,7 @@ defmodule SynkadeWeb.IssuesLive do
   end
 
   @impl true
-  def handle_event("queue_issue", %{"id" => issue_id}, socket) do
-    issue = Issues.get_issue!(issue_id)
-
-    case Issues.queue_issue(issue) do
-      {:ok, _} ->
-        {:noreply,
-         socket
-         |> load_issues()
-         |> put_flash(:info, "Issue queued")}
-
-      {:error, :invalid_transition} ->
-        {:noreply, put_flash(socket, :error, "Cannot queue from current state")}
-    end
-  end
-
-  @impl true
-  def handle_event("unqueue_issue", %{"id" => issue_id}, socket) do
+  def handle_event("move_to_backlog", %{"id" => issue_id}, socket) do
     issue = Issues.get_issue!(issue_id)
 
     case Issues.transition_state(issue, "backlog") do
@@ -331,18 +317,18 @@ defmodule SynkadeWeb.IssuesLive do
   end
 
   @impl true
-  def handle_event("cancel_issue", %{"id" => issue_id}, socket) do
+  def handle_event("complete_issue", %{"id" => issue_id}, socket) do
     issue = Issues.get_issue!(issue_id)
 
-    case Issues.cancel_issue(issue) do
+    case Issues.complete_issue(issue) do
       {:ok, _} ->
         {:noreply,
          socket
          |> load_issues()
-         |> put_flash(:info, "Issue cancelled")}
+         |> put_flash(:info, "Issue marked done")}
 
       {:error, :invalid_transition} ->
-        {:noreply, put_flash(socket, :error, "Cannot cancel from current state")}
+        {:noreply, put_flash(socket, :error, "Cannot complete from current state")}
     end
   end
 
@@ -378,18 +364,31 @@ defmodule SynkadeWeb.IssuesLive do
   # --- Private ---
 
   defp load_issues(socket) do
-    states =
-      case socket.assigns.state_filter do
-        "done" -> ~w(done cancelled)
-        _ -> ~w(backlog queued in_progress awaiting_review)
-      end
+    case socket.assigns.state_filter do
+      "done" ->
+        done =
+          Enum.flat_map(socket.assigns.db_projects, fn project ->
+            Issues.list_issues_filtered(project.id, ["done"])
+          end)
 
-    issues =
-      Enum.flat_map(socket.assigns.db_projects, fn project ->
-        Issues.list_issues_filtered(project.id, states)
-      end)
+        socket
+        |> assign(:worked_on_issues, [])
+        |> assign(:backlog_issues, [])
+        |> assign(:done_issues, done)
 
-    assign(socket, :issues, issues)
+      _ ->
+        all =
+          Enum.flat_map(socket.assigns.db_projects, fn project ->
+            Issues.list_issues_filtered(project.id, ["backlog", "worked_on"])
+          end)
+
+        {worked_on, backlog} = Enum.split_with(all, &(&1.state == "worked_on"))
+
+        socket
+        |> assign(:worked_on_issues, worked_on)
+        |> assign(:backlog_issues, backlog)
+        |> assign(:done_issues, [])
+    end
   end
 
   defp issues_path(filter, issue_id \\ nil) do
@@ -456,7 +455,7 @@ defmodule SynkadeWeb.IssuesLive do
             />
 
           <% true -> %>
-            <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center justify-between mb-6">
               <h1 class="text-2xl font-bold">Issues</h1>
               <div class="flex items-center gap-2">
                 <div class="flex items-center gap-1">
@@ -480,18 +479,55 @@ defmodule SynkadeWeb.IssuesLive do
               </div>
             </div>
 
-            <div>
-              <div :if={@issues == []} class="text-base-content/50 text-sm py-8 text-center">
-                No issues
+            <%= if @state_filter == "done" do %>
+              <div :if={@done_issues == []} class="text-base-content/50 text-sm py-8 text-center">
+                No completed issues
               </div>
-
-              <div :for={issue <- @issues} class="mb-1">
+              <div :for={issue <- @done_issues} class="mb-1">
                 <.issue_flat_row
                   issue={issue}
                   project_name={Map.get(@project_names, issue.project_id)}
+                  running={@running}
                 />
               </div>
-            </div>
+            <% else %>
+              <div :if={@worked_on_issues == [] && @backlog_issues == []} class="text-base-content/50 text-sm py-8 text-center">
+                No issues
+              </div>
+
+              <%!-- Worked On section --%>
+              <div :if={@worked_on_issues != []}>
+                <h2 class="text-xs font-semibold text-base-content/50 uppercase tracking-wider mb-2 px-2">
+                  Worked On
+                  <span class="badge badge-xs badge-info ml-1">{length(@worked_on_issues)}</span>
+                </h2>
+                <div :for={issue <- @worked_on_issues} class="mb-1">
+                  <.issue_flat_row
+                    issue={issue}
+                    project_name={Map.get(@project_names, issue.project_id)}
+                    running={@running}
+                  />
+                </div>
+              </div>
+
+              <%!-- Divider --%>
+              <div :if={@worked_on_issues != [] && @backlog_issues != []} class="divider my-3 before:bg-base-300 after:bg-base-300"></div>
+
+              <%!-- Backlog section --%>
+              <div :if={@backlog_issues != []}>
+                <h2 class="text-xs font-semibold text-base-content/50 uppercase tracking-wider mb-2 px-2">
+                  Backlog
+                  <span class="badge badge-xs badge-ghost ml-1">{length(@backlog_issues)}</span>
+                </h2>
+                <div :for={issue <- @backlog_issues} class="mb-1">
+                  <.issue_flat_row
+                    issue={issue}
+                    project_name={Map.get(@project_names, issue.project_id)}
+                    running={@running}
+                  />
+                </div>
+              </div>
+            <% end %>
         <% end %>
       </div>
     </Layouts.app>
@@ -500,23 +536,31 @@ defmodule SynkadeWeb.IssuesLive do
 
   attr :issue, :map, required: true
   attr :project_name, :string, default: nil
+  attr :running, :map, default: %{}
 
   defp issue_flat_row(assigns) do
+    running_entry = find_running_entry(assigns.running, assigns.issue.id)
+    assigns = assign(assigns, :running_entry, running_entry)
+
     ~H"""
     <div
-      class="flex items-center gap-2 py-1.5 px-2 rounded cursor-pointer hover:bg-base-200 group"
+      class="flex items-center gap-2 py-2 px-3 rounded-lg cursor-pointer hover:bg-base-200 group transition-colors"
       phx-click="select_issue"
       phx-value-id={@issue.id}
     >
-      <span :if={@project_name} class="text-xs text-base-content/50 w-24 truncate flex-shrink-0">
+      <span :if={@running_entry} class="loading loading-spinner loading-xs text-info flex-shrink-0"></span>
+      <span :if={@project_name} class="text-xs text-base-content/40 w-24 truncate flex-shrink-0">
         {@project_name}
       </span>
       <span class="text-sm truncate flex-1 min-w-0">{Issue.title(@issue)}</span>
+      <span
+        :if={@running_entry && @running_entry.last_agent_message && @running_entry.last_agent_message != ""}
+        class="text-xs text-base-content/30 truncate max-w-48 flex-shrink-0 hidden sm:inline"
+      >
+        {@running_entry.last_agent_message}
+      </span>
       <span :if={@issue.auto_merge} class="badge badge-xs badge-warning flex-shrink-0">auto-merge</span>
       <span :if={@issue.recurring} class="badge badge-xs badge-accent flex-shrink-0">recurring</span>
-      <span class={"badge badge-xs #{state_badge_class(@issue.state)} flex-shrink-0"}>
-        {@issue.state}
-      </span>
       <a
         :if={@issue.github_pr_url}
         href={@issue.github_pr_url}
@@ -527,6 +571,16 @@ defmodule SynkadeWeb.IssuesLive do
       >
         PR
       </a>
+      <button
+        :if={@issue.state != "done"}
+        phx-click="complete_issue"
+        phx-value-id={@issue.id}
+        class="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-base-content/40 hover:text-base-content"
+        title="Archive issue"
+        onclick="event.stopPropagation()"
+      >
+        <.icon name="hero-archive-box-arrow-down" class="size-4" />
+      </button>
     </div>
     """
   end
