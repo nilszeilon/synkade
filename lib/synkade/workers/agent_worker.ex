@@ -90,7 +90,7 @@ defmodule Synkade.Workers.AgentWorker do
       name: db_project.name,
       db_id: db_project.id,
       config: config,
-      prompt_template: db_project.prompt_template || (agent && agent.system_prompt)
+      prompt_template: db_project.prompt_template
     }
 
     tracker_issue = db_issue_to_tracker_issue(issue, db_project.name)

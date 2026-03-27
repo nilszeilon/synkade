@@ -14,7 +14,6 @@ defmodule Synkade.Execution.AgentRunner do
     config = project.config
     project_name = project.name
     prompt_template = project.prompt_template
-    max_turns = Config.max_turns(config)
 
     Logger.info(
       "AgentRunner starting for #{project_name}:#{issue.identifier} (attempt #{inspect(attempt)})"
@@ -24,7 +23,7 @@ defmodule Synkade.Execution.AgentRunner do
          :ok <- BackendClient.run_before_hook(config, env_ref),
          {:ok, prompt} <- render_prompt(prompt_template, project, issue, attempt),
          {:ok, session} <- start_agent(config, prompt, env_ref) do
-      result = event_loop(project, issue, session, config, max_turns, 1)
+      result = event_loop(project, issue, session, config, 1)
       BackendClient.run_after_hook(config, env_ref)
       result
     else
@@ -71,14 +70,14 @@ defmodule Synkade.Execution.AgentRunner do
     BackendClient.start_agent(config, prompt, env_ref)
   end
 
-  defp event_loop(project, issue, session, config, max_turns, turn) do
+  defp event_loop(project, issue, session, config, turn) do
     turn_timeout = Config.get(config, "agent", "turn_timeout_ms") || 3_600_000
 
     case BackendClient.await_event(config, session, turn_timeout) do
       {:partial, chunk} ->
         pending = Map.get(session, :pending_line, "")
         session = Map.put(session, :pending_line, pending <> chunk)
-        event_loop(project, issue, session, config, max_turns, turn)
+        event_loop(project, issue, session, config, turn)
 
       {:data, data} ->
         pending = Map.get(session, :pending_line, "")
@@ -101,7 +100,7 @@ defmodule Synkade.Execution.AgentRunner do
           Synkade.Issues.update_issue_heartbeat(issue.id, last.message)
         end
 
-        event_loop(project, issue, session, config, max_turns, turn)
+        event_loop(project, issue, session, config, turn)
 
       {:exit, 0} ->
         Logger.info("Agent exited normally for #{project.name}:#{issue.identifier}")
@@ -117,11 +116,7 @@ defmodule Synkade.Execution.AgentRunner do
             if agent_output != "" or children != [] do
               {:ok, {:completed_with_output, agent_output, children}, session}
             else
-              if turn < max_turns do
-                check_and_continue(project, issue, session, config, max_turns, turn)
-              else
-                {:ok, :max_turns_reached, session}
-              end
+              check_and_continue(project, issue, session, config, turn)
             end
         end
 
@@ -136,7 +131,7 @@ defmodule Synkade.Execution.AgentRunner do
     end
   end
 
-  defp check_and_continue(project, issue, session, config, max_turns, turn) do
+  defp check_and_continue(project, issue, session, config, turn) do
     case TrackerClient.fetch_issue_states_by_ids(project.config, project.name, [issue.id]) do
       {:ok, states} ->
         current_state = Map.get(states, issue.id)
@@ -150,7 +145,7 @@ defmodule Synkade.Execution.AgentRunner do
 
           case BackendClient.continue_agent(config, session_id, continuation_prompt, session.env_ref) do
             {:ok, new_session} ->
-              event_loop(project, issue, new_session, config, max_turns, turn + 1)
+              event_loop(project, issue, new_session, config, turn + 1)
 
             {:error, reason} ->
               {:error, reason, session}

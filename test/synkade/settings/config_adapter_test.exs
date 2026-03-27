@@ -69,10 +69,7 @@ defmodule Synkade.Settings.ConfigAdapterTest do
         kind: "claude",
         auth_mode: "api_key",
         api_key: "sk-ant-test",
-        model: "claude-sonnet-4-5-20250929",
-        max_turns: 30,
-        allowed_tools: ["Read", "Write"],
-        system_prompt: "Be helpful."
+        model: "claude-sonnet-4-5-20250929"
       }
 
       config = ConfigAdapter.agent_to_config(agent)
@@ -81,9 +78,6 @@ defmodule Synkade.Settings.ConfigAdapterTest do
       assert config["auth_mode"] == "api_key"
       assert config["api_key"] == "sk-ant-test"
       assert config["model"] == "claude-sonnet-4-5-20250929"
-      assert config["max_turns"] == 30
-      assert config["allowed_tools"] == ["Read", "Write"]
-      assert config["system_prompt"] == "Be helpful."
     end
 
     test "omits nil agent fields" do
@@ -93,15 +87,6 @@ defmodule Synkade.Settings.ConfigAdapterTest do
 
       refute Map.has_key?(config, "api_key")
       refute Map.has_key?(config, "model")
-      refute Map.has_key?(config, "max_turns")
-      refute Map.has_key?(config, "system_prompt")
-    end
-
-    test "omits empty allowed_tools" do
-      agent = %Agent{kind: "claude", auth_mode: "api_key", allowed_tools: []}
-
-      config = ConfigAdapter.agent_to_config(agent)
-      refute Map.has_key?(config, "allowed_tools")
     end
 
     test "includes oauth_token for OAuth mode" do

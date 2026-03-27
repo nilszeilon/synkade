@@ -14,7 +14,7 @@ defmodule Synkade.Agent.ClaudeCodeTest do
       assert "--output-format" in args
       assert "stream-json" in args
       assert "--verbose" in args
-      assert "--allowedTools" in args
+      refute "--allowedTools" in args
     end
 
     test "includes model when specified" do
@@ -43,12 +43,11 @@ defmodule Synkade.Agent.ClaudeCodeTest do
       assert Enum.at(args, idx + 1) == "4096"
     end
 
-    test "includes allowed tools" do
-      config = %{"agent" => %{"allowed_tools" => ["Read", "Write"]}}
+    test "does not include allowed tools flag" do
+      config = %{"agent" => %{}}
       args = ClaudeCode.build_args(config, "prompt", [])
 
-      idx = Enum.find_index(args, &(&1 == "--allowedTools"))
-      assert Enum.at(args, idx + 1) == "Read,Write"
+      refute Enum.member?(args, "--allowedTools")
     end
   end
 

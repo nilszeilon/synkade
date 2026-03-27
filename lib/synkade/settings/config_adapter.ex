@@ -26,9 +26,6 @@ defmodule Synkade.Settings.ConfigAdapter do
       "api_key" => a.api_key,
       "oauth_token" => a.oauth_token,
       "model" => a.model,
-      "max_turns" => a.max_turns,
-      "allowed_tools" => non_empty_list(a.allowed_tools),
-      "system_prompt" => a.system_prompt,
       "synkade_api_token" => a.api_token
     }
     |> reject_nils()
@@ -104,10 +101,6 @@ defmodule Synkade.Settings.ConfigAdapter do
   defp maybe_put_project_prompt(config, %Project{prompt_template: template}) do
     Map.put(config, "prompt_template", template)
   end
-
-  defp non_empty_list(nil), do: nil
-  defp non_empty_list([]), do: nil
-  defp non_empty_list(list), do: list
 
   defp reject_nils(map) do
     Map.reject(map, fn {_k, v} -> is_nil(v) end)
