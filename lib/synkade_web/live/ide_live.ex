@@ -1376,9 +1376,11 @@ defmodule SynkadeWeb.IdeLive do
   defp current_head_sha(nil), do: nil
 
   defp current_head_sha(path) do
-    case System.cmd("git", ["rev-parse", "HEAD"], cd: path, stderr_to_stdout: true) do
-      {output, 0} -> String.trim(output)
-      _ -> nil
+    if File.dir?(path) do
+      case System.cmd("git", ["rev-parse", "HEAD"], cd: path, stderr_to_stdout: true) do
+        {output, 0} -> String.trim(output)
+        _ -> nil
+      end
     end
   end
 
