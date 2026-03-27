@@ -303,11 +303,28 @@ const CursorEnd = {
   },
 }
 
+const ToolTimer = {
+  mounted() {
+    this.startTime = Date.now()
+    this.timerEl = this.el.querySelector("[data-timer]")
+    if (!this.timerEl) return
+    this.interval = setInterval(() => {
+      const elapsed = (Date.now() - this.startTime) / 1000
+      this.timerEl.textContent = elapsed < 10
+        ? elapsed.toFixed(1) + "s"
+        : Math.round(elapsed) + "s"
+    }, 100)
+  },
+  destroyed() {
+    if (this.interval) clearInterval(this.interval)
+  },
+}
+
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, AutoScroll, DiffComment, ResizableSplit, ResizableSidebar, DropZone, SubmitOnEnter, CursorEnd, CmdK, AutoFocus},
+  hooks: {...colocatedHooks, AutoScroll, DiffComment, ResizableSplit, ResizableSidebar, DropZone, SubmitOnEnter, CursorEnd, CmdK, AutoFocus, ToolTimer},
 })
 
 // Clipboard copy handler for phx:copy events

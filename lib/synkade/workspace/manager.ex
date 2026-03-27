@@ -108,13 +108,45 @@ defmodule Synkade.Workspace.Manager do
   end
 
   defp fetch_main_repo(repo_path) do
-    case System.cmd("git", ["fetch", "origin"], cd: repo_path, stderr_to_stdout: true) do
+    Logger.info("Fetching latest from origin in #{repo_path}")
+
+    case System.cmd("git", ["fetch", "origin", "--prune"], cd: repo_path, stderr_to_stdout: true) do
       {_output, 0} ->
-        :ok
+        # Fast-forward the local default branch to match remote, without checkout
+        update_local_default_branch(repo_path)
 
       {output, exit_code} ->
         Logger.warning("git fetch failed (exit #{exit_code}): #{output}")
         # Non-fatal — worktree can still be created from existing state
+        :ok
+    end
+  end
+
+  defp update_local_default_branch(repo_path) do
+    # Resolve the remote default branch (e.g., "origin/main")
+    remote_ref = detect_head_branch(repo_path)
+
+    # Extract local branch name from remote ref
+    local_branch =
+      case remote_ref do
+        "origin/" <> name -> name
+        name -> name
+      end
+
+    # Update the local ref to match remote without needing checkout
+    # This is safe even when worktrees have the branch checked out
+    case System.cmd(
+           "git",
+           ["update-ref", "refs/heads/#{local_branch}", remote_ref],
+           cd: repo_path,
+           stderr_to_stdout: true
+         ) do
+      {_output, 0} ->
+        Logger.info("Updated local #{local_branch} to match #{remote_ref}")
+        :ok
+
+      {output, exit_code} ->
+        Logger.warning("git update-ref failed (exit #{exit_code}): #{output}")
         :ok
     end
   end

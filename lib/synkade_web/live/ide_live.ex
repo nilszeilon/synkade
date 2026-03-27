@@ -6,6 +6,7 @@ defmodule SynkadeWeb.IdeLive do
   import SynkadeWeb.IssueLiveHelpers, only: [state_badge_class: 1]
 
   alias Synkade.{Issues, Jobs, Settings}
+  alias Synkade.Agent.EventParser
   alias Synkade.Issues.Issue
   alias Synkade.Settings.ConfigAdapter
   alias Synkade.Workspace.{Git, Safety}
@@ -53,6 +54,11 @@ defmodule SynkadeWeb.IdeLive do
           |> assign(:session_events, [])
           |> assign(:session_id, nil)
           |> assign(:session_subscribed, nil)
+          |> assign(:turn_start_sha, nil)
+          |> assign(:turn_started_at, nil)
+          |> assign(:last_turn_files, [])
+          |> assign(:last_turn_duration, 0)
+          |> assign(:turn_filter, false)
           |> assign(:pr_info, nil)
           |> assign(:pr_checks, :unknown)
           |> allow_upload(:images,
@@ -132,6 +138,11 @@ defmodule SynkadeWeb.IdeLive do
           |> assign(:session_events, session_events)
           |> assign(:session_id, session_id)
           |> assign(:session_subscribed, session_subscribed)
+          |> assign(:turn_start_sha, if(session_subscribed, do: current_head_sha(workspace_path), else: nil))
+          |> assign(:turn_started_at, if(session_subscribed, do: System.monotonic_time(:millisecond), else: nil))
+          |> assign(:last_turn_files, [])
+          |> assign(:last_turn_duration, 0)
+          |> assign(:turn_filter, false)
           |> assign(:pr_info, nil)
           |> assign(:pr_checks, :unknown)
           |> allow_upload(:images,
@@ -176,7 +187,7 @@ defmodule SynkadeWeb.IdeLive do
     state = Jobs.get_state(socket.assigns.current_scope)
     running_entry = find_running_entry(state.running, socket.assigns.issue.id)
 
-    # If agent just started, subscribe to events
+    # If agent just started, subscribe to events and snapshot HEAD
     socket =
       if running_entry && is_nil(socket.assigns.session_subscribed) do
         Phoenix.PubSub.subscribe(Synkade.PubSub, "agent_events:#{socket.assigns.issue.id}")
@@ -185,11 +196,15 @@ defmodule SynkadeWeb.IdeLive do
         socket
         |> assign(:session_subscribed, socket.assigns.issue.id)
         |> assign(:session_id, running_entry.session_id)
+        |> assign(:turn_start_sha, current_head_sha(socket.assigns.workspace_path))
+        |> assign(:turn_started_at, System.monotonic_time(:millisecond))
+        |> assign(:last_turn_files, [])
+        |> assign(:turn_filter, false)
       else
         socket
       end
 
-    # If agent stopped, unsubscribe and do final diff refresh
+    # If agent stopped, unsubscribe, compute turn diff, and do final diff refresh
     socket =
       if is_nil(running_entry) && socket.assigns.session_subscribed do
         Phoenix.PubSub.unsubscribe(
@@ -197,14 +212,27 @@ defmodule SynkadeWeb.IdeLive do
           "agent_events:#{socket.assigns.session_subscribed}"
         )
 
-        changed_files = load_changed_files(socket.assigns.workspace_path, socket.assigns.base_branch)
+        ws = socket.assigns.workspace_path
+        changed_files = load_changed_files(ws, socket.assigns.base_branch)
+
+        # Compute turn-specific diff (files changed during this agent run)
+        turn_files = compute_turn_files(ws, socket.assigns.turn_start_sha)
+
+        turn_duration =
+          if socket.assigns.turn_started_at do
+            div(System.monotonic_time(:millisecond) - socket.assigns.turn_started_at, 1000)
+          else
+            0
+          end
 
         send(self(), :load_pr_info)
 
         socket
         |> assign(:session_subscribed, nil)
         |> assign(:changed_files, changed_files)
-        |> assign(:commits_ahead, load_commits_ahead(socket.assigns.workspace_path, socket.assigns.base_branch))
+        |> assign(:last_turn_files, turn_files)
+        |> assign(:last_turn_duration, turn_duration)
+        |> assign(:commits_ahead, load_commits_ahead(ws, socket.assigns.base_branch))
         |> maybe_refresh_selected_diff()
       else
         socket
@@ -364,6 +392,11 @@ defmodule SynkadeWeb.IdeLive do
     id = String.to_integer(id)
     attachments = Enum.reject(socket.assigns.attachments, &(&1.id == id))
     {:noreply, assign(socket, :attachments, attachments)}
+  end
+
+  @impl true
+  def handle_event("toggle_turn_filter", _, socket) do
+    {:noreply, assign(socket, :turn_filter, !socket.assigns.turn_filter)}
   end
 
   @impl true
@@ -595,7 +628,7 @@ defmodule SynkadeWeb.IdeLive do
                     class="space-y-3"
                   >
                     <.chat_event_group
-                      :for={group <- group_session_events(@session_events)}
+                      :for={group <- group_session_events(@session_events, @running_entry[:agent_kind])}
                       group={group}
                       running_entry={@running_entry}
                       session_id={@session_id}
@@ -607,6 +640,26 @@ defmodule SynkadeWeb.IdeLive do
                       <span class="loading loading-dots loading-xs"></span>
                       Thinking...
                     </div>
+                  </div>
+
+                  <%!-- Turn summary: files changed in the last agent run --%>
+                  <div
+                    :if={@last_turn_files != [] && is_nil(@running_entry)}
+                    phx-click="toggle_turn_filter"
+                    class="flex items-center gap-2 flex-wrap text-xs text-base-content/50 bg-base-200/50 rounded-lg px-3 py-2 cursor-pointer hover:bg-base-200/80 transition-colors"
+                  >
+                    <span class="text-base-content/30">{format_duration(@last_turn_duration)}</span>
+                    <span
+                      :for={f <- @last_turn_files}
+                      class="inline-flex items-center gap-1 bg-base-300/70 rounded px-1.5 py-0.5 font-mono"
+                    >
+                      <svg class="size-3 opacity-40" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M3.75 1.5a.25.25 0 00-.25.25v11.5c0 .138.112.25.25.25h8.5a.25.25 0 00.25-.25V4.664a.25.25 0 00-.073-.177l-2.914-2.914a.25.25 0 00-.177-.073H3.75z" />
+                      </svg>
+                      {Path.basename(f.file)}
+                      <span :if={f.additions > 0} class="text-success">+{f.additions}</span>
+                      <span :if={f.deletions > 0} class="text-error">-{f.deletions}</span>
+                    </span>
                   </div>
                 </div>
               </div>
@@ -801,10 +854,24 @@ defmodule SynkadeWeb.IdeLive do
               <% end %>
             </div>
             <%!-- Tab bar --%>
-            <div class="flex items-center gap-4 px-4 border-b border-base-300">
+            <div class="flex items-center gap-2 px-4 border-b border-base-300">
+              <button
+                :if={@turn_filter}
+                phx-click="toggle_turn_filter"
+                class="py-2 text-sm font-medium border-b-2 border-transparent text-base-content/50 hover:text-base-content/80"
+              >
+                All files
+              </button>
               <span class="py-2 text-sm font-medium border-b-2 border-primary text-base-content">
-                Changes <span class="text-base-content/40">{length(@changed_files)}</span>
+                Changes <span class="text-base-content/40">{length(displayed_files(assigns))}</span>
               </span>
+              <button
+                :if={@turn_filter && @last_turn_files != []}
+                phx-click="toggle_turn_filter"
+                class="ml-auto flex items-center gap-1 text-xs bg-base-300/70 rounded-full px-2 py-0.5 text-base-content/50 hover:text-base-content/70"
+              >
+                <.icon name="hero-x-mark" class="size-3" /> Latest turn
+              </button>
             </div>
             <%!-- Branch status --%>
             <div :if={@current_branch} class="flex items-center gap-2 px-4 py-1.5 text-xs text-base-content/40 border-b border-base-300">
@@ -815,11 +882,11 @@ defmodule SynkadeWeb.IdeLive do
             </div>
             <%!-- File list --%>
             <div class="flex-1 overflow-y-auto">
-              <div :if={@changed_files == []} class="text-sm text-base-content/30 py-8 text-center">
+              <div :if={displayed_files(assigns) == []} class="text-sm text-base-content/30 py-8 text-center">
                 No changes detected
               </div>
               <div
-                :for={entry <- @changed_files}
+                :for={entry <- displayed_files(assigns)}
                 phx-click="select_file"
                 phx-value-file={entry.file}
                 class={[
@@ -866,15 +933,10 @@ defmodule SynkadeWeb.IdeLive do
     ~H"""
     <%= case @group.type do %>
       <% :tools -> %>
-        <%!-- Tool calls with names --%>
-        <div class="space-y-0.5">
-          <div :for={ev <- @group.events} class="flex items-center gap-1.5 text-xs text-base-content/40">
-            <.icon name="hero-wrench-screwdriver" class="size-3 flex-shrink-0" />
-            <span class="font-mono truncate">{tool_label(ev)}</span>
-          </div>
+        <div class="space-y-1">
+          <.tool_card :for={tool <- @group.tools} tool={tool} />
         </div>
       <% :text -> %>
-        <%!-- Agent text message --%>
         <div class="max-w-[90%]">
           <div :if={@group.first_in_turn} class="flex items-center gap-1.5 mb-1">
             <span :if={@running_entry && @running_entry[:agent_kind]} class={brand_color(@running_entry[:agent_kind])}>
@@ -890,12 +952,11 @@ defmodule SynkadeWeb.IdeLive do
           <div class="text-sm prose-chat">{md(@group.text)}</div>
         </div>
       <% :result -> %>
-        <%!-- Final result --%>
         <div class="max-w-[90%]">
           <div class="text-sm prose-chat">{md(@group.text)}</div>
         </div>
       <% :error -> %>
-        <div class="text-sm text-error">{@group.text}</div>
+        <div class="text-sm text-error font-mono bg-error/5 rounded-lg px-3 py-2">{@group.text}</div>
       <% :thinking -> %>
         <div class="flex items-center gap-2 text-base-content/30 text-sm">
           <span class="loading loading-dots loading-xs"></span>
@@ -907,18 +968,91 @@ defmodule SynkadeWeb.IdeLive do
     """
   end
 
+  defp tool_card(assigns) do
+    ~H"""
+    <div class="text-sm">
+      <%!-- Tool header row --%>
+      <div class="flex items-center gap-2 py-0.5">
+        <span class="text-base-content/50 flex-shrink-0">{EventParser.icon(@tool.name)}</span>
+        <span class="font-medium text-base-content/80">{EventParser.display_name(@tool)}</span>
+        <%!-- File badge for file-based tools --%>
+        <span
+          :if={@tool.file_name}
+          class="inline-flex items-center gap-1 bg-base-300/70 rounded px-1.5 py-0.5 text-xs font-mono text-base-content/60"
+        >
+          <svg class="size-3 opacity-50" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M3.75 1.5a.25.25 0 00-.25.25v11.5c0 .138.112.25.25.25h8.5a.25.25 0 00.25-.25V4.664a.25.25 0 00-.073-.177l-2.914-2.914a.25.25 0 00-.177-.073H3.75z" />
+          </svg>
+          {@tool.file_name}
+        </span>
+        <%!-- Non-file detail (grep pattern, glob pattern, agent desc) --%>
+        <span :if={!@tool.file_name && @tool.detail} class="font-mono text-xs text-base-content/40 truncate">
+          {@tool.detail}
+        </span>
+      </div>
+      <%!-- Bash command preview --%>
+      <div :if={@tool.input_preview} class="ml-6 mt-0.5">
+        <pre class="font-mono text-xs text-base-content/40 whitespace-pre-wrap break-all max-h-16 overflow-hidden">{@tool.input_preview}</pre>
+      </div>
+      <%!-- Running state: spinner + live timer --%>
+      <div
+        :if={@tool.status == :running}
+        id={"tool-timer-#{System.unique_integer([:positive])}"}
+        phx-hook="ToolTimer"
+        class="ml-6 mt-0.5 flex items-center gap-1.5 text-xs text-base-content/30"
+      >
+        <span class="loading loading-dots loading-xs"></span>
+        <span data-timer>0.0s</span>
+      </div>
+      <%!-- Done state: collapsible output --%>
+      <details :if={@tool.status == :done && @tool.output} class="ml-6 mt-0.5 group">
+        <summary class="cursor-pointer text-xs text-base-content/25 hover:text-base-content/40 flex items-center gap-1 select-none py-0.5">
+          <span class="text-[10px] group-open:rotate-90 transition-transform inline-block">&#9654;</span>
+          <span>output</span>
+        </summary>
+        <pre class="font-mono text-[11px] text-base-content/30 whitespace-pre-wrap break-all max-h-48 overflow-y-auto mt-0.5">{truncate_output(@tool.output, 2000)}</pre>
+      </details>
+    </div>
+    """
+  end
+
   @doc false
-  defp group_session_events(events) do
+  defp group_session_events(events, agent_kind) do
     events
     |> Enum.reduce([], fn event, acc ->
       case event.type do
-        type when type in ~w(tool_use tool_result) ->
+        "tool_use" ->
+          tool = EventParser.build_tool_info(event, :running, agent_kind)
+
+          if tool.status == :done do
+            # OpenCode sends tool_use with completed status — update existing or append done
+            case acc do
+              [%{type: :tools, tools: tools} = group | rest] ->
+                updated = update_or_append_tool(tools, tool)
+                [%{group | tools: updated} | rest]
+
+              _ ->
+                [%{type: :tools, tools: [tool]} | acc]
+            end
+          else
+            case acc do
+              [%{type: :tools, tools: tools} = group | rest] ->
+                [%{group | tools: tools ++ [tool]} | rest]
+
+              _ ->
+                [%{type: :tools, tools: [tool]} | acc]
+            end
+          end
+
+        "tool_result" ->
           case acc do
-            [%{type: :tools, events: tool_events} = group | rest] ->
-              [%{group | events: tool_events ++ [event]} | rest]
+            [%{type: :tools, tools: tools} = group | rest] ->
+              updated_tools = mark_tool_done(tools, event, agent_kind)
+              [%{group | tools: updated_tools} | rest]
 
             _ ->
-              [%{type: :tools, events: [event]} | acc]
+              tool = EventParser.build_tool_info(event, :done, agent_kind)
+              [%{type: :tools, tools: [tool]} | acc]
           end
 
         type when type in ~w(assistant text) ->
@@ -944,16 +1078,39 @@ defmodule SynkadeWeb.IdeLive do
     |> Enum.reverse()
   end
 
-  defp tool_label(ev) do
-    raw = ev.raw || %{}
-    part = raw["part"] || %{}
+  # If there's a running tool with the same name, replace it with the done version.
+  # Otherwise append.
+  defp update_or_append_tool(tools, done_tool) do
+    idx = Enum.find_index(tools, &(&1.name == done_tool.name and &1.status == :running))
 
-    name =
-      raw["tool"] || raw["name"] || part["tool"] || part["name"] || part["toolName"] || ev.type || "tool"
-
-    suffix = if ev.type == "tool_result", do: " done", else: ""
-    "#{name}#{suffix}"
+    if idx do
+      List.replace_at(tools, idx, done_tool)
+    else
+      tools ++ [done_tool]
+    end
   end
+
+  defp mark_tool_done(tools, result_event, agent_kind) do
+    case Enum.reverse(tools) do
+      [last | rest] ->
+        Enum.reverse([EventParser.mark_done(last, result_event, agent_kind) | rest])
+
+      [] ->
+        [EventParser.build_tool_info(result_event, :done, agent_kind)]
+    end
+  end
+
+  defp truncate_output(nil, _), do: ""
+
+  defp truncate_output(text, max) when is_binary(text) do
+    if String.length(text) > max do
+      String.slice(text, 0, max) <> "\n... (truncated)"
+    else
+      text
+    end
+  end
+
+  defp truncate_output(other, _), do: inspect(other)
 
   defp has_preceding_text?(groups) do
     Enum.any?(groups, fn
@@ -1214,4 +1371,38 @@ defmodule SynkadeWeb.IdeLive do
     if dir == ".", do: "", else: dir <> "/"
   end
 
+  # --- Turn diff helpers ---
+
+  defp current_head_sha(nil), do: nil
+
+  defp current_head_sha(path) do
+    case System.cmd("git", ["rev-parse", "HEAD"], cd: path, stderr_to_stdout: true) do
+      {output, 0} -> String.trim(output)
+      _ -> nil
+    end
+  end
+
+  defp compute_turn_files(_path, nil), do: []
+
+  defp compute_turn_files(path, start_sha) do
+    # Diff from the SHA captured at turn start to current working tree
+    case Git.changed_files(path, start_sha) do
+      {:ok, files} -> files
+      _ -> []
+    end
+  end
+
+  defp displayed_files(%{turn_filter: true, last_turn_files: turn_files}) when turn_files != [] do
+    turn_files
+  end
+
+  defp displayed_files(%{changed_files: files}), do: files
+
+  defp format_duration(seconds) when seconds < 60, do: "#{seconds}s"
+
+  defp format_duration(seconds) do
+    m = div(seconds, 60)
+    s = rem(seconds, 60)
+    "#{m}m #{s}s"
+  end
 end
