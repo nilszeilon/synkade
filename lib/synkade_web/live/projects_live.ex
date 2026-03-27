@@ -6,7 +6,7 @@ defmodule SynkadeWeb.ProjectsLive do
   alias Synkade.Settings.Project
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
     scope = socket.assigns.current_scope
 
     if connected?(socket) do
@@ -16,6 +16,14 @@ defmodule SynkadeWeb.ProjectsLive do
     end
 
     orc_state = Jobs.get_state(scope)
+
+    {editing, form} =
+      if params["new"] do
+        changeset = Settings.change_project(%Project{})
+        {:new, to_form(changeset)}
+      else
+        {nil, nil}
+      end
 
     {:ok,
      socket
@@ -27,8 +35,8 @@ defmodule SynkadeWeb.ProjectsLive do
      |> SynkadeWeb.Sidebar.assign_sidebar(scope)
      |> assign(:db_projects, Settings.list_projects(scope))
      |> assign(:agents, Settings.list_agents(scope))
-     |> assign(:editing, nil)
-     |> assign(:form, nil)}
+     |> assign(:editing, editing)
+     |> assign(:form, form)}
   end
 
   @impl true
