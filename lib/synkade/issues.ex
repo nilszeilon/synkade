@@ -11,12 +11,9 @@ defmodule Synkade.Issues do
   # --- Valid transitions ---
 
   @transitions %{
-    "backlog" => ~w(queued cancelled),
-    "queued" => ~w(in_progress backlog cancelled),
-    "in_progress" => ~w(awaiting_review done cancelled backlog),
-    "awaiting_review" => ~w(queued backlog done cancelled),
-    "done" => ~w(backlog cancelled),
-    "cancelled" => ~w(backlog)
+    "backlog" => ~w(worked_on done),
+    "worked_on" => ~w(backlog done),
+    "done" => ~w(backlog)
   }
 
   @doc "Returns active (non-done, non-cancelled) issues grouped by project_id for a user."
@@ -24,7 +21,7 @@ defmodule Synkade.Issues do
     from(i in Issue,
       join: p in Project,
       on: i.project_id == p.id,
-      where: p.user_id == ^user_id and i.state not in ["done", "cancelled"],
+      where: p.user_id == ^user_id and i.state != "done",
       order_by: [asc: i.position, asc: i.inserted_at]
     )
     |> Repo.all()
@@ -178,10 +175,10 @@ defmodule Synkade.Issues do
 
     {count, _} =
       from(i in Issue,
-        where: i.id == ^issue.id and i.state == "queued"
+        where: i.id == ^issue.id and i.state in ["backlog", "worked_on"]
       )
       |> Repo.update_all(
-        set: [state: "in_progress", assigned_agent_id: agent_id, updated_at: DateTime.utc_now()]
+        set: [state: "worked_on", assigned_agent_id: agent_id, updated_at: DateTime.utc_now()]
       )
 
     if count == 1 do
@@ -193,9 +190,13 @@ defmodule Synkade.Issues do
     end
   end
 
-  def queue_issue(%Issue{} = issue), do: transition_state(issue, "queued")
-  def complete_issue(%Issue{} = issue), do: transition_state(issue, "done")
-  def cancel_issue(%Issue{} = issue), do: transition_state(issue, "cancelled")
+  def complete_issue(%Issue{} = issue) do
+    with {:ok, updated} <- transition_state(issue, "done") do
+      Synkade.Jobs.cancel_jobs_for_issue(issue.id)
+      broadcast_jobs_changed(issue)
+      {:ok, updated}
+    end
+  end
 
   @doc "Update heartbeat timestamp and message for an in-progress issue."
   def update_issue_heartbeat(issue_id, message \\ nil) do
@@ -247,10 +248,10 @@ defmodule Synkade.Issues do
     |> Repo.one()
   end
 
-  @doc "List all issues in awaiting_review state."
-  def list_awaiting_review_issues do
+  @doc "List all issues in worked_on state (for reconciliation)."
+  def list_worked_on_issues do
     from(i in Issue,
-      where: i.state == "awaiting_review",
+      where: i.state == "worked_on",
       order_by: [asc: i.inserted_at]
     )
     |> Repo.all()
@@ -284,21 +285,19 @@ defmodule Synkade.Issues do
              assigned_agent_id: assigned_agent_id,
              metadata: Map.put(issue.metadata || %{}, "messages", messages ++ [new_entry])
            }),
-         {:ok, ready} <- ensure_backlog(updated),
-         {:ok, queued} <- transition_state(ready, "queued") do
+         {:ok, worked_on} <- transition_state(updated, "worked_on") do
       # Enqueue Oban job for non-pull-based agents
       unless pull_based_agent?(assigned_agent_id) do
-        %{issue_id: queued.id, project_id: queued.project_id}
+        %{issue_id: worked_on.id, project_id: worked_on.project_id}
         |> Synkade.Workers.AgentWorker.new()
         |> Oban.insert()
       end
 
-      {:ok, queued}
+      {:ok, worked_on}
     end
   end
 
-  defp ensure_backlog(%Issue{state: "backlog"} = issue), do: {:ok, issue}
-  defp ensure_backlog(%Issue{} = issue), do: transition_state(issue, "backlog")
+  # dispatch_issue can be called from any state — transition directly to worked_on
 
   defp pull_based_agent?(nil), do: false
 
@@ -337,9 +336,9 @@ defmodule Synkade.Issues do
     ancestor_chain(parent) ++ [parent]
   end
 
-  def list_queued_issues(project_id) do
+  def list_worked_on_issues(project_id) do
     from(i in Issue,
-      where: i.project_id == ^project_id and i.state == "queued",
+      where: i.project_id == ^project_id and i.state == "worked_on",
       order_by: [asc: i.inserted_at]
     )
     |> Repo.all()
@@ -362,7 +361,7 @@ defmodule Synkade.Issues do
     end)
   end
 
-  @doc "Cycles a recurring issue from done back to queued, appending a system message."
+  @doc "Cycles a recurring issue from done back to worked_on, appending a system message."
   def cycle_recurring_issue(%Issue{state: "done", recurring: true} = issue) do
     messages = (issue.metadata["messages"] || [])
 
@@ -375,8 +374,8 @@ defmodule Synkade.Issues do
     metadata = Map.put(issue.metadata || %{}, "messages", messages ++ [new_entry])
 
     with {:ok, backlog} <- update_issue(issue, %{state: "backlog", metadata: metadata}),
-         {:ok, queued} <- transition_state(backlog, "queued") do
-      {:ok, queued}
+         {:ok, worked_on} <- transition_state(backlog, "worked_on") do
+      {:ok, worked_on}
     end
   end
 
@@ -444,5 +443,17 @@ defmodule Synkade.Issues do
       pubsub_topic(user_id),
       {:issues_updated}
     )
+  end
+
+  defp broadcast_jobs_changed(%Issue{project_id: project_id}) do
+    user_id = Repo.one(from(p in Project, where: p.id == ^project_id, select: p.user_id))
+
+    if user_id do
+      Phoenix.PubSub.broadcast(
+        Synkade.PubSub,
+        Synkade.Jobs.pubsub_topic(user_id),
+        {:jobs_changed}
+      )
+    end
   end
 end

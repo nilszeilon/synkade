@@ -8,7 +8,7 @@ defmodule Synkade.Issues.Issue do
   @foreign_key_type :binary_id
   @timestamps_opts [type: :utc_datetime]
 
-  @states ~w(backlog queued in_progress awaiting_review done cancelled)
+  @states ~w(backlog worked_on done)
 
   schema "issues" do
     field :body, :string

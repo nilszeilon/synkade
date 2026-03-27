@@ -42,7 +42,7 @@ defmodule Synkade.Issues.IssueTest do
     end
 
     test "accepts all valid states" do
-      for state <- ~w(backlog queued in_progress awaiting_review done cancelled) do
+      for state <- ~w(backlog worked_on done) do
         changeset =
           Issue.changeset(%Issue{}, %{project_id: Ecto.UUID.generate(), state: state})
 

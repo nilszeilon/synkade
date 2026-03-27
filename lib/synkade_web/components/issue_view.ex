@@ -160,7 +160,7 @@ defmodule SynkadeWeb.Components.IssueView do
       
     <!-- Agent session log -->
       <div
-        :if={@issue.state == "in_progress" && (@session_events != [] || @session_id)}
+        :if={@issue.state == "worked_on" && (@session_events != [] || @session_id)}
         class="mb-4"
       >
         <div class="flex items-center justify-between mb-2">
@@ -237,7 +237,7 @@ defmodule SynkadeWeb.Components.IssueView do
       
     <!-- Bottom input + actions -->
       <div class="border-t border-base-300 pt-4">
-        <div :if={@issue.state in ["backlog", "done", "awaiting_review", "cancelled"]} class="mb-3">
+        <div :if={@issue.state in ["backlog", "done"]} class="mb-3">
           <.form for={@dispatch_form} phx-submit="dispatch_issue">
             <div class="flex flex-col gap-2">
               <textarea
@@ -259,20 +259,20 @@ defmodule SynkadeWeb.Components.IssueView do
 
         <div class="flex gap-2">
           <button
-            :if={@issue.state == "queued"}
-            phx-click="unqueue_issue"
+            :if={@issue.state == "worked_on"}
+            phx-click="move_to_backlog"
             phx-value-id={@issue.id}
             class="btn btn-sm btn-ghost"
           >
             Backlog
           </button>
           <button
-            :if={@issue.state not in ["done", "cancelled"]}
-            phx-click="cancel_issue"
+            :if={@issue.state != "done"}
+            phx-click="complete_issue"
             phx-value-id={@issue.id}
             class="btn btn-sm btn-ghost"
           >
-            Cancel
+            Done
           </button>
           <button
             phx-click="new_issue"

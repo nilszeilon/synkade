@@ -16,7 +16,7 @@ defmodule Synkade.Workers.ReconcileWorker do
   end
 
   defp check_pr_statuses do
-    issues = Issues.list_awaiting_review_issues()
+    issues = Issues.list_worked_on_issues()
 
     for issue <- issues, issue.github_pr_url do
       check_single_pr(issue)

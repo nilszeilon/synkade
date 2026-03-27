@@ -128,7 +128,7 @@ defmodule SynkadeWeb.Api.AgentIssuesController do
               nil ->
                 Issues.update_issue(issue, update_attrs)
 
-              new_state when new_state in ~w(queued cancelled) ->
+              new_state when new_state == "worked_on" ->
                 {:error, :forbidden_transition}
 
               new_state ->

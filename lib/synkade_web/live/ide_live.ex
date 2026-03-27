@@ -83,11 +83,11 @@ defmodule SynkadeWeb.IdeLive do
         project = Settings.get_project!(issue.project_id)
         workspace_path = resolve_workspace_path(scope, project, issue)
 
-        # Subscribe to agent events if in_progress
+        # Subscribe to agent events if worked_on
         running_entry = find_running_entry(orc_state.running, issue.id)
 
         {session_events, session_id, session_subscribed} =
-          if issue.state == "in_progress" && running_entry do
+          if issue.state == "worked_on" && running_entry do
             if connected?(socket) do
               Phoenix.PubSub.subscribe(Synkade.PubSub, "agent_events:#{issue.id}")
             end
@@ -408,6 +408,26 @@ defmodule SynkadeWeb.IdeLive do
   end
 
   @impl true
+  def handle_event("complete_issue", _params, socket) do
+    issue = socket.assigns.issue
+
+    if issue do
+      case Issues.complete_issue(issue) do
+        {:ok, _} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "Issue archived")
+           |> push_navigate(to: "/issues")}
+
+        {:error, :invalid_transition} ->
+          {:noreply, put_flash(socket, :error, "Cannot archive from current state")}
+      end
+    else
+      {:noreply, put_flash(socket, :error, "No issue to archive")}
+    end
+  end
+
+  @impl true
   def handle_event("fix_checks", _params, socket) do
     pr = socket.assigns.pr_info
     if socket.assigns.issue && pr do
@@ -463,6 +483,14 @@ defmodule SynkadeWeb.IdeLive do
             <span class="loading loading-spinner loading-xs text-info"></span>
             <span class="text-xs text-base-content/50">Agent running</span>
           </div>
+          <button
+            :if={@issue && @issue.state != "done"}
+            phx-click="complete_issue"
+            class="btn btn-ghost btn-xs text-base-content/40 hover:text-base-content"
+            title="Archive issue"
+          >
+            <.icon name="hero-archive-box-arrow-down" class="size-4" />
+          </button>
         </div>
 
         <%!-- Main content: Left (tabs) | Right (changes list) --%>
@@ -563,7 +591,7 @@ defmodule SynkadeWeb.IdeLive do
 
                   <%!-- Live agent session --%>
                   <div
-                    :if={@issue && @issue.state == "in_progress" && (@session_events != [] || @session_id)}
+                    :if={@issue && @issue.state == "worked_on" && (@session_events != [] || @session_id)}
                     class="space-y-3"
                   >
                     <.chat_event_group
@@ -744,14 +772,14 @@ defmodule SynkadeWeb.IdeLive do
                   :if={@pr_checks == :failure}
                   phx-click="fix_checks"
                   class="btn btn-xs btn-error btn-outline rounded-full gap-1"
-                  disabled={@issue.state == "in_progress"}
+                  disabled={@running_entry != nil}
                 >
                   Fix CI
                 </button>
                 <button
                   phx-click="merge_pr"
                   class="btn btn-sm btn-outline rounded-full gap-1.5"
-                  disabled={@issue.state == "in_progress" || @pr_checks == :failure}
+                  disabled={@running_entry != nil || @pr_checks == :failure}
                 >
                   <svg class="size-3.5" viewBox="0 0 16 16" fill="currentColor">
                     <path d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8-9a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM4.25 4a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z"></path>
@@ -763,7 +791,7 @@ defmodule SynkadeWeb.IdeLive do
                 <button
                   phx-click="create_pr"
                   class="btn btn-sm btn-outline rounded-full gap-1.5"
-                  disabled={@issue.state == "in_progress"}
+                  disabled={@running_entry != nil}
                 >
                   <svg class="size-3.5" viewBox="0 0 16 16" fill="currentColor">
                     <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"></path>
@@ -975,6 +1003,17 @@ defmodule SynkadeWeb.IdeLive do
 
   defp handle_existing_dispatch(socket, full_message) do
     issue = socket.assigns.issue
+
+    # Reactivate archived issues: done → backlog so dispatch can transition to worked_on
+    issue =
+      if issue.state == "done" do
+        case Issues.transition_state(issue, "backlog") do
+          {:ok, reactivated} -> reactivated
+          _ -> issue
+        end
+      else
+        issue
+      end
 
     {agent_name, instruction, agent_id} =
       SynkadeWeb.IssueLiveHelpers.resolve_dispatch(socket.assigns.current_scope, full_message)

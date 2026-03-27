@@ -24,7 +24,7 @@ defmodule Synkade.Workers.AgentWorker do
         Logger.info("AgentWorker: issue #{issue_id} not found, skipping")
         :ok
 
-      %{state: state} when state not in ~w(queued in_progress) ->
+      %{state: state} when state != "worked_on" ->
         Logger.info("AgentWorker: issue #{issue_id} is #{state}, skipping")
         :ok
 
@@ -60,10 +60,10 @@ defmodule Synkade.Workers.AgentWorker do
   end
 
   defp execute_agent(issue, setting, db_project, agent, job) do
-    # Transition to in_progress if still queued
+    # Ensure issue is in worked_on state
     issue =
-      if issue.state == "queued" do
-        case Issues.transition_state(issue, "in_progress") do
+      if issue.state != "worked_on" do
+        case Issues.transition_state(issue, "worked_on") do
           {:ok, updated} -> updated
           _ -> issue
         end
@@ -118,8 +118,6 @@ defmodule Synkade.Workers.AgentWorker do
 
   defp handle_pr_created(issue, pr_url) do
     Issues.update_issue(issue, %{github_pr_url: pr_url})
-    issue = Issues.get_issue(issue.id)
-    if issue, do: Issues.transition_state(issue, "awaiting_review")
   rescue
     e -> Logger.warning("AgentWorker: failed to handle PR: #{inspect(e)}")
   end
@@ -128,8 +126,6 @@ defmodule Synkade.Workers.AgentWorker do
     agent_name = agent && agent.name
     agent_kind = agent && agent.kind
     Issues.append_agent_output(issue, agent_output, agent_name, agent_kind)
-    issue = Issues.get_issue(issue.id)
-    if issue, do: Issues.transition_state(issue, "awaiting_review")
     if issue && children != [], do: Issues.create_children_from_agent(issue, children)
   rescue
     e -> Logger.warning("AgentWorker: failed to handle completion: #{inspect(e)}")
