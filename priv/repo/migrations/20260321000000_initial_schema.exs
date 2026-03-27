@@ -51,9 +51,6 @@ defmodule Synkade.Repo.Migrations.InitialSchema do
       add :api_key, :binary
       add :oauth_token, :binary
       add :model, :string
-      add :max_turns, :integer
-      add :allowed_tools, {:array, :string}, default: []
-      add :system_prompt, :text
       add :api_token_hash, :string
       add :api_token, :binary
       timestamps(type: :utc_datetime)

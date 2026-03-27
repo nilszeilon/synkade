@@ -34,12 +34,6 @@ defmodule Synkade.Settings.AgentTest do
       assert %{auth_mode: [_]} = errors_on(changeset)
     end
 
-    test "validates max_turns is positive" do
-      changeset = Agent.changeset(%Agent{}, %{name: "a", max_turns: 0})
-      refute changeset.valid?
-      assert %{max_turns: [_]} = errors_on(changeset)
-    end
-
     test "accepts all fields" do
       changeset =
         Agent.changeset(%Agent{}, %{
@@ -47,10 +41,7 @@ defmodule Synkade.Settings.AgentTest do
           kind: "claude",
           auth_mode: "api_key",
           api_key: "sk-ant-test",
-          model: "claude-sonnet-4-5-20250929",
-          max_turns: 30,
-          allowed_tools: ["Read", "Write"],
-          system_prompt: "You are helpful."
+          model: "claude-sonnet-4-5-20250929"
         })
 
       assert changeset.valid?
@@ -66,10 +57,6 @@ defmodule Synkade.Settings.AgentTest do
       assert agent.auth_mode == "api_key"
     end
 
-    test "defaults allowed_tools to empty list" do
-      agent = %Agent{}
-      assert agent.allowed_tools == []
-    end
   end
 
   describe "pull_kind?/1" do

@@ -927,43 +927,6 @@ defmodule SynkadeWeb.SettingsLive do
                   <% end %>
                 </div>
 
-                <div class="form-control">
-                  <label class="label"><span class="label-text">Max Turns</span></label>
-                  <input
-                    type="number"
-                    class="input input-bordered w-full"
-                    name={@form[:max_turns].name}
-                    id={@form[:max_turns].id}
-                    value={@form[:max_turns].value}
-                    placeholder="20"
-                    min="1"
-                  />
-                  <.field_error field={@form[:max_turns]} />
-                </div>
-
-                <div class="form-control">
-                  <label class="label">
-                    <span class="label-text">Allowed Tools (comma-separated)</span>
-                  </label>
-                  <input
-                    type="text"
-                    class="input input-bordered w-full"
-                    name={@form[:allowed_tools].name}
-                    id={@form[:allowed_tools].id}
-                    value={Enum.join(@form[:allowed_tools].value || [], ", ")}
-                    placeholder="Read, Edit, Write, Bash, Glob, Grep"
-                  />
-                </div>
-
-                <div class="form-control">
-                  <label class="label"><span class="label-text">System Prompt (optional)</span></label>
-                  <textarea
-                    class="textarea textarea-bordered w-full font-mono text-sm"
-                    rows="6"
-                    name={@form[:system_prompt].name}
-                    id={@form[:system_prompt].id}
-                  >{@form[:system_prompt].value}</textarea>
-                </div>
               <% end %>
 
               <%= if @is_pull and @editing != :new do %>
@@ -1331,19 +1294,5 @@ defmodule SynkadeWeb.SettingsLive do
     assign(socket, :form, to_form(changeset))
   end
 
-  defp normalize_agent_params(params) do
-    normalize_allowed_tools(params)
-  end
-
-  defp normalize_allowed_tools(%{"allowed_tools" => tools} = params) when is_binary(tools) do
-    list =
-      tools
-      |> String.split(",")
-      |> Enum.map(&String.trim/1)
-      |> Enum.reject(&(&1 == ""))
-
-    Map.put(params, "allowed_tools", list)
-  end
-
-  defp normalize_allowed_tools(params), do: params
+  defp normalize_agent_params(params), do: params
 end

@@ -141,7 +141,7 @@ defmodule Synkade.Jobs do
               name: project.name,
               db_id: project.id,
               config: config,
-              prompt_template: project.prompt_template || (agent && agent.system_prompt),
+              prompt_template: project.prompt_template,
               max_concurrent_agents: Synkade.Workflow.Config.max_concurrent_agents(config),
               enabled: project.enabled
             }

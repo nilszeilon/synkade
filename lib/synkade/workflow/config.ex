@@ -33,14 +33,11 @@ defmodule Synkade.Workflow.Config do
       "api_key" => nil,
       "oauth_token" => nil,
       "max_concurrent_agents" => 10,
-      "max_turns" => 20,
       "max_retry_backoff_ms" => 300_000,
       "max_concurrent_agents_by_state" => %{},
       "stall_timeout_ms" => 300_000,
       "command" => nil,
-      "allowed_tools" => ["Read", "Edit", "Write", "Bash", "Glob", "Grep"],
       "model" => nil,
-      "append_system_prompt" => nil,
       "turn_timeout_ms" => 3_600_000,
       "max_tokens" => nil
     },
@@ -124,9 +121,6 @@ defmodule Synkade.Workflow.Config do
   def max_concurrent_agents(config) do
     to_pos_integer(get(config, "agent", "max_concurrent_agents"), 10)
   end
-
-  @spec max_turns(map()) :: pos_integer()
-  def max_turns(config), do: to_pos_integer(get(config, "agent", "max_turns"), 20)
 
   @spec max_retry_backoff_ms(map()) :: pos_integer()
   def max_retry_backoff_ms(config) do

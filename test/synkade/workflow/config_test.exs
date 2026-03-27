@@ -13,9 +13,6 @@ defmodule Synkade.Workflow.ConfigTest do
       assert Config.max_concurrent_agents(%{}) == 10
     end
 
-    test "returns default max turns" do
-      assert Config.max_turns(%{}) == 20
-    end
 
     test "returns default agent kind" do
       assert Config.agent_kind(%{}) == "claude"

@@ -24,12 +24,7 @@ defmodule Synkade.Agent.ClaudeCode do
 
   @impl true
   def build_args(config, prompt, extra_args) do
-    allowed_tools =
-      Config.get(config, "agent", "allowed_tools") ||
-        ["Read", "Edit", "Write", "Bash", "Glob", "Grep"]
-
     model = Config.get(config, "agent", "model")
-    append_prompt = Config.get(config, "agent", "append_system_prompt")
     max_tokens = Config.get(config, "agent", "max_tokens")
 
     args = [
@@ -37,13 +32,10 @@ defmodule Synkade.Agent.ClaudeCode do
       prompt,
       "--output-format",
       "stream-json",
-      "--verbose",
-      "--allowedTools",
-      Enum.join(allowed_tools, ",")
+      "--verbose"
     ]
 
     args = if model, do: args ++ ["--model", model], else: args
-    args = if append_prompt, do: args ++ ["--append-system-prompt", append_prompt], else: args
     args = if max_tokens, do: args ++ ["--max-tokens", to_string(max_tokens)], else: args
     args = args ++ extra_args
     args
