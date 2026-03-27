@@ -35,13 +35,29 @@ defmodule Synkade.Agent.OpenCode do
     args ++ extra_args ++ [prompt]
   end
 
+  # Map model prefix to the env var OpenCode expects for that provider
+  @provider_env_vars %{
+    "fireworks-ai" => "FIREWORKS_API_KEY",
+    "openrouter" => "OPENROUTER_API_KEY",
+    "anthropic" => "ANTHROPIC_API_KEY",
+    "openai" => "OPENAI_API_KEY",
+    "google" => "GOOGLE_GENERATIVE_AI_API_KEY",
+    "deepseek" => "DEEPSEEK_API_KEY",
+    "groq" => "GROQ_API_KEY",
+    "mistral" => "MISTRAL_API_KEY",
+    "xai" => "XAI_API_KEY",
+    "together" => "TOGETHER_API_KEY"
+  }
+
   @impl true
   def build_env(config) do
     env =
       case Config.get(config, "agent", "api_key") do
         nil -> []
         "" -> []
-        key -> [{~c"OPENROUTER_API_KEY", String.to_charlist(key)}]
+        key ->
+          env_var = api_key_env_var(Config.get(config, "agent", "model"))
+          [{String.to_charlist(env_var), String.to_charlist(key)}]
       end
 
     env =
@@ -121,6 +137,15 @@ defmodule Synkade.Agent.OpenCode do
     e ->
       Logger.error("OpenCode: failed to start agent: #{Exception.message(e)}")
       {:error, Exception.message(e)}
+  end
+
+  defp api_key_env_var(nil), do: "OPENROUTER_API_KEY"
+
+  defp api_key_env_var(model) when is_binary(model) do
+    case String.split(model, "/", parts: 2) do
+      [provider, _rest] -> Map.get(@provider_env_vars, provider, "OPENROUTER_API_KEY")
+      _ -> "OPENROUTER_API_KEY"
+    end
   end
 
   defp shell_escape(arg) do
