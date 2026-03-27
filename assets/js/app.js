@@ -34,14 +34,21 @@ import topbar from "../vendor/topbar"
 
 const AutoScroll = {
   mounted() {
-    this.observer = new MutationObserver(() => {
+    this._isNearBottom = () => {
+      const threshold = 80
+      return this.el.scrollHeight - this.el.scrollTop - this.el.clientHeight < threshold
+    }
+    this._scrollToBottom = () => {
       this.el.scrollTop = this.el.scrollHeight
+    }
+    this.observer = new MutationObserver(() => {
+      if (this._isNearBottom()) this._scrollToBottom()
     })
     this.observer.observe(this.el, { childList: true, subtree: true })
-    this.el.scrollTop = this.el.scrollHeight
+    this._scrollToBottom()
   },
   updated() {
-    this.el.scrollTop = this.el.scrollHeight
+    if (this._isNearBottom()) this._scrollToBottom()
   },
   destroyed() {
     if (this.observer) this.observer.disconnect()

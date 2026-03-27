@@ -12,7 +12,7 @@ defmodule Synkade.Issues do
 
   @transitions %{
     "backlog" => ~w(worked_on done),
-    "worked_on" => ~w(backlog done),
+    "worked_on" => ~w(backlog done worked_on),
     "done" => ~w(backlog)
   }
 
@@ -278,6 +278,18 @@ defmodule Synkade.Issues do
       "text" => dispatch_message,
       "at" => DateTime.utc_now() |> DateTime.to_iso8601()
     }
+
+    # Ensure we can reach worked_on from any state
+    issue =
+      case issue.state do
+        "worked_on" -> issue
+        "done" ->
+          case transition_state(issue, "backlog") do
+            {:ok, backlog} -> backlog
+            _ -> issue
+          end
+        _ -> issue
+      end
 
     with {:ok, updated} <-
            update_issue(issue, %{
