@@ -97,13 +97,31 @@ defmodule Synkade.Issues do
   end
 
   def get_issue!(id) do
-    Issue
-    |> Repo.get!(id)
-    |> Repo.preload(children: children_preload_query())
+    issue = get_issue(id) |> Repo.preload(children: children_preload_query())
+
+    unless issue do
+      raise Ecto.NoResultsError, queryable: Issue
+    end
+
+    issue
   end
 
-  def get_issue(id) do
-    Repo.get(Issue, id)
+  def get_issue(id) when is_binary(id) do
+    if String.length(id) == 36 and String.contains?(id, "-") do
+      Repo.get(Issue, id)
+    else
+      get_issue_by_short_id(id)
+    end
+  end
+
+  def get_issue(_), do: nil
+
+  defp get_issue_by_short_id(short_id) when is_binary(short_id) do
+    short_id_pattern = "#{short_id}%"
+
+    Issue
+    |> where([i], like(i.id, ^short_id_pattern))
+    |> Repo.one()
   end
 
   def create_issue(attrs) do
@@ -259,7 +277,9 @@ defmodule Synkade.Issues do
   def dispatch_issue(%Issue{} = issue, dispatch_message, assigned_agent_id \\ nil) do
     {agent_name, agent_kind} =
       case assigned_agent_id do
-        nil -> {nil, nil}
+        nil ->
+          {nil, nil}
+
         id ->
           try do
             agent = Synkade.Settings.get_agent!(id)
@@ -269,7 +289,8 @@ defmodule Synkade.Issues do
           end
       end
 
-    messages = (issue.metadata["messages"] || [])
+    messages = issue.metadata["messages"] || []
+
     new_entry = %{
       "type" => "dispatch",
       "agent_name" => agent_name,
@@ -313,7 +334,8 @@ defmodule Synkade.Issues do
 
   @doc "Appends an agent output entry to the issue message history."
   def append_agent_output(%Issue{} = issue, agent_output, agent_name \\ nil, agent_kind \\ nil) do
-    messages = (issue.metadata["messages"] || [])
+    messages = issue.metadata["messages"] || []
+
     new_entry = %{
       "type" => "agent",
       "agent_name" => agent_name,
@@ -364,7 +386,7 @@ defmodule Synkade.Issues do
 
   @doc "Cycles a recurring issue from done back to queued, appending a system message."
   def cycle_recurring_issue(%Issue{state: "done", recurring: true} = issue) do
-    messages = (issue.metadata["messages"] || [])
+    messages = issue.metadata["messages"] || []
 
     new_entry = %{
       "type" => "system",
