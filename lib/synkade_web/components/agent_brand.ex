@@ -75,10 +75,27 @@ defmodule SynkadeWeb.Components.AgentBrand do
         <pre class={[@class, "leading-none font-mono whitespace-pre"]} style="font-size:0.15em"><%= @hermes_ascii %></pre>
       <% "openclaw" -> %>
         <%!-- OpenClaw lobster mark --%>
-        <svg class={@class} viewBox="0 0 120 115" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+        <svg
+          class={@class}
+          viewBox="0 0 120 115"
+          fill="currentColor"
+          xmlns="http://www.w3.org/2000/svg"
+        >
           <%!-- antennas --%>
-          <path d="M45 15 Q35 5 30 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none" />
-          <path d="M75 15 Q85 5 90 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none" />
+          <path
+            d="M45 15 Q35 5 30 8"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            fill="none"
+          />
+          <path
+            d="M75 15 Q85 5 90 8"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            fill="none"
+          />
           <%!-- body --%>
           <path d="M60 10 C30 10 15 35 15 55 C15 75 30 95 45 100 L45 110 L55 110 L55 100 C55 100 60 102 65 100 L65 110 L75 110 L75 100 C90 95 105 75 105 55 C105 35 90 10 60 10Z" />
           <%!-- claws --%>

@@ -188,7 +188,8 @@ defmodule SynkadeWeb.IdeLive do
           "agent_events:#{socket.assigns.session_subscribed}"
         )
 
-        changed_files = load_changed_files(socket.assigns.workspace_path, socket.assigns.base_branch)
+        changed_files =
+          load_changed_files(socket.assigns.workspace_path, socket.assigns.base_branch)
 
         socket
         |> assign(:session_subscribed, nil)
@@ -209,8 +210,7 @@ defmodule SynkadeWeb.IdeLive do
 
   @impl true
   def handle_info({:issues_updated}, %{assigns: %{issue: nil}} = socket) do
-    {:noreply,
-     SynkadeWeb.Sidebar.assign_sidebar(socket, socket.assigns.current_scope)}
+    {:noreply, SynkadeWeb.Sidebar.assign_sidebar(socket, socket.assigns.current_scope)}
   end
 
   def handle_info({:issues_updated}, socket) do
@@ -251,7 +251,8 @@ defmodule SynkadeWeb.IdeLive do
 
   @impl true
   def handle_event("select_file", %{"file" => filename}, socket) do
-    diff_lines = load_file_diff(socket.assigns.workspace_path, filename, socket.assigns.base_branch)
+    diff_lines =
+      load_file_diff(socket.assigns.workspace_path, filename, socket.assigns.base_branch)
 
     socket =
       socket
@@ -425,7 +426,10 @@ defmodule SynkadeWeb.IdeLive do
               <%!-- Chat tab --%>
               <div class={[
                 "absolute inset-0 flex flex-col transition-opacity",
-                if(@left_tab == :chat, do: "opacity-100 z-10", else: "opacity-0 z-0 pointer-events-none")
+                if(@left_tab == :chat,
+                  do: "opacity-100 z-10",
+                  else: "opacity-0 z-0 pointer-events-none"
+                )
               ]}>
                 <div
                   id="chat-scroll"
@@ -433,14 +437,23 @@ defmodule SynkadeWeb.IdeLive do
                   phx-hook="AutoScroll"
                 >
                   <%!-- Draft mode hint --%>
-                  <div :if={is_nil(@issue) && @messages == []} class="flex flex-col items-center justify-center h-full text-base-content/30">
+                  <div
+                    :if={is_nil(@issue) && @messages == []}
+                    class="flex flex-col items-center justify-center h-full text-base-content/30"
+                  >
                     <.icon name="hero-chat-bubble-left-right" class="size-8 mb-2" />
                     <span class="text-sm">Send a message to start working on {@project.name}</span>
                   </div>
 
                   <%!-- Issue context --%>
-                  <div :if={@issue && (body_without_title(@issue.body) || @ancestors != [])} class="space-y-2 mb-2">
-                    <div :for={ancestor <- Enum.reverse(@ancestors)} class="text-xs text-base-content/40">
+                  <div
+                    :if={@issue && (body_without_title(@issue.body) || @ancestors != [])}
+                    class="space-y-2 mb-2"
+                  >
+                    <div
+                      :for={ancestor <- Enum.reverse(@ancestors)}
+                      class="text-xs text-base-content/40"
+                    >
                       {Issue.title(ancestor)}
                     </div>
                     <div :if={body_without_title(@issue.body)} class="flex justify-end">
@@ -483,7 +496,10 @@ defmodule SynkadeWeb.IdeLive do
 
                   <%!-- Live agent session --%>
                   <div
-                    :if={@issue && @issue.state == "in_progress" && (@session_events != [] || @session_id)}
+                    :if={
+                      @issue && @issue.state == "in_progress" &&
+                        (@session_events != [] || @session_id)
+                    }
                     class="space-y-3"
                   >
                     <.chat_event_group
@@ -496,8 +512,7 @@ defmodule SynkadeWeb.IdeLive do
                       :if={@session_events == []}
                       class="flex items-center gap-2 text-base-content/30 text-sm"
                     >
-                      <span class="loading loading-dots loading-xs"></span>
-                      Thinking...
+                      <span class="loading loading-dots loading-xs"></span> Thinking...
                     </div>
                   </div>
                 </div>
@@ -550,7 +565,12 @@ defmodule SynkadeWeb.IdeLive do
 
             <%!-- Input (always visible) --%>
             <div class="p-3 flex-shrink-0">
-              <.form for={@dispatch_form} phx-submit="dispatch_issue" phx-change="validate_upload" multipart>
+              <.form
+                for={@dispatch_form}
+                phx-submit="dispatch_issue"
+                phx-change="validate_upload"
+                multipart
+              >
                 <div
                   id="ide-input-box"
                   class="rounded-xl border border-base-300 bg-base-300 relative overflow-hidden"
@@ -577,7 +597,9 @@ defmodule SynkadeWeb.IdeLive do
                       class="flex items-center gap-2 bg-base-300/60 rounded-lg px-2.5 py-1.5 text-xs"
                     >
                       <.icon name="hero-chat-bubble-left" class="size-3.5 text-base-content/40" />
-                      <span class="font-mono font-semibold">{Path.basename(att.file)}:{att.line}</span>
+                      <span class="font-mono font-semibold">
+                        {Path.basename(att.file)}:{att.line}
+                      </span>
                       <span class="text-base-content/50 truncate max-w-32">{att.text}</span>
                       <button
                         type="button"
@@ -619,10 +641,12 @@ defmodule SynkadeWeb.IdeLive do
 
                   <%!-- Bottom toolbar --%>
                   <div class="flex items-center justify-between px-3 pb-2.5">
-                    <div class="flex items-center gap-1">
-                    </div>
+                    <div class="flex items-center gap-1"></div>
                     <div class="flex items-center gap-1.5">
-                      <label class="btn btn-ghost btn-sm btn-square cursor-pointer" title="Attach files">
+                      <label
+                        class="btn btn-ghost btn-sm btn-square cursor-pointer"
+                        title="Attach files"
+                      >
                         <.icon name="hero-plus" class="size-4" />
                         <.live_file_input upload={@uploads.images} class="hidden" />
                       </label>
@@ -641,10 +665,18 @@ defmodule SynkadeWeb.IdeLive do
           </div>
 
           <%!-- Drag handle --%>
-          <div id="ide-drag" class="w-1 flex-shrink-0 bg-base-300 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors"></div>
+          <div
+            id="ide-drag"
+            class="w-1 flex-shrink-0 bg-base-300 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors"
+          >
+          </div>
 
           <%!-- Right panel: Changes list --%>
-          <div id="ide-right" class="flex flex-col overflow-y-auto min-w-0 bg-base-300" style="width: 320px; flex-shrink: 0">
+          <div
+            id="ide-right"
+            class="flex flex-col overflow-y-auto min-w-0 bg-base-300"
+            style="width: 320px; flex-shrink: 0"
+          >
             <div class="flex items-center gap-2 px-4 py-2 sticky top-0 bg-base-300 border-b border-base-300 z-10">
               <span class="text-sm font-semibold">Changes</span>
               <span class="badge badge-sm badge-ghost">{length(@changed_files)}</span>
@@ -708,7 +740,10 @@ defmodule SynkadeWeb.IdeLive do
         <%!-- Agent text message --%>
         <div class="max-w-[90%]">
           <div :if={@group.first_in_turn} class="flex items-center gap-1.5 mb-1">
-            <span :if={@running_entry && @running_entry[:agent_kind]} class={brand_color(@running_entry[:agent_kind])}>
+            <span
+              :if={@running_entry && @running_entry[:agent_kind]}
+              class={brand_color(@running_entry[:agent_kind])}
+            >
               <.agent_icon kind={@running_entry[:agent_kind]} class="size-3.5" />
             </span>
             <span class="text-xs text-base-content/40 font-medium">
@@ -729,8 +764,7 @@ defmodule SynkadeWeb.IdeLive do
         <div class="text-sm text-error">{@group.text}</div>
       <% :thinking -> %>
         <div class="flex items-center gap-2 text-base-content/30 text-sm">
-          <span class="loading loading-dots loading-xs"></span>
-          Thinking...
+          <span class="loading loading-dots loading-xs"></span> Thinking...
         </div>
       <% _ -> %>
         <div class="text-xs text-base-content/30">{@group.type}</div>
@@ -805,7 +839,10 @@ defmodule SynkadeWeb.IdeLive do
           {:ok, _} ->
             {:noreply,
              socket
-             |> put_flash(:info, "Created and dispatched" <> if(agent_name, do: " to #{agent_name}", else: ""))
+             |> put_flash(
+               :info,
+               "Created and dispatched" <> if(agent_name, do: " to #{agent_name}", else: "")
+             )
              |> push_navigate(to: "/issues/#{issue.id}")}
 
           {:error, _} ->
@@ -998,5 +1035,4 @@ defmodule SynkadeWeb.IdeLive do
     dir = Path.dirname(path)
     if dir == ".", do: "", else: dir <> "/"
   end
-
 end

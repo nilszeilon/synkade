@@ -175,5 +175,4 @@ defmodule Synkade.Workspace.WorkspaceTest do
       assert String.trim(b1) != String.trim(b2)
     end
   end
-
 end

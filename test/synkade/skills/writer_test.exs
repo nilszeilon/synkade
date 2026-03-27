@@ -116,7 +116,9 @@ defmodule Synkade.Skills.WriterTest do
 
   describe "write_to_workspace/3" do
     test "writes skill files to workspace directory" do
-      workspace = System.tmp_dir!() |> Path.join("skills_test_#{System.unique_integer([:positive])}")
+      workspace =
+        System.tmp_dir!() |> Path.join("skills_test_#{System.unique_integer([:positive])}")
+
       File.mkdir_p!(workspace)
 
       config = %{"agent" => %{"kind" => "claude"}, "project_id" => "test-proj"}

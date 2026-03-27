@@ -34,5 +34,4 @@ defmodule SynkadeWeb.Api.AgentHeartbeatController do
   def create(conn, _params) do
     conn |> put_status(400) |> json(%{error: "issue_id and status are required"})
   end
-
 end

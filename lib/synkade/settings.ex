@@ -72,12 +72,22 @@ defmodule Synkade.Settings do
 
   @doc "Lists enabled projects for the scoped user."
   def list_enabled_projects(%Scope{user: user}) do
-    Repo.all(from(p in Project, where: p.user_id == ^user.id and p.enabled == true, order_by: [asc: p.name]))
+    Repo.all(
+      from(p in Project,
+        where: p.user_id == ^user.id and p.enabled == true,
+        order_by: [asc: p.name]
+      )
+    )
   end
 
   @doc "Lists enabled projects for a user_id (for workers, no Scope)."
   def list_enabled_projects_for_user(user_id) do
-    Repo.all(from(p in Project, where: p.user_id == ^user_id and p.enabled == true, order_by: [asc: p.name]))
+    Repo.all(
+      from(p in Project,
+        where: p.user_id == ^user_id and p.enabled == true,
+        order_by: [asc: p.name]
+      )
+    )
   end
 
   @doc "Gets a single project by ID. Raises if not found."

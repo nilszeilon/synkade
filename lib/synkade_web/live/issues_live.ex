@@ -248,7 +248,8 @@ defmodule SynkadeWeb.IssuesLive do
                 |> load_issues()
                 |> put_flash(:error, "Issue created but dispatch failed")
 
-              {:noreply, push_patch(socket, to: issues_path(socket.assigns.state_filter, issue.id))}
+              {:noreply,
+               push_patch(socket, to: issues_path(socket.assigns.state_filter, issue.id))}
           end
         else
           path = issues_path(socket.assigns.state_filter, issue.id)
@@ -306,7 +307,9 @@ defmodule SynkadeWeb.IssuesLive do
       {:noreply, put_flash(socket, :error, "Dispatch message cannot be empty")}
     else
       issue = socket.assigns.selected_issue.issue
-      {agent_name, instruction, agent_id} = resolve_dispatch(socket.assigns.current_scope, message)
+
+      {agent_name, instruction, agent_id} =
+        resolve_dispatch(socket.assigns.current_scope, message)
 
       case Issues.dispatch_issue(issue, instruction, agent_id) do
         {:ok, _} ->
@@ -411,7 +414,6 @@ defmodule SynkadeWeb.IssuesLive do
     "/issues?" <> URI.encode_query(params)
   end
 
-
   # --- Render ---
 
   @impl true
@@ -441,7 +443,6 @@ defmodule SynkadeWeb.IssuesLive do
               back_path={issues_path(@state_filter)}
               back_label="Issues"
             />
-
           <% @view_mode == :create -> %>
             <.issue_create_view
               form={@form}
@@ -453,7 +454,6 @@ defmodule SynkadeWeb.IssuesLive do
               create_ancestors={@create_ancestors}
               back_path={issues_path(@state_filter)}
             />
-
           <% true -> %>
             <div class="flex items-center justify-between mb-4">
               <h1 class="text-2xl font-bold">Issues</h1>
@@ -468,7 +468,10 @@ defmodule SynkadeWeb.IssuesLive do
                     }
                     phx-click="set_filter"
                     phx-value-filter={value || ""}
-                    class={["btn btn-xs", if(@state_filter == value, do: "btn-primary", else: "btn-ghost")]}
+                    class={[
+                      "btn btn-xs",
+                      if(@state_filter == value, do: "btn-primary", else: "btn-ghost")
+                    ]}
                   >
                     {label}
                   </button>
@@ -511,7 +514,9 @@ defmodule SynkadeWeb.IssuesLive do
         {@project_name}
       </span>
       <span class="text-sm truncate flex-1 min-w-0">{Issue.title(@issue)}</span>
-      <span :if={@issue.auto_merge} class="badge badge-xs badge-warning flex-shrink-0">auto-merge</span>
+      <span :if={@issue.auto_merge} class="badge badge-xs badge-warning flex-shrink-0">
+        auto-merge
+      </span>
       <span :if={@issue.recurring} class="badge badge-xs badge-accent flex-shrink-0">recurring</span>
       <span class={"badge badge-xs #{state_badge_class(@issue.state)} flex-shrink-0"}>
         {@issue.state}

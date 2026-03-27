@@ -397,8 +397,7 @@ defmodule SynkadeWeb.SettingsLive do
 
   @impl true
   def handle_info({:issues_updated}, socket) do
-    {:noreply,
-     SynkadeWeb.Sidebar.assign_sidebar(socket, socket.assigns.current_scope)}
+    {:noreply, SynkadeWeb.Sidebar.assign_sidebar(socket, socket.assigns.current_scope)}
   end
 
   @impl true
@@ -485,11 +484,20 @@ defmodule SynkadeWeb.SettingsLive do
             />
           </div>
 
-          <div :if={not Synkade.Deployment.hosted?()} class={if @active_tab != "execution", do: "hidden"}>
+          <div
+            :if={not Synkade.Deployment.hosted?()}
+            class={if @active_tab != "execution", do: "hidden"}
+          >
             <.execution_tab form={@form} />
           </div>
 
-          <div :if={@active_tab == "github" or (@active_tab == "execution" and not Synkade.Deployment.hosted?())} class="mt-6">
+          <div
+            :if={
+              @active_tab == "github" or
+                (@active_tab == "execution" and not Synkade.Deployment.hosted?())
+            }
+            class="mt-6"
+          >
             <button type="submit" class="btn btn-primary">Save Settings</button>
           </div>
         </.form>
@@ -557,7 +565,9 @@ defmodule SynkadeWeb.SettingsLive do
 
     ~H"""
     <div>
-      <p class="text-sm text-base-content/60 mb-4">Choose a theme. All themes keep the ops console aesthetic.</p>
+      <p class="text-sm text-base-content/60 mb-4">
+        Choose a theme. All themes keep the ops console aesthetic.
+      </p>
       <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <button
           :for={{id, meta} <- @themes}
@@ -566,7 +576,10 @@ defmodule SynkadeWeb.SettingsLive do
           phx-value-theme={id}
           class={[
             "card bg-base-200 border p-4 text-left transition-all",
-            if(@current_theme == id, do: "border-primary ring-1 ring-primary", else: "border-base-300 hover:border-base-content/30")
+            if(@current_theme == id,
+              do: "border-primary ring-1 ring-primary",
+              else: "border-base-300 hover:border-base-content/30"
+            )
           ]}
         >
           <div class="flex gap-1.5 mb-2">
@@ -653,7 +666,12 @@ defmodule SynkadeWeb.SettingsLive do
     ~H"""
     <div>
       <%= if @agent_editing do %>
-        <.agent_form form={@agent_form} editing={@agent_editing} agent_token_visible={@agent_token_visible} pull_setup_step={@pull_setup_step} />
+        <.agent_form
+          form={@agent_form}
+          editing={@agent_editing}
+          agent_token_visible={@agent_token_visible}
+          pull_setup_step={@pull_setup_step}
+        />
       <% else %>
         <div class="flex items-center justify-between mb-4">
           <p class="text-sm text-base-content/60">Manage agent configurations for your projects.</p>
@@ -842,7 +860,10 @@ defmodule SynkadeWeb.SettingsLive do
                     name={@form[:auth_mode].name}
                     id={@form[:auth_mode].id}
                   >
-                    <option value="api_key" selected={(@form[:auth_mode].value || "api_key") == "api_key"}>
+                    <option
+                      value="api_key"
+                      selected={(@form[:auth_mode].value || "api_key") == "api_key"}
+                    >
                       API Key
                     </option>
                     <option value="oauth" selected={@form[:auth_mode].value == "oauth"}>
@@ -929,7 +950,9 @@ defmodule SynkadeWeb.SettingsLive do
                 </div>
 
                 <div class="form-control">
-                  <label class="label"><span class="label-text">System Prompt (optional)</span></label>
+                  <label class="label">
+                    <span class="label-text">System Prompt (optional)</span>
+                  </label>
                   <textarea
                     class="textarea textarea-bordered w-full font-mono text-sm"
                     rows="6"
@@ -945,25 +968,80 @@ defmodule SynkadeWeb.SettingsLive do
                   <%= if @editing.api_token_hash do %>
                     <div class="flex flex-col gap-2">
                       <%= if MapSet.member?(@agent_token_visible, @editing.id) do %>
-                        <code class="text-xs break-all select-all bg-base-300 p-2 rounded">{@editing.api_token}</code>
+                        <code class="text-xs break-all select-all bg-base-300 p-2 rounded">
+                          {@editing.api_token}
+                        </code>
                         <div class="flex gap-2">
-                          <button type="button" phx-click="hide_agent_token" phx-value-id={@editing.id} class="btn btn-ghost btn-xs">Hide</button>
-                          <button type="button" phx-click="generate_agent_token" phx-value-id={@editing.id} class="btn btn-ghost btn-xs" data-confirm="Regenerate token? The current token will be invalidated.">Regenerate</button>
-                          <button type="button" phx-click="revoke_agent_token" phx-value-id={@editing.id} class="btn btn-ghost btn-xs text-warning" data-confirm="Revoke this agent's API token?">Revoke</button>
+                          <button
+                            type="button"
+                            phx-click="hide_agent_token"
+                            phx-value-id={@editing.id}
+                            class="btn btn-ghost btn-xs"
+                          >
+                            Hide
+                          </button>
+                          <button
+                            type="button"
+                            phx-click="generate_agent_token"
+                            phx-value-id={@editing.id}
+                            class="btn btn-ghost btn-xs"
+                            data-confirm="Regenerate token? The current token will be invalidated."
+                          >
+                            Regenerate
+                          </button>
+                          <button
+                            type="button"
+                            phx-click="revoke_agent_token"
+                            phx-value-id={@editing.id}
+                            class="btn btn-ghost btn-xs text-warning"
+                            data-confirm="Revoke this agent's API token?"
+                          >
+                            Revoke
+                          </button>
                         </div>
                       <% else %>
                         <div class="flex items-center gap-2">
                           <span class="badge badge-success badge-sm">Active</span>
-                          <button type="button" phx-click="show_agent_token" phx-value-id={@editing.id} class="btn btn-ghost btn-xs">Show</button>
-                          <button type="button" phx-click="generate_agent_token" phx-value-id={@editing.id} class="btn btn-ghost btn-xs" data-confirm="Regenerate token? The current token will be invalidated.">Regenerate</button>
-                          <button type="button" phx-click="revoke_agent_token" phx-value-id={@editing.id} class="btn btn-ghost btn-xs text-warning" data-confirm="Revoke this agent's API token?">Revoke</button>
+                          <button
+                            type="button"
+                            phx-click="show_agent_token"
+                            phx-value-id={@editing.id}
+                            class="btn btn-ghost btn-xs"
+                          >
+                            Show
+                          </button>
+                          <button
+                            type="button"
+                            phx-click="generate_agent_token"
+                            phx-value-id={@editing.id}
+                            class="btn btn-ghost btn-xs"
+                            data-confirm="Regenerate token? The current token will be invalidated."
+                          >
+                            Regenerate
+                          </button>
+                          <button
+                            type="button"
+                            phx-click="revoke_agent_token"
+                            phx-value-id={@editing.id}
+                            class="btn btn-ghost btn-xs text-warning"
+                            data-confirm="Revoke this agent's API token?"
+                          >
+                            Revoke
+                          </button>
                         </div>
                       <% end %>
                     </div>
                   <% else %>
                     <div class="flex items-center gap-2">
                       <span class="badge badge-ghost badge-sm">None</span>
-                      <button type="button" phx-click="generate_agent_token" phx-value-id={@editing.id} class="btn btn-ghost btn-xs">Generate Token</button>
+                      <button
+                        type="button"
+                        phx-click="generate_agent_token"
+                        phx-value-id={@editing.id}
+                        class="btn btn-ghost btn-xs"
+                      >
+                        Generate Token
+                      </button>
                     </div>
                   <% end %>
                 </div>
@@ -1001,7 +1079,8 @@ defmodule SynkadeWeb.SettingsLive do
       <%= if @step == :token do %>
         <div class="space-y-4">
           <p class="text-sm text-base-content/60">
-            Your agent <span class="font-semibold text-base-content">{@editing.name}</span> has been created.
+            Your agent <span class="font-semibold text-base-content">{@editing.name}</span>
+            has been created.
             Copy the API token below — you'll need it to configure the agent.
           </p>
 
@@ -1111,7 +1190,9 @@ defmodule SynkadeWeb.SettingsLive do
     missing_defaults = Enum.reject(defaults, fn d -> d["name"] in present_names end)
     built_in = Enum.filter(assigns.skills, & &1.built_in)
     custom = Enum.reject(assigns.skills, & &1.built_in)
-    assigns = assign(assigns, built_in: built_in, custom: custom, missing_defaults: missing_defaults)
+
+    assigns =
+      assign(assigns, built_in: built_in, custom: custom, missing_defaults: missing_defaults)
 
     ~H"""
     <div>
@@ -1209,13 +1290,15 @@ defmodule SynkadeWeb.SettingsLive do
                     class="textarea textarea-bordered w-full font-mono text-xs"
                     rows="8"
                     name="skill[content]"
-                    placeholder={"---\nname: my-skill\ndescription: What this skill does\nuser-invocable: false\n---\n\nSkill instructions here..."}
+                    placeholder="---\nname: my-skill\ndescription: What this skill does\nuser-invocable: false\n---\n\nSkill instructions here..."
                   >{@skill_form[:content].value}</textarea>
                 </div>
               </div>
               <div class="flex gap-2 mt-4">
                 <button type="submit" class="btn btn-primary btn-sm">Save Skill</button>
-                <button type="button" phx-click="cancel_skill" class="btn btn-ghost btn-sm">Cancel</button>
+                <button type="button" phx-click="cancel_skill" class="btn btn-ghost btn-sm">
+                  Cancel
+                </button>
               </div>
             </.form>
           </div>

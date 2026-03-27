@@ -112,9 +112,14 @@ defmodule SynkadeWeb.Api.AgentIssuesController do
           # Support body directly, or assemble from title+description for backwards compat
           body =
             cond do
-              params["body"] -> params["body"]
-              params["title"] || params["description"] -> assemble_body(params["title"], params["description"])
-              true -> nil
+              params["body"] ->
+                params["body"]
+
+              params["title"] || params["description"] ->
+                assemble_body(params["title"], params["description"])
+
+              true ->
+                nil
             end
 
           update_attrs =

@@ -120,7 +120,7 @@ defmodule Synkade.Issues do
     short_id_pattern = "#{short_id}%"
 
     Issue
-    |> where([i], like(i.id, ^short_id_pattern))
+    |> where([i], like(fragment("CAST(? AS TEXT)", i.id), ^short_id_pattern))
     |> Repo.one()
   end
 

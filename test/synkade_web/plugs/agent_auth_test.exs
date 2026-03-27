@@ -41,7 +41,12 @@ defmodule SynkadeWeb.Plugs.AgentAuthTest do
     assert json_response(conn, 401)["error"] == "unauthorized"
   end
 
-  test "returns 401 after token is revoked", %{conn: conn, token: token, agent: agent, scope: scope} do
+  test "returns 401 after token is revoked", %{
+    conn: conn,
+    token: token,
+    agent: agent,
+    scope: scope
+  } do
     {:ok, _} = Settings.revoke_agent_token(scope, agent)
 
     conn =

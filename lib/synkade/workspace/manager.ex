@@ -45,7 +45,9 @@ defmodule Synkade.Workspace.Manager do
             File.mkdir_p!(worktree_path)
 
             case run_after_create_hook(config, worktree_path) do
-              :ok -> {:ok, workspace}
+              :ok ->
+                {:ok, workspace}
+
               {:error, reason} ->
                 File.rm_rf!(worktree_path)
                 {:error, reason}

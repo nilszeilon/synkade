@@ -449,7 +449,10 @@ defmodule SynkadeWeb.Api.AgentIssuesControllerTest do
       scope: scope
     } do
       {:ok, project2} =
-        Settings.create_project(scope, %{name: "inbox-assigned-project", default_agent_id: agent.id})
+        Settings.create_project(scope, %{
+          name: "inbox-assigned-project",
+          default_agent_id: agent.id
+        })
 
       {:ok, _assigned} =
         Issues.create_issue(%{

@@ -154,8 +154,7 @@ defmodule SynkadeWeb.ProjectsLive do
 
   @impl true
   def handle_info({:issues_updated}, socket) do
-    {:noreply,
-     SynkadeWeb.Sidebar.assign_sidebar(socket, socket.assigns.current_scope)}
+    {:noreply, SynkadeWeb.Sidebar.assign_sidebar(socket, socket.assigns.current_scope)}
   end
 
   @impl true

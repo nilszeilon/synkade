@@ -34,7 +34,10 @@ defmodule Synkade.SettingsTest do
 
     test "upserts on second save", %{scope: scope} do
       {:ok, first} = Settings.save_settings(scope, @valid_attrs)
-      {:ok, second} = Settings.save_settings(scope, Map.put(@valid_attrs, "github_pat", "ghp_updated"))
+
+      {:ok, second} =
+        Settings.save_settings(scope, Map.put(@valid_attrs, "github_pat", "ghp_updated"))
+
       assert first.id == second.id
       assert second.github_pat == "ghp_updated"
     end

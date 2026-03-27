@@ -416,7 +416,9 @@ defmodule SynkadeWeb.Components.IssueView do
                   hours
                 </option>
                 <option value="days" selected={@form[:recurrence_unit].value == "days"}>days</option>
-                <option value="weeks" selected={@form[:recurrence_unit].value == "weeks"}>weeks</option>
+                <option value="weeks" selected={@form[:recurrence_unit].value == "weeks"}>
+                  weeks
+                </option>
               </select>
             </div>
             <div class="flex gap-2">

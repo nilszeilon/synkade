@@ -148,7 +148,12 @@ defmodule Synkade.Execution.AgentRunner do
 
           session_id = session.session_id
 
-          case BackendClient.continue_agent(config, session_id, continuation_prompt, session.env_ref) do
+          case BackendClient.continue_agent(
+                 config,
+                 session_id,
+                 continuation_prompt,
+                 session.env_ref
+               ) do
             {:ok, new_session} ->
               event_loop(project, issue, new_session, config, max_turns, turn + 1)
 

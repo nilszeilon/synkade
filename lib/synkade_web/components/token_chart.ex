@@ -236,7 +236,13 @@ defmodule SynkadeWeb.Components.TokenChart do
         <text x="4" y={@zero_y - 4} class="fill-base-content/20" font-size="8" font-family="monospace">
           OUT
         </text>
-        <text x="4" y={@zero_y + 11} class="fill-base-content/20" font-size="8" font-family="monospace">
+        <text
+          x="4"
+          y={@zero_y + 11}
+          class="fill-base-content/20"
+          font-size="8"
+          font-family="monospace"
+        >
           IN
         </text>
       </svg>

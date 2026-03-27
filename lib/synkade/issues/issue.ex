@@ -74,12 +74,23 @@ defmodule Synkade.Issues.Issue do
     unit = get_field(changeset, :recurrence_unit)
 
     case {interval, unit} do
-      {nil, _} -> changeset
-      {_, nil} -> changeset
-      {i, "hours"} when i < 1 -> add_error(changeset, :recurrence_interval, "must be at least 1 hour")
-      {i, "days"} when i < 1 -> add_error(changeset, :recurrence_interval, "must be at least 1 day")
-      {i, "weeks"} when i < 1 -> add_error(changeset, :recurrence_interval, "must be at least 1 week")
-      _ -> changeset
+      {nil, _} ->
+        changeset
+
+      {_, nil} ->
+        changeset
+
+      {i, "hours"} when i < 1 ->
+        add_error(changeset, :recurrence_interval, "must be at least 1 hour")
+
+      {i, "days"} when i < 1 ->
+        add_error(changeset, :recurrence_interval, "must be at least 1 day")
+
+      {i, "weeks"} when i < 1 ->
+        add_error(changeset, :recurrence_interval, "must be at least 1 week")
+
+      _ ->
+        changeset
     end
   end
 end

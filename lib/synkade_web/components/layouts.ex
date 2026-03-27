@@ -39,7 +39,11 @@ defmodule SynkadeWeb.Layouts do
   def app(assigns) do
     ~H"""
     <div id="app-layout" class="flex min-h-screen" phx-hook="ResizableSidebar">
-      <aside id="sidebar" class="h-screen fixed bg-base-300 flex flex-col border-r border-base-300" style="width: var(--sidebar-w, 14rem); min-width: 180px; max-width: 400px;">
+      <aside
+        id="sidebar"
+        class="h-screen fixed bg-base-300 flex flex-col border-r border-base-300"
+        style="width: var(--sidebar-w, 14rem); min-width: 180px; max-width: 400px;"
+      >
         <%!-- Logo --%>
         <div class="border-b border-base-300">
           <a href="/" class="relative flex items-center justify-center">
@@ -82,7 +86,11 @@ defmodule SynkadeWeb.Layouts do
 
           <div class="group/projects-header px-3 mb-1 flex items-center justify-between">
             <span class="ops-label text-primary/70">Projects</span>
-            <.link navigate="/projects" class="hidden group-hover/projects-header:inline-flex hover:text-primary" title="Add project">
+            <.link
+              navigate="/projects"
+              class="hidden group-hover/projects-header:inline-flex hover:text-primary"
+              title="Add project"
+            >
               <.icon name="hero-plus" class="size-3" />
             </.link>
           </div>
@@ -91,10 +99,11 @@ defmodule SynkadeWeb.Layouts do
           </div>
           <div :for={{name, project} <- @projects} class="group/proj space-y-0.5 mt-0.5">
             <%!-- Project header --%>
-            <div class={[
-              "flex items-center gap-1 px-3 h-8 cursor-pointer rounded-lg mx-1 hover:bg-base-200/50",
-              @current_project == name && "bg-base-200"
-            ]}
+            <div
+              class={[
+                "flex items-center gap-1 px-3 h-8 cursor-pointer rounded-lg mx-1 hover:bg-base-200/50",
+                @current_project == name && "bg-base-200"
+              ]}
               phx-click={JS.toggle_class("hidden", to: "#project-issues-#{project.db_id}")}
             >
               <.icon
@@ -135,7 +144,10 @@ defmodule SynkadeWeb.Layouts do
               </span>
             </div>
             <%!-- Issues list --%>
-            <div id={"project-issues-#{project.db_id}"} class={["space-y-0.5", @current_project != name && "hidden"]}>
+            <div
+              id={"project-issues-#{project.db_id}"}
+              class={["space-y-0.5", @current_project != name && "hidden"]}
+            >
               <.link
                 :for={issue <- Map.get(@sidebar_issues, project.db_id, [])}
                 navigate={"/issues/#{issue.id}"}
@@ -198,9 +210,18 @@ defmodule SynkadeWeb.Layouts do
         </div>
       </aside>
 
-      <div id="sidebar-drag" class="fixed top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors z-50 before:content-[''] before:absolute before:inset-y-0 before:-left-1 before:w-3" style="left: var(--sidebar-w, 14rem);"></div>
+      <div
+        id="sidebar-drag"
+        class="fixed top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors z-50 before:content-[''] before:absolute before:inset-y-0 before:-left-1 before:w-3"
+        style="left: var(--sidebar-w, 14rem);"
+      >
+      </div>
 
-      <main id="main-content" class="flex-1 overflow-y-auto min-h-screen" style="margin-left: var(--sidebar-w, 14rem);">
+      <main
+        id="main-content"
+        class="flex-1 overflow-y-auto min-h-screen"
+        style="margin-left: var(--sidebar-w, 14rem);"
+      >
         <.flash_group flash={@flash} />
         {render_slot(@inner_block)}
       </main>

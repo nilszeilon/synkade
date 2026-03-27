@@ -186,8 +186,7 @@ defmodule Synkade.Workspace.Git do
 
                 line_count = content |> String.split("\n") |> length()
 
-                {:ok,
-                 "--- /dev/null\n+++ b/#{filename}\n@@ -0,0 +1,#{line_count} @@\n#{lines}"}
+                {:ok, "--- /dev/null\n+++ b/#{filename}\n@@ -0,0 +1,#{line_count} @@\n#{lines}"}
 
               {:error, reason} ->
                 {:error, reason}

@@ -79,7 +79,10 @@ defmodule Synkade.Repo.Migrations.InitialSchema do
     # --- issues ---
     create table(:issues, primary_key: false) do
       add :id, :binary_id, primary_key: true
-      add :project_id, references(:projects, type: :binary_id, on_delete: :delete_all), null: false
+
+      add :project_id, references(:projects, type: :binary_id, on_delete: :delete_all),
+        null: false
+
       add :parent_id, references(:issues, type: :binary_id, on_delete: :nilify_all)
       add :body, :text
       add :state, :string, default: "backlog"

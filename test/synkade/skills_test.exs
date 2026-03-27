@@ -68,7 +68,10 @@ defmodule Synkade.SkillsTest do
 
     test "create_skill/2 enforces unique name per user", %{scope: scope} do
       {:ok, _} = Skills.create_skill(scope, %{"name" => "unique-skill", "content" => "a"})
-      {:error, changeset} = Skills.create_skill(scope, %{"name" => "unique-skill", "content" => "b"})
+
+      {:error, changeset} =
+        Skills.create_skill(scope, %{"name" => "unique-skill", "content" => "b"})
+
       assert errors_on(changeset).user_id != []
     end
 
