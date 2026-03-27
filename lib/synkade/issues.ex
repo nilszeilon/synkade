@@ -107,10 +107,10 @@ defmodule Synkade.Issues do
   end
 
   def get_issue(id) when is_binary(id) do
-    if String.length(id) == 36 and String.contains?(id, "-") do
-      Repo.get(Issue, id)
+    with {:ok, uuid} <- Ecto.UUID.cast(id) do
+      Repo.get(Issue, uuid)
     else
-      get_issue_by_short_id(id)
+      _ -> get_issue_by_short_id(id)
     end
   end
 
