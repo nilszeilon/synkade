@@ -91,11 +91,17 @@ defmodule SynkadeWeb.IssueLiveHelpers do
 
     socket = unsubscribe_session(socket)
 
-    default_agent_id =
-      case socket.assigns.agents do
-        [first | _] -> first.id
-        [] -> nil
-      end
+    agents = socket.assigns[:agents] || []
+    project = socket.assigns[:project]
+    setting = socket.assigns[:setting]
+
+    default_agent =
+      Settings.resolve_agent(agents,
+        project_agent_id: project && project.default_agent_id,
+        user_default_id: setting && setting.default_agent_id
+      )
+
+    default_agent_id = default_agent && default_agent.id
 
     socket
     |> assign(:view_mode, :create)

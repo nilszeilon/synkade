@@ -164,6 +164,26 @@ defmodule Synkade.Settings do
     Repo.all(union(default_projects, ^assigned_projects))
   end
 
+  @doc """
+  Resolve an agent using the standard priority chain:
+  assigned → project override → user default → first agent.
+
+  `agents` is a list of agent structs.
+  All ID args are optional (nil means skip that tier).
+  """
+  def resolve_agent(agents, opts \\ []) do
+    agents_by_id = Map.new(agents, fn a -> {a.id, a} end)
+
+    assigned_id = Keyword.get(opts, :assigned_agent_id)
+    project_agent_id = Keyword.get(opts, :project_agent_id)
+    user_default_id = Keyword.get(opts, :user_default_id)
+
+    agents_by_id[assigned_id] ||
+      agents_by_id[project_agent_id] ||
+      agents_by_id[user_default_id] ||
+      List.first(agents)
+  end
+
   # --- Agents ---
 
   @doc "Lists all agents for the scoped user."

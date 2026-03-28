@@ -114,12 +114,13 @@ defmodule Synkade.Jobs do
         {"No projects configured", %{}}
 
       true ->
-        agents_by_id = Map.new(agents, fn a -> {a.id, a} end)
-        first_agent = List.first(agents)
-
         entries =
           Enum.map(projects, fn project ->
-            agent = agents_by_id[project.default_agent_id] || first_agent
+            agent =
+              Synkade.Settings.resolve_agent(agents,
+                project_agent_id: project.default_agent_id,
+                user_default_id: settings.default_agent_id
+              )
 
             config =
               if agent do
@@ -141,7 +142,7 @@ defmodule Synkade.Jobs do
               name: project.name,
               db_id: project.id,
               config: config,
-              prompt_template: project.prompt_template,
+
               max_concurrent_agents: Synkade.Workflow.Config.max_concurrent_agents(config),
               enabled: project.enabled
             }

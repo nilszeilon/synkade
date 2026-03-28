@@ -11,7 +11,6 @@ defmodule Synkade.Settings.Project do
     field :name, :string
     field :enabled, :boolean, default: true
     field :tracker_repo, :string
-    field :prompt_template, :string
 
     belongs_to :default_agent, Synkade.Settings.Agent, type: :binary_id
 
@@ -19,7 +18,7 @@ defmodule Synkade.Settings.Project do
   end
 
   @required_fields ~w(name)a
-  @optional_fields ~w(enabled tracker_repo prompt_template default_agent_id user_id)a
+  @optional_fields ~w(enabled tracker_repo default_agent_id user_id)a
 
   def changeset(project, attrs) do
     project

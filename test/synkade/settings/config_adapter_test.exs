@@ -126,15 +126,6 @@ defmodule Synkade.Settings.ConfigAdapterTest do
       refute Map.has_key?(config, "tracker")
     end
 
-    test "includes prompt_template when set" do
-      project = %Project{
-        name: "my-project",
-        prompt_template: "Custom prompt"
-      }
-
-      config = ConfigAdapter.project_to_config(project)
-      assert config["prompt_template"] == "Custom prompt"
-    end
   end
 
   describe "resolve_project_config/3" do

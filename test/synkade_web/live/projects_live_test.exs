@@ -18,29 +18,54 @@ defmodule SynkadeWeb.ProjectsLiveTest do
     assert html =~ "No projects configured yet"
   end
 
-  test "opens new project form", %{conn: conn} do
-    {:ok, view, _html} = live(conn, "/projects")
-    html = view |> element("button", "New Project") |> render_click()
-    assert html =~ "New Project"
-    assert html =~ "Name"
+  test "shows mode chooser on /projects/new", %{conn: conn} do
+    {:ok, _view, html} = live(conn, "/projects/new")
+    assert html =~ "Existing repository"
+    assert html =~ "New project"
   end
 
-  test "creates a project", %{conn: conn} do
-    {:ok, view, _html} = live(conn, "/projects")
-    view |> element("button", "New Project") |> render_click()
+  test "new project mode shows name field", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/projects/new")
+
+    html =
+      view
+      |> element(~s{button[phx-value-mode="new"]})
+      |> render_click()
+
+    assert html =~ "Project name"
+  end
+
+  test "new mode requires GitHub PAT to create repo", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/projects/new")
 
     view
-    |> form("form", project: %{name: "test-project", tracker_repo: "acme/api"})
+    |> element(~s{button[phx-value-mode="new"]})
+    |> render_click()
+
+    view
+    |> form("form", project: %{name: "test-project"})
     |> render_submit()
 
+    # Without a PAT configured, the async handler flashes an error
     html = render(view)
-    assert html =~ "Project saved"
+    assert html =~ "No GitHub PAT configured"
+  end
+
+  test "creates a project via existing repo mode", %{conn: conn, scope: scope} do
+    # Directly create since the existing_repo flow requires GitHub API
+    {:ok, _} = Settings.create_project(scope, %{name: "test-project", tracker_repo: "acme/test-project"})
+
+    {:ok, _view, html} = live(conn, "/projects")
     assert html =~ "test-project"
+    assert html =~ "acme/test-project"
   end
 
   test "shows validation error for missing name", %{conn: conn} do
-    {:ok, view, _html} = live(conn, "/projects")
-    view |> element("button", "New Project") |> render_click()
+    {:ok, view, _html} = live(conn, "/projects/new")
+
+    view
+    |> element(~s{button[phx-value-mode="new"]})
+    |> render_click()
 
     html =
       view
@@ -58,6 +83,13 @@ defmodule SynkadeWeb.ProjectsLiveTest do
     assert html =~ "acme/repo"
   end
 
+  test "edits a project via /projects/:name/settings", %{conn: conn, scope: scope} do
+    {:ok, _project} = Settings.create_project(scope, %{name: "my-repo"})
+
+    {:ok, _view, html} = live(conn, "/projects/my-repo/settings")
+    assert html =~ "Edit Project"
+  end
+
   test "deletes a project", %{conn: conn, scope: scope} do
     {:ok, project} = Settings.create_project(scope, %{name: "to-delete"})
 
@@ -68,8 +100,7 @@ defmodule SynkadeWeb.ProjectsLiveTest do
     |> element(~s{button[phx-click="delete"][phx-value-id="#{project.id}"]})
     |> render_click()
 
-    html = render(view)
-    assert html =~ "Project deleted"
-    refute html =~ "to-delete"
+    flash = assert_redirect(view, "/projects")
+    assert flash["info"] == "Project deleted."
   end
 end

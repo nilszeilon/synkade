@@ -71,7 +71,7 @@ defmodule SynkadeWeb.Layouts do
 
           <div class="px-3 mb-1 flex items-center justify-between">
             <span class="ops-label text-primary/70">Projects</span>
-            <.link navigate="/projects" title="Add project" class="text-primary/50 hover:text-primary transition-colors">
+            <.link navigate="/projects/new" title="Add project" class="text-primary/50 hover:text-primary transition-colors">
               <.icon name="hero-plus" class="size-3.5" />
             </.link>
           </div>
@@ -101,7 +101,7 @@ defmodule SynkadeWeb.Layouts do
               </span>
               <span class="hidden group-hover/proj:inline-flex items-center gap-0.5 shrink-0">
                 <.link
-                  navigate="/projects"
+                  navigate={"/projects/#{name}/settings"}
                   class="hover:text-primary"
                   title="Project settings"
                 >

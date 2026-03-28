@@ -5,6 +5,67 @@ defmodule Synkade.Tracker.GitHub do
   alias Synkade.Tracker.Issue
   alias Synkade.Workflow.Config
 
+  @doc "Creates a new repository for the authenticated user. Returns {:ok, full_name} or {:error, reason}."
+  def create_repo(config, name) do
+    endpoint = Config.get(config, "tracker", "endpoint") || "https://api.github.com"
+    url = "#{endpoint}/user/repos"
+
+    case req_post(url, %{"name" => name, "auto_init" => true, "private" => true}, config) do
+      {:ok, %{status: 201, body: body}} ->
+        {:ok, body["full_name"]}
+
+      {:ok, %{status: 422, body: body}} ->
+        errors = get_in(body, ["errors"]) || []
+
+        if Enum.any?(errors, &(&1["message"] =~ "already exists")) do
+          {:error, :already_exists}
+        else
+          {:error, "GitHub API error 422: #{inspect(body)}"}
+        end
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, "GitHub API error #{status}: #{inspect(body)}"}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc "Lists repositories owned by the authenticated user."
+  def list_user_repos(config) do
+    endpoint = Config.get(config, "tracker", "endpoint") || "https://api.github.com"
+    url = "#{endpoint}/user/repos"
+    params = [sort: "updated", per_page: 100, affiliation: "owner,collaborator,organization_member"]
+
+    with {:ok, repos} <- fetch_all_pages(url, params, config),
+         {:ok, user} <- fetch_authenticated_user(config) do
+      username = user["login"]
+
+      entries =
+        repos
+        |> Enum.map(fn r ->
+          owner = get_in(r, ["owner", "login"])
+          %{full_name: r["full_name"], name: r["name"], owner: owner}
+        end)
+        |> Enum.sort_by(fn r ->
+          {if(r.owner == username, do: 0, else: 1), r.full_name}
+        end)
+
+      {:ok, %{repos: entries, username: username}}
+    end
+  end
+
+  defp fetch_authenticated_user(config) do
+    endpoint = Config.get(config, "tracker", "endpoint") || "https://api.github.com"
+    url = "#{endpoint}/user"
+
+    case req_get(url, [], config) do
+      {:ok, %{status: 200, body: body}} -> {:ok, body}
+      {:ok, %{status: status, body: body}} -> {:error, "GitHub API error #{status}: #{inspect(body)}"}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   @impl true
   def fetch_candidate_issues(config, project_name) do
     active_states = Config.active_states(config)

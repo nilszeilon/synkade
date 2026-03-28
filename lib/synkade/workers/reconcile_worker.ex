@@ -82,11 +82,12 @@ defmodule Synkade.Workers.ReconcileWorker do
 
   defp resolve_agent(issue, project) do
     agents = Settings.list_agents_for_user(project.user_id)
-    agents_by_id = Map.new(agents, fn a -> {a.id, a} end)
+    settings = Settings.get_settings_for_user(project.user_id)
 
-    case issue.assigned_agent_id do
-      nil -> agents_by_id[project.default_agent_id] || List.first(agents)
-      id -> agents_by_id[id] || agents_by_id[project.default_agent_id] || List.first(agents)
-    end
+    Settings.resolve_agent(agents,
+      assigned_agent_id: issue.assigned_agent_id,
+      project_agent_id: project.default_agent_id,
+      user_default_id: settings && settings.default_agent_id
+    )
   end
 end
