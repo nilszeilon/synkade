@@ -247,17 +247,25 @@ defmodule Synkade.Execution.Sprites do
   # Resolve the full path to a command on the sprite.
   # Sources both login profile AND .bashrc so that PATH entries added by
   # installers (e.g. opencode writes to .bashrc) are picked up.
+  # Uses `command -v` (POSIX) instead of `which` for portability, and
+  # validates the output looks like a real path — Sprites.cmd may return
+  # exit code 0 even on failure due to WebSocket close-frame races.
   defp resolve_command(sprite, command) do
     {output, exit_code} =
       Sprites.cmd(
         sprite,
         "bash",
-        ["-c", "source ~/.bashrc 2>/dev/null; source ~/.profile 2>/dev/null; which #{command}"],
+        [
+          "-c",
+          "source ~/.bashrc 2>/dev/null; source ~/.profile 2>/dev/null; command -v #{command}"
+        ],
         timeout: 10_000
       )
 
-    if exit_code == 0 do
-      {:ok, String.trim(output)}
+    path = String.trim(output)
+
+    if exit_code == 0 and String.starts_with?(path, "/") do
+      {:ok, path}
     else
       :not_found
     end
