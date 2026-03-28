@@ -84,19 +84,20 @@ defmodule SynkadeWeb.OnboardingLive do
 
   @impl true
   def handle_event("save_pat", %{"setting" => params}, socket) do
-    scope = socket.assigns.current_scope
+    token = (params["github_pat"] || "") |> String.trim()
 
-    case Settings.save_settings(scope, params) do
-      {:ok, setting} ->
-        {:noreply,
-         socket
-         |> assign(:setting, setting)
-         |> assign(:pat_saved, true)
-         |> assign(:settings_form, to_form(Settings.change_settings(scope, setting)))
-         |> put_flash(:info, "GitHub connected.")}
+    if token == "" do
+      {:noreply, put_flash(socket, :error, "Please enter a Personal Access Token.")}
+    else
+      socket = assign(socket, testing_connection: true, connection_status: nil)
+      lv = self()
 
-      {:error, changeset} ->
-        {:noreply, assign(socket, :settings_form, to_form(changeset))}
+      Task.start(fn ->
+        result = ConnectionTest.test_pat(token, nil)
+        send(lv, {:pat_save_result, result, params})
+      end)
+
+      {:noreply, socket}
     end
   end
 
@@ -129,10 +130,18 @@ defmodule SynkadeWeb.OnboardingLive do
 
     case Settings.create_agent(scope, params) do
       {:ok, agent} ->
-        {:noreply,
-         socket
-         |> assign(:agent_created, agent)
-         |> put_flash(:info, "Agent created.")}
+        next_step = socket.assigns.step + 1
+
+        socket =
+          socket
+          |> assign(:agent_created, agent)
+          |> put_flash(:info, "Agent created.")
+
+        if next_step > socket.assigns.total_steps do
+          {:noreply, push_navigate(socket, to: ~p"/projects/new")}
+        else
+          {:noreply, assign(socket, :step, next_step)}
+        end
 
       {:error, changeset} ->
         {:noreply, assign(socket, :agent_form, to_form(changeset))}
@@ -180,6 +189,47 @@ defmodule SynkadeWeb.OnboardingLive do
   @impl true
   def handle_info({:connection_result, result}, socket) do
     {:noreply, assign(socket, testing_connection: false, connection_status: result)}
+  end
+
+  @impl true
+  def handle_info({:pat_save_result, result, params}, socket) do
+    scope = socket.assigns.current_scope
+
+    case result do
+      {:ok, _msg} ->
+        case Settings.save_settings(scope, params) do
+          {:ok, setting} ->
+            next_step = socket.assigns.step + 1
+
+            socket =
+              socket
+              |> assign(:setting, setting)
+              |> assign(:pat_saved, true)
+              |> assign(:testing_connection, false)
+              |> assign(:connection_status, result)
+              |> assign(:settings_form, to_form(Settings.change_settings(scope, setting)))
+              |> put_flash(:info, "GitHub connected.")
+
+            if next_step > socket.assigns.total_steps do
+              {:noreply, push_navigate(socket, to: ~p"/projects/new")}
+            else
+              {:noreply, assign(socket, :step, next_step)}
+            end
+
+          {:error, changeset} ->
+            {:noreply,
+             socket
+             |> assign(:testing_connection, false)
+             |> assign(:settings_form, to_form(changeset))}
+        end
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:testing_connection, false)
+         |> assign(:connection_status, result)
+         |> put_flash(:error, "Invalid token: #{reason}")}
+    end
   end
 
   # --- Render ---
@@ -294,7 +344,13 @@ defmodule SynkadeWeb.OnboardingLive do
         <%= if @pat_saved do %>
           <button type="button" phx-click="continue" class="btn btn-primary">Continue</button>
         <% else %>
-          <button type="submit" class="btn btn-primary">Save & Continue</button>
+          <button type="submit" class="btn btn-primary" disabled={@testing_connection}>
+            <%= if @testing_connection do %>
+              <span class="loading loading-spinner loading-xs"></span> Validating...
+            <% else %>
+              Save & Continue
+            <% end %>
+          </button>
         <% end %>
       </div>
     </.form>
@@ -416,7 +472,7 @@ defmodule SynkadeWeb.OnboardingLive do
 
         <div class="flex justify-between mt-6">
           <button type="button" phx-click="back" class="btn btn-ghost">Back</button>
-          <button type="submit" class="btn btn-primary">Create Agent</button>
+          <button type="submit" class="btn btn-primary">Save & Continue</button>
         </div>
       </.form>
     <% end %>
