@@ -258,14 +258,28 @@ defmodule SynkadeWeb.UserAuthTest do
       refute get_session(halted_conn, :user_return_to)
     end
 
-    test "does not redirect if user is authenticated", %{conn: conn, user: user} do
+    test "does not redirect if user is authenticated and onboarded", %{conn: conn, user: user} do
+      scope = Scope.for_user(user)
+      SynkadeWeb.ConnCase.complete_onboarding(scope)
+
       conn =
         conn
-        |> assign(:current_scope, Scope.for_user(user))
+        |> assign(:current_scope, scope)
         |> UserAuth.require_authenticated_user([])
 
       refute conn.halted
       refute conn.status
+    end
+
+    test "redirects to onboarding if user is authenticated but not onboarded", %{conn: conn, user: user} do
+      conn =
+        conn
+        |> assign(:current_scope, Scope.for_user(user))
+        |> Map.put(:request_path, "/settings")
+        |> UserAuth.require_authenticated_user([])
+
+      assert conn.halted
+      assert redirected_to(conn) == ~p"/onboarding"
     end
   end
 end

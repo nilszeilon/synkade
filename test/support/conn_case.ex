@@ -48,12 +48,24 @@ defmodule SynkadeWeb.ConnCase do
     user = Synkade.AccountsFixtures.user_fixture()
     scope = Synkade.Accounts.Scope.for_user(user)
 
+    # Complete onboarding so tests aren't redirected to /onboarding
+    complete_onboarding(scope)
+
     opts =
       context
       |> Map.take([:token_authenticated_at])
       |> Enum.into([])
 
     %{conn: log_in_user(conn, user, opts), user: user, scope: scope}
+  end
+
+  @doc """
+  Completes onboarding for a user by creating settings with a PAT and an agent.
+  """
+  def complete_onboarding(scope) do
+    {:ok, _} = Synkade.Settings.save_settings(scope, %{github_pat: "ghp_test_token_fixture"})
+    {:ok, _} = Synkade.Settings.create_agent(scope, %{name: "onboarding-agent", kind: "claude", auth_mode: "api_key", api_key: "sk-test"})
+    :ok
   end
 
   @doc """

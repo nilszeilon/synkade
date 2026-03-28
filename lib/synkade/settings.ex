@@ -63,6 +63,14 @@ defmodule Synkade.Settings do
     |> Setting.changeset(attrs)
   end
 
+  @doc "Returns true if the user has completed onboarding (has PAT + at least one agent)."
+  def onboarding_completed?(%Scope{user: user}) do
+    setting = get_settings(%Scope{user: user})
+    has_pat = setting != nil and setting.github_pat != nil
+    has_agent = Repo.exists?(from(a in Agent, where: a.user_id == ^user.id))
+    has_pat and has_agent
+  end
+
   # --- Projects ---
 
   @doc "Lists all projects for the scoped user."
