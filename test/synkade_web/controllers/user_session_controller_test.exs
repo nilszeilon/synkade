@@ -4,7 +4,10 @@ defmodule SynkadeWeb.UserSessionControllerTest do
   import Synkade.AccountsFixtures
 
   setup do
-    %{user: user_fixture()}
+    user = user_fixture()
+    scope = Synkade.Accounts.Scope.for_user(user)
+    SynkadeWeb.ConnCase.complete_onboarding(scope)
+    %{user: user}
   end
 
   describe "GET /users/log-in" do

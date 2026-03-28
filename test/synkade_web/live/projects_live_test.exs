@@ -35,7 +35,7 @@ defmodule SynkadeWeb.ProjectsLiveTest do
     assert html =~ "Project name"
   end
 
-  test "new mode requires GitHub PAT to create repo", %{conn: conn} do
+  test "new mode shows error when GitHub API rejects credentials", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/projects/new")
 
     view
@@ -46,9 +46,9 @@ defmodule SynkadeWeb.ProjectsLiveTest do
     |> form("form", project: %{name: "test-project"})
     |> render_submit()
 
-    # Without a PAT configured, the async handler flashes an error
+    # The send(self(), ...) message is processed on the next render cycle
     html = render(view)
-    assert html =~ "No GitHub PAT configured"
+    assert html =~ "Failed to create repository"
   end
 
   test "creates a project via existing repo mode", %{conn: conn, scope: scope} do

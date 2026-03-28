@@ -24,15 +24,15 @@ defmodule SynkadeWeb.SettingsLiveTest do
     {:ok, view, _html} = live(conn, "/settings")
     html = view |> element(~s{button[phx-value-tab="agents"]}) |> render_click()
     assert html =~ "New Agent"
-    assert html =~ "No agents configured yet"
+    assert html =~ "onboarding-agent"
   end
 
   test "agents tab shows existing agents", %{conn: conn, scope: scope} do
-    {:ok, _} = Settings.create_agent(scope, %{name: "test-agent", kind: "claude", model: "sonnet"})
+    {:ok, _} = Settings.create_agent(scope, %{name: "my-claude", kind: "claude", model: "sonnet"})
 
     {:ok, view, _html} = live(conn, "/settings")
     html = view |> element(~s{button[phx-value-tab="agents"]}) |> render_click()
-    assert html =~ "test-agent"
+    assert html =~ "my-claude"
     assert html =~ "Claude Code"
     assert html =~ "sonnet"
   end

@@ -202,13 +202,26 @@ defmodule SynkadeWeb.UserAuth do
     end
   end
 
+  def on_mount(:ensure_onboarded, _params, _session, socket) do
+    if Synkade.Settings.onboarding_completed?(socket.assigns.current_scope) do
+      {:cont, socket}
+    else
+      {:halt, Phoenix.LiveView.redirect(socket, to: ~p"/onboarding")}
+    end
+  end
+
   @doc """
   Plug for routes that require the user to be authenticated.
   """
   def require_authenticated_user(conn, _opts) do
     cond do
       conn.assigns.current_scope && conn.assigns.current_scope.user ->
-        conn
+        if not Synkade.Settings.onboarding_completed?(conn.assigns.current_scope) and
+             conn.request_path != "/onboarding" do
+          conn |> redirect(to: ~p"/onboarding") |> halt()
+        else
+          conn
+        end
 
       not Accounts.setup_completed?() ->
         conn
