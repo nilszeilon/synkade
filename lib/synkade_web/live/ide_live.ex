@@ -995,25 +995,20 @@ defmodule SynkadeWeb.IdeLive do
       |> assign(:tool_counts, tool_counts)
 
     ~H"""
-    <details class="group text-sm" open={@running != []}>
-      <summary class="cursor-pointer select-none flex items-center gap-2 py-0.5 hover:text-base-content/60">
-        <span class="text-base-content/50 flex-shrink-0">{"\u{1F527}"}</span>
-        <span class="font-medium text-base-content/80">{length(@tools)} tools</span>
-        <span class="text-xs text-base-content/40 truncate">{@tool_counts}</span>
-        <span
-          :if={@running != []}
-          id={"tool-group-timer-#{System.unique_integer([:positive])}"}
-          phx-hook="ToolTimer"
-          class="ml-auto flex items-center gap-1.5 text-xs text-base-content/30"
-        >
-          <span class="loading loading-dots loading-xs"></span>
-          <span data-timer>0.0s</span>
-        </span>
-      </summary>
-      <div class="ml-6 mt-1 space-y-1">
-        <.tool_card :for={tool <- @tools} tool={tool} />
-      </div>
-    </details>
+    <div class="flex items-center gap-2 py-0.5 text-sm">
+      <span class="text-base-content/50 flex-shrink-0">{"\u{1F527}"}</span>
+      <span class="font-medium text-base-content/80">{length(@tools)} tools</span>
+      <span class="text-xs text-base-content/40 truncate">{@tool_counts}</span>
+      <span
+        :if={@running != []}
+        id={"tool-group-timer-#{System.unique_integer([:positive])}"}
+        phx-hook="ToolTimer"
+        class="ml-auto flex items-center gap-1.5 text-xs text-base-content/30"
+      >
+        <span class="loading loading-dots loading-xs"></span>
+        <span data-timer>0.0s</span>
+      </span>
+    </div>
     """
   end
 
