@@ -7,6 +7,12 @@ defmodule Synkade.Execution.Sprites do
 
   require Logger
 
+  # Install scripts for agent tooling on sprites.
+  # Each value is a shell command that installs the agent binary.
+  @agent_install_scripts %{
+    "opencode" => "curl -fsSL https://opencode.ai/install | bash"
+  }
+
   @impl true
   def setup_env(config, project_name, issue_identifier) do
     client = build_client(config)
@@ -18,21 +24,21 @@ defmodule Synkade.Execution.Sprites do
 
     case get_or_create_sprite(client, sprite_name, sprite_handle, config) do
       {:ok, sprite} ->
-        case setup_worktree(sprite, config, project_name, issue_identifier) do
-          :ok ->
-            worktree_path = build_worktree_path(project_name, issue_identifier)
-            write_skills_to_sprite(sprite, worktree_path, config)
+        with {:ok, agent_command} <- ensure_agent_installed(sprite, config),
+             :ok <- setup_worktree(sprite, config, project_name, issue_identifier) do
+          worktree_path = build_worktree_path(project_name, issue_identifier)
+          write_skills_to_sprite(sprite, worktree_path, config)
 
-            {:ok,
-             %{
-               sprite: sprite,
-               client: client,
-               sprite_name: sprite_name,
-               worktree_path: worktree_path
-             }}
-
-          {:error, reason} ->
-            {:error, {:worktree_setup_failed, reason}}
+          {:ok,
+           %{
+             sprite: sprite,
+             client: client,
+             sprite_name: sprite_name,
+             worktree_path: worktree_path,
+             agent_command: agent_command
+           }}
+        else
+          {:error, reason} -> {:error, reason}
         end
 
       {:error, reason} ->
@@ -67,7 +73,8 @@ defmodule Synkade.Execution.Sprites do
   @impl true
   def start_agent(config, prompt, env_ref) do
     args = AgentClient.build_args(config, prompt, [])
-    command = Config.agent_command(config)
+    command = env_ref[:agent_command] || Config.agent_command(config)
+    Logger.debug("Sprites start_agent command=#{command}")
     env_vars = build_env_list(config)
 
     case Sprites.spawn(env_ref.sprite, command, args,
@@ -93,7 +100,7 @@ defmodule Synkade.Execution.Sprites do
   @impl true
   def continue_agent(config, session_id, prompt, env_ref) do
     args = AgentClient.build_args(config, prompt, ["--resume", session_id])
-    command = Config.agent_command(config)
+    command = env_ref[:agent_command] || Config.agent_command(config)
     env_vars = build_env_list(config)
 
     case Sprites.spawn(env_ref.sprite, command, args,
@@ -196,6 +203,65 @@ defmodule Synkade.Execution.Sprites do
   end
 
   # --- Private ---
+
+  defp ensure_agent_installed(sprite, config) do
+    command = Config.agent_command(config)
+    kind = Config.agent_kind(config)
+
+    case resolve_command(sprite, command) do
+      {:ok, path} ->
+        {:ok, path}
+
+      :not_found ->
+        case Map.get(@agent_install_scripts, kind) do
+          nil ->
+            Logger.warning(
+              "No install script for agent kind #{kind}, assuming #{command} is available"
+            )
+
+            {:ok, command}
+
+          install_script ->
+            Logger.info("Installing #{kind} agent on sprite...")
+
+            {output, install_exit} =
+              Sprites.cmd(sprite, "sh", ["-c", install_script], timeout: 120_000)
+
+            if install_exit == 0 do
+              Logger.info("Successfully installed #{kind} agent on sprite")
+
+              # Resolve the full path after install — the installer may have placed
+              # the binary in a directory not in the default non-login PATH.
+              case resolve_command(sprite, command) do
+                {:ok, path} -> {:ok, path}
+                :not_found -> {:ok, command}
+              end
+            else
+              Logger.error("Failed to install #{kind} agent: #{output}")
+              {:error, {:agent_install_failed, kind, install_exit}}
+            end
+        end
+    end
+  end
+
+  # Resolve the full path to a command on the sprite.
+  # Sources both login profile AND .bashrc so that PATH entries added by
+  # installers (e.g. opencode writes to .bashrc) are picked up.
+  defp resolve_command(sprite, command) do
+    {output, exit_code} =
+      Sprites.cmd(
+        sprite,
+        "bash",
+        ["-c", "source ~/.bashrc 2>/dev/null; source ~/.profile 2>/dev/null; which #{command}"],
+        timeout: 10_000
+      )
+
+    if exit_code == 0 do
+      {:ok, String.trim(output)}
+    else
+      :not_found
+    end
+  end
 
   defp get_or_create_sprite(client, sprite_name, sprite_handle, config) do
     case Sprites.get_sprite(client, sprite_name) do
