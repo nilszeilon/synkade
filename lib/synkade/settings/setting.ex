@@ -22,6 +22,9 @@ defmodule Synkade.Settings.Setting do
     # Appearance
     field :theme, :string, default: "ops"
 
+    # Default agent
+    belongs_to :default_agent, Synkade.Settings.Agent, type: :binary_id
+
     timestamps()
   end
 
@@ -32,7 +35,7 @@ defmodule Synkade.Settings.Setting do
 
   def changeset(setting, attrs) do
     setting
-    |> cast(attrs, @github_fields ++ @execution_fields ++ [:theme, :user_id])
+    |> cast(attrs, @github_fields ++ @execution_fields ++ [:theme, :user_id, :default_agent_id])
     |> validate_required([:github_pat])
     |> validate_inclusion(:execution_backend, ["local", "sprites"])
     |> validate_inclusion(:theme, @valid_themes)

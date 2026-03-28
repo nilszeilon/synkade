@@ -42,6 +42,7 @@ defmodule Synkade.Repo.Migrations.InitialSchema do
     create unique_index(:settings, [:user_id])
 
     # --- agents ---
+    # NOTE: default_agent_id FK on settings is added via alter after agents table
     create table(:agents, primary_key: false) do
       add :id, :binary_id, primary_key: true
       add :user_id, references(:users, on_delete: :delete_all), null: false
@@ -59,6 +60,11 @@ defmodule Synkade.Repo.Migrations.InitialSchema do
     create unique_index(:agents, [:user_id, :name])
     create unique_index(:agents, [:api_token_hash])
 
+    # Add default_agent_id FK to settings (agents table must exist first)
+    alter table(:settings) do
+      add :default_agent_id, references(:agents, type: :binary_id, on_delete: :nilify_all)
+    end
+
     # --- projects ---
     create table(:projects, primary_key: false) do
       add :id, :binary_id, primary_key: true
@@ -66,7 +72,6 @@ defmodule Synkade.Repo.Migrations.InitialSchema do
       add :name, :string, null: false
       add :enabled, :boolean, default: true
       add :tracker_repo, :string
-      add :prompt_template, :string
       add :default_agent_id, references(:agents, type: :binary_id, on_delete: :nilify_all)
       timestamps(type: :utc_datetime)
     end

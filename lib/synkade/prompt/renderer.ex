@@ -36,7 +36,6 @@ defmodule Synkade.Prompt.Renderer do
   @auto_merge_line "\nAfter creating the PR, merge it immediately with `gh pr merge --merge`.\n"
 
   @spec render(
-          String.t() | nil,
           map(),
           map(),
           integer() | nil,
@@ -44,15 +43,18 @@ defmodule Synkade.Prompt.Renderer do
           String.t() | nil
         ) ::
           {:ok, String.t()} | {:error, term()}
-  def render(
-        template,
-        project,
-        issue,
-        attempt \\ nil,
-        ancestors \\ [],
-        dispatch_message \\ nil
-      ) do
-    template = template || @default_template
+  def render(project, issue, attempt \\ nil, ancestors \\ [], dispatch_message \\ nil)
+
+  def render(project, issue, attempt, ancestors, dispatch_message) do
+    do_render(@default_template, project, issue, attempt, ancestors, dispatch_message)
+  end
+
+  @doc "Render with a custom template. Used for testing."
+  def render_custom(template, project, issue, attempt \\ nil, ancestors \\ [], dispatch_message \\ nil) do
+    do_render(template || @default_template, project, issue, attempt, ancestors, dispatch_message)
+  end
+
+  defp do_render(template, project, issue, attempt, ancestors, dispatch_message) do
 
     # Add ancestor context if there are ancestors
     template =

@@ -1289,7 +1289,10 @@ defmodule SynkadeWeb.IdeLive do
     with setting when not is_nil(setting) <- Settings.get_settings_for_user(scope.user.id),
          agents = Settings.list_agents(scope),
          agent when not is_nil(agent) <-
-           Enum.find(agents, fn a -> a.id == project.default_agent_id end) || List.first(agents) do
+           Settings.resolve_agent(agents,
+             project_agent_id: project.default_agent_id,
+             user_default_id: setting.default_agent_id
+           ) do
       {:ok, ConfigAdapter.resolve_project_config(setting, project, agent)}
     else
       _ -> :error

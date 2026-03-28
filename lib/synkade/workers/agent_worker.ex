@@ -89,8 +89,7 @@ defmodule Synkade.Workers.AgentWorker do
     project = %{
       name: db_project.name,
       db_id: db_project.id,
-      config: config,
-      prompt_template: db_project.prompt_template
+      config: config
     }
 
     tracker_issue = db_issue_to_tracker_issue(issue, db_project.name)
@@ -149,16 +148,14 @@ defmodule Synkade.Workers.AgentWorker do
 
   defp resolve_agent(issue, db_project) do
     agents = Settings.list_agents_for_user(db_project.user_id)
-    agents_by_id = Map.new(agents, fn a -> {a.id, a} end)
+    settings = Settings.get_settings_for_user(db_project.user_id)
 
     agent =
-      case issue.assigned_agent_id do
-        nil ->
-          agents_by_id[db_project.default_agent_id] || List.first(agents)
-
-        id ->
-          agents_by_id[id] || agents_by_id[db_project.default_agent_id] || List.first(agents)
-      end
+      Settings.resolve_agent(agents,
+        assigned_agent_id: issue.assigned_agent_id,
+        project_agent_id: db_project.default_agent_id,
+        user_default_id: settings && settings.default_agent_id
+      )
 
     {:ok, agent}
   end

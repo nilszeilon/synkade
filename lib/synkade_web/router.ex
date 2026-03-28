@@ -32,12 +32,14 @@ defmodule SynkadeWeb.Router do
     live_session :require_authenticated,
       on_mount: [{SynkadeWeb.UserAuth, :require_authenticated}, {SynkadeWeb.Picker, :picker}] do
       live "/", DashboardLive
-      live "/projects/:name", DashboardLive
       live "/issues", IssuesLive
       live "/issues/:id", IdeLive
       live "/chat/:project_name", IdeLive
       live "/settings", SettingsLive
       live "/projects", ProjectsLive
+      live "/projects/new", ProjectsLive, :new
+      live "/projects/:name/settings", ProjectsLive, :edit
+      live "/projects/:name", DashboardLive
     end
   end
 

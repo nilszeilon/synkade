@@ -40,7 +40,6 @@ defmodule Synkade.Settings.ConfigAdapter do
       "tracker" => project_tracker_config(p)
     }
     |> reject_empty_sections()
-    |> maybe_put_project_prompt(p)
   end
 
   @doc """
@@ -93,13 +92,6 @@ defmodule Synkade.Settings.ConfigAdapter do
       "repo" => p.tracker_repo
     }
     |> reject_nils()
-  end
-
-  defp maybe_put_project_prompt(config, %Project{prompt_template: nil}), do: config
-  defp maybe_put_project_prompt(config, %Project{prompt_template: ""}), do: config
-
-  defp maybe_put_project_prompt(config, %Project{prompt_template: template}) do
-    Map.put(config, "prompt_template", template)
   end
 
   defp reject_nils(map) do

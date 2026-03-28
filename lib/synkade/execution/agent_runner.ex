@@ -13,7 +13,6 @@ defmodule Synkade.Execution.AgentRunner do
   def run(project, issue, attempt) do
     config = project.config
     project_name = project.name
-    prompt_template = project.prompt_template
 
     Logger.info(
       "AgentRunner starting for #{project_name}:#{issue.identifier} (attempt #{inspect(attempt)})"
@@ -21,7 +20,7 @@ defmodule Synkade.Execution.AgentRunner do
 
     with {:ok, env_ref} <- BackendClient.setup_env(config, project_name, issue.identifier),
          :ok <- BackendClient.run_before_hook(config, env_ref),
-         {:ok, prompt} <- render_prompt(prompt_template, project, issue, attempt),
+         {:ok, prompt} <- render_prompt(project, issue, attempt),
          {:ok, session} <- start_agent(config, prompt, env_ref) do
       result = event_loop(project, issue, session, config, 1)
       BackendClient.run_after_hook(config, env_ref)
@@ -36,7 +35,7 @@ defmodule Synkade.Execution.AgentRunner do
     end
   end
 
-  defp render_prompt(prompt_template, project, issue, attempt) do
+  defp render_prompt(project, issue, attempt) do
     project_map = %{name: project.name, config: project.config, db_id: project.db_id}
     issue_map = Map.from_struct(issue)
 
@@ -63,7 +62,7 @@ defmodule Synkade.Execution.AgentRunner do
         _, _ -> {[], nil, issue_map}
       end
 
-    Renderer.render(prompt_template, project_map, issue_map, attempt, ancestors, dispatch_message)
+    Renderer.render(project_map, issue_map, attempt, ancestors, dispatch_message)
   end
 
   defp start_agent(config, prompt, env_ref) do

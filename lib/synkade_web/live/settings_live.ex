@@ -93,6 +93,23 @@ defmodule SynkadeWeb.SettingsLive do
     {:noreply, socket}
   end
 
+  @impl true
+  def handle_event("set_default_agent", %{"default_agent_id" => agent_id}, socket) do
+    scope = socket.assigns.current_scope
+    agent_id = if agent_id == "", do: nil, else: agent_id
+
+    case Settings.save_settings(scope, %{default_agent_id: agent_id}) do
+      {:ok, setting} ->
+        {:noreply,
+         socket
+         |> assign(:setting, setting)
+         |> put_flash(:info, "Default agent updated.")}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Failed to update default agent.")}
+    end
+  end
+
   # --- Agent events ---
 
   @impl true
@@ -518,6 +535,7 @@ defmodule SynkadeWeb.SettingsLive do
             agent_form={@agent_form}
             agent_token_visible={@agent_token_visible}
             pull_setup_step={@pull_setup_step}
+            setting={@setting}
           />
         </div>
 
@@ -675,6 +693,7 @@ defmodule SynkadeWeb.SettingsLive do
   attr :agent_form, :any, required: true
   attr :agent_token_visible, :any, required: true
   attr :pull_setup_step, :atom, default: nil
+  attr :setting, :any, default: nil
 
   defp agents_tab(assigns) do
     ~H"""
@@ -682,6 +701,30 @@ defmodule SynkadeWeb.SettingsLive do
       <%= if @agent_editing do %>
         <.agent_form form={@agent_form} editing={@agent_editing} agent_token_visible={@agent_token_visible} pull_setup_step={@pull_setup_step} />
       <% else %>
+        <%= if @agents != [] do %>
+          <div class="form-control mb-6">
+            <label class="label"><span class="label-text font-medium">Default Agent</span></label>
+            <p class="text-xs text-base-content/50 mb-2">Used for all projects unless overridden per-project.</p>
+            <select
+              class="select select-bordered w-full max-w-xs"
+              phx-change="set_default_agent"
+              name="default_agent_id"
+            >
+              <option value="" selected={is_nil(@setting && @setting.default_agent_id)}>
+                First agent
+              </option>
+              <%= for agent <- @agents do %>
+                <option
+                  value={agent.id}
+                  selected={@setting && @setting.default_agent_id == agent.id}
+                >
+                  {agent.name}
+                </option>
+              <% end %>
+            </select>
+          </div>
+        <% end %>
+
         <div class="flex items-center justify-between mb-4">
           <p class="text-sm text-base-content/60">Manage agent configurations for your projects.</p>
           <button type="button" phx-click="new_agent" class="btn btn-primary btn-sm">
