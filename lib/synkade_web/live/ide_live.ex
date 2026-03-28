@@ -933,9 +933,13 @@ defmodule SynkadeWeb.IdeLive do
     ~H"""
     <%= case @group.type do %>
       <% :tools -> %>
-        <div class="space-y-1">
-          <.tool_card :for={tool <- @group.tools} tool={tool} />
-        </div>
+        <%= if length(@group.tools) >= 3 do %>
+          <.tool_group tools={@group.tools} />
+        <% else %>
+          <div class="space-y-1">
+            <.tool_card :for={tool <- @group.tools} tool={tool} />
+          </div>
+        <% end %>
       <% :text -> %>
         <div class="max-w-[90%]">
           <div :if={@group.first_in_turn} class="flex items-center gap-1.5 mb-1">
@@ -968,6 +972,51 @@ defmodule SynkadeWeb.IdeLive do
     """
   end
 
+  defp tool_group(assigns) do
+    running = Enum.filter(assigns.tools, &(&1.status == :running))
+    done = Enum.filter(assigns.tools, &(&1.status == :done))
+
+    # Build summary of tool names with counts
+    tool_counts =
+      assigns.tools
+      |> Enum.map(& &1.name)
+      |> Enum.frequencies()
+      |> Enum.sort_by(fn {_, count} -> -count end)
+      |> Enum.map(fn
+        {name, 1} -> EventParser.display_name(%{name: name, detail: nil})
+        {name, n} -> "#{EventParser.display_name(%{name: name, detail: nil})} \u00d7#{n}"
+      end)
+      |> Enum.join(", ")
+
+    assigns =
+      assigns
+      |> assign(:running, running)
+      |> assign(:done, done)
+      |> assign(:tool_counts, tool_counts)
+
+    ~H"""
+    <details class="group text-sm" open={@running != []}>
+      <summary class="cursor-pointer select-none flex items-center gap-2 py-0.5 hover:text-base-content/60">
+        <span class="text-base-content/50 flex-shrink-0">{"\u{1F527}"}</span>
+        <span class="font-medium text-base-content/80">{length(@tools)} tools</span>
+        <span class="text-xs text-base-content/40 truncate">{@tool_counts}</span>
+        <span
+          :if={@running != []}
+          id={"tool-group-timer-#{System.unique_integer([:positive])}"}
+          phx-hook="ToolTimer"
+          class="ml-auto flex items-center gap-1.5 text-xs text-base-content/30"
+        >
+          <span class="loading loading-dots loading-xs"></span>
+          <span data-timer>0.0s</span>
+        </span>
+      </summary>
+      <div class="ml-6 mt-1 space-y-1">
+        <.tool_card :for={tool <- @tools} tool={tool} />
+      </div>
+    </details>
+    """
+  end
+
   defp tool_card(assigns) do
     ~H"""
     <div class="text-sm">
@@ -985,15 +1034,29 @@ defmodule SynkadeWeb.IdeLive do
           </svg>
           {@tool.file_name}
         </span>
+        <%!-- Edit line counts --%>
+        <span :if={@tool[:edit_additions]} class="text-xs text-success font-mono">+{@tool.edit_additions}</span>
+        <span :if={@tool[:edit_deletions]} class="text-xs text-error font-mono">-{@tool.edit_deletions}</span>
         <%!-- Non-file detail (grep pattern, glob pattern, agent desc) --%>
         <span :if={!@tool.file_name && @tool.detail} class="font-mono text-xs text-base-content/40 truncate">
           {@tool.detail}
         </span>
       </div>
-      <%!-- Bash command preview --%>
-      <div :if={@tool.input_preview} class="ml-6 mt-0.5">
+      <%!-- Bash command preview (skip for edits — they get diff instead) --%>
+      <div :if={@tool.input_preview && !@tool[:edit_old]} class="ml-6 mt-0.5">
         <pre class="font-mono text-xs text-base-content/40 whitespace-pre-wrap break-all max-h-16 overflow-hidden">{@tool.input_preview}</pre>
       </div>
+      <%!-- Edit diff view --%>
+      <details :if={@tool[:edit_old]} class="ml-6 mt-0.5 group">
+        <summary class="cursor-pointer text-xs text-base-content/25 hover:text-base-content/40 flex items-center gap-1 select-none py-0.5">
+          <span class="text-[10px] group-open:rotate-90 transition-transform inline-block">&#9654;</span>
+          <span>diff</span>
+        </summary>
+        <div class="font-mono text-[11px] whitespace-pre-wrap break-all max-h-64 overflow-y-auto mt-0.5">
+          <div :for={line <- String.split(@tool.edit_old, "\n")} class="text-error/60">- {line}</div>
+          <div :for={line <- String.split(@tool.edit_new, "\n")} class="text-success/60">+ {line}</div>
+        </div>
+      </details>
       <%!-- Running state: spinner + live timer --%>
       <div
         :if={@tool.status == :running}
@@ -1004,8 +1067,8 @@ defmodule SynkadeWeb.IdeLive do
         <span class="loading loading-dots loading-xs"></span>
         <span data-timer>0.0s</span>
       </div>
-      <%!-- Done state: collapsible output --%>
-      <details :if={@tool.status == :done && @tool.output} class="ml-6 mt-0.5 group">
+      <%!-- Done state: collapsible output (skip for edits — they have diff) --%>
+      <details :if={@tool.status == :done && @tool.output && !@tool[:edit_old]} class="ml-6 mt-0.5 group">
         <summary class="cursor-pointer text-xs text-base-content/25 hover:text-base-content/40 flex items-center gap-1 select-none py-0.5">
           <span class="text-[10px] group-open:rotate-90 transition-transform inline-block">&#9654;</span>
           <span>output</span>

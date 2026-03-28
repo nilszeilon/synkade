@@ -41,7 +41,7 @@ defmodule Synkade.Agent.EventParser do
 
     output = if status == :done, do: parser.extract_output(event), else: nil
 
-    %{
+    base = %{
       name: name,
       detail: detail,
       input_preview: input_preview,
@@ -49,6 +49,21 @@ defmodule Synkade.Agent.EventParser do
       output: output,
       status: status
     }
+
+    # For Edit tools, capture old/new strings for diff rendering
+    if name in ~w(Edit edit MultiEdit) and is_map(input) do
+      old = input["old_string"] || input["old"] || ""
+      new = input["new_string"] || input["new"] || ""
+
+      Map.merge(base, %{
+        edit_old: old,
+        edit_new: new,
+        edit_additions: length(String.split(new, "\n")),
+        edit_deletions: length(String.split(old, "\n"))
+      })
+    else
+      base
+    end
   end
 
   @doc "Mark a tool as done with output from a result event."
