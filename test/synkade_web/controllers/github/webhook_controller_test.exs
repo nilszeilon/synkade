@@ -10,11 +10,15 @@ defmodule SynkadeWeb.GitHub.WebhookControllerTest do
   setup do
     scope = user_scope_fixture()
 
-    {:ok, _setting} =
+    {:ok, setting} =
       Settings.save_settings(scope, %{
-        "github_pat" => "ghp_test123",
-        "github_webhook_secret" => @webhook_secret
+        "github_pat" => "ghp_test123"
       })
+
+    # Set webhook secret directly (not user-configurable via settings form)
+    setting
+    |> Ecto.Changeset.change(%{github_webhook_secret: @webhook_secret})
+    |> Synkade.Repo.update!()
 
     :ok
   end

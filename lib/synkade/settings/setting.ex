@@ -33,13 +33,21 @@ defmodule Synkade.Settings.Setting do
 
   def valid_themes, do: @valid_themes
 
-  @github_fields ~w(github_pat github_webhook_secret)a
+  @github_fields ~w(github_pat)a
   @execution_fields ~w(execution_backend execution_sprites_token execution_sprites_org)a
 
   def changeset(setting, attrs) do
     setting
     |> cast(attrs, @github_fields ++ @execution_fields ++ [:theme, :user_id, :default_agent_id, :default_model])
     |> validate_required([:github_pat])
+    |> validate_inclusion(:execution_backend, ["local", "sprites"])
+    |> validate_inclusion(:theme, @valid_themes)
+  end
+
+  @doc "Changeset for updates that don't require re-submitting the PAT."
+  def update_changeset(setting, attrs) do
+    setting
+    |> cast(attrs, @github_fields ++ @execution_fields ++ [:theme, :user_id, :default_agent_id])
     |> validate_inclusion(:execution_backend, ["local", "sprites"])
     |> validate_inclusion(:theme, @valid_themes)
   end

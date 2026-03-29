@@ -22,10 +22,19 @@ defmodule Synkade.Settings do
   def save_settings(%Scope{user: user} = scope, attrs) do
     result =
       case get_settings(scope) do
-        nil -> %Setting{user_id: user.id}
-        existing -> existing
+        nil ->
+          %Setting{user_id: user.id}
+          |> Setting.changeset(attrs)
+
+        existing ->
+          pat_present = Map.get(attrs, "github_pat", "") != ""
+
+          if pat_present do
+            Setting.changeset(existing, attrs)
+          else
+            Setting.update_changeset(existing, Map.delete(attrs, "github_pat"))
+          end
       end
-      |> Setting.changeset(attrs)
       |> Repo.insert_or_update()
 
     case result do
@@ -59,8 +68,13 @@ defmodule Synkade.Settings do
 
   @doc "Returns a changeset for the settings form."
   def change_settings(%Scope{} = scope, setting \\ nil, attrs \\ %{}) do
-    (setting || get_settings(scope) || %Setting{})
-    |> Setting.changeset(attrs)
+    s = setting || get_settings(scope) || %Setting{}
+
+    if s.id && Map.get(attrs, "github_pat", "") == "" do
+      Setting.update_changeset(s, Map.delete(attrs, "github_pat"))
+    else
+      Setting.changeset(s, attrs)
+    end
   end
 
   @doc "Returns true if the user has completed onboarding (has PAT + at least one agent)."

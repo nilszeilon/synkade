@@ -40,40 +40,39 @@ defmodule SynkadeWeb.SettingsLiveTest do
     assert html =~ "New Pull Agent"
   end
 
-  test "validates on change", %{conn: conn} do
-    {:ok, view, _html} = live(conn, "/settings")
-
-    html =
-      view
-      |> form(~s{form[phx-submit="save"]}, setting: %{github_pat: ""})
-      |> render_change()
-
-    assert html =~ "can&#39;t be blank"
+  test "shows masked PAT with change button when PAT exists", %{conn: conn} do
+    {:ok, _view, html} = live(conn, "/settings")
+    assert html =~ "Change"
+    assert html =~ "••••••••••••"
   end
 
-  test "saves valid settings", %{conn: conn} do
+  test "change button reveals editable PAT field", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/settings")
+    html = view |> element(~s{button[phx-click="change_pat"]}) |> render_click()
+    assert html =~ ~s(name="setting[github_pat]")
+  end
+
+  test "saves valid settings with new PAT", %{conn: conn} do
+    {:ok, view, _html} = live(conn, "/settings")
+    view |> element(~s{button[phx-click="change_pat"]}) |> render_click()
 
     view
     |> form(~s{form[phx-submit="save"]},
-      setting: %{
-        github_pat: "ghp_test123"
-      }
+      setting: %{github_pat: "ghp_test123"}
     )
     |> render_submit()
 
     assert render(view) =~ "Settings saved"
   end
 
-  test "shows validation errors on submit", %{conn: conn} do
+  test "saves settings without changing PAT", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/settings")
 
-    html =
-      view
-      |> form(~s{form[phx-submit="save"]}, setting: %{github_pat: ""})
-      |> render_submit()
+    view
+    |> form(~s{form[phx-submit="save"]}, setting: %{})
+    |> render_submit()
 
-    assert html =~ "can&#39;t be blank"
+    assert render(view) =~ "Settings saved"
   end
 
   test "switches to execution tab", %{conn: conn} do
