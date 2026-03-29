@@ -73,6 +73,20 @@ defmodule Synkade.Workers.AgentWorker do
 
     config = ConfigAdapter.resolve_project_config(setting, db_project, agent)
 
+    # Model resolution order (highest priority first):
+    #   1. Per-issue override (issue.metadata["model"]) — set via model picker at dispatch time
+    #   2. Project default (project.default_model) — resolved by ConfigAdapter
+    #   3. Global default (setting.default_model) — resolved by ConfigAdapter
+    #   4. nil — agent CLI uses its own built-in default
+    issue_model = get_in(issue.metadata, ["model"])
+
+    config =
+      if issue_model do
+        put_in(config, ["agent", "model"], issue_model)
+      else
+        config
+      end
+
     # Add user's skills to config
     skills = Synkade.Skills.list_skills_for_user(db_project.user_id)
     config = Map.put(config, "skills", Synkade.Skills.skills_to_maps(skills))

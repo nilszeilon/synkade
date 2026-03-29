@@ -3,7 +3,11 @@ defmodule SynkadeWeb.IdeLive do
 
   # session_event no longer used — IDE has its own grouped rendering
   import SynkadeWeb.Components.AgentBrand
-  import SynkadeWeb.IssueLiveHelpers, only: [state_badge_class: 1]
+  import SynkadeWeb.Components.IssueView, only: [model_trigger: 1]
+  import SynkadeWeb.IssueLiveHelpers, only: [state_badge_class: 1, resolved_agent_kind: 4]
+  import SynkadeWeb.Components.SearchPicker
+  import SynkadeWeb.ModelPickerHelpers,
+    only: [handle_model_picker_event: 3, handle_model_picker_info: 2, model_picker_assigns: 1]
 
   alias Synkade.{Issues, Jobs, Settings}
   alias Synkade.Agent.EventParser
@@ -61,6 +65,7 @@ defmodule SynkadeWeb.IdeLive do
           |> assign(:turn_filter, false)
           |> assign(:pr_info, nil)
           |> assign(:pr_checks, :unknown)
+          |> assign(model_picker_assigns(project))
           |> allow_upload(:images,
             accept: ~w(.png .jpg .jpeg .gif .webp),
             max_entries: 5,
@@ -145,6 +150,7 @@ defmodule SynkadeWeb.IdeLive do
           |> assign(:turn_filter, false)
           |> assign(:pr_info, nil)
           |> assign(:pr_checks, :unknown)
+          |> assign(model_picker_assigns(project))
           |> allow_upload(:images,
             accept: ~w(.png .jpg .jpeg .gif .webp),
             max_entries: 5,
@@ -318,7 +324,12 @@ defmodule SynkadeWeb.IdeLive do
   end
 
   @impl true
-  def handle_info(_msg, socket), do: {:noreply, socket}
+  def handle_info(msg, socket) do
+    case handle_model_picker_info(msg, socket) do
+      {:halt, socket} -> {:noreply, socket}
+      :cont -> {:noreply, socket}
+    end
+  end
 
   # --- Handle Events ---
 
@@ -349,12 +360,16 @@ defmodule SynkadeWeb.IdeLive do
   end
 
   @impl true
-  def handle_event("dispatch_issue", %{"dispatch" => %{"message" => message}}, socket) do
-    message = String.trim(message)
+  def handle_event("dispatch_issue", %{"dispatch" => dispatch_params}, socket) do
+    message = String.trim(dispatch_params["message"] || "")
+    model = dispatch_params["model"]
+    model = if model == "", do: nil, else: model
     attachments = socket.assigns.attachments
     uploads = consume_uploaded_images(socket)
 
     full_message = build_dispatch_message(message, attachments, uploads)
+
+    socket = assign(socket, :selected_model, model)
 
     if full_message == "" do
       {:noreply, put_flash(socket, :error, "Message cannot be empty")}
@@ -470,6 +485,14 @@ defmodule SynkadeWeb.IdeLive do
       )
     else
       {:noreply, put_flash(socket, :error, "No PR to fix")}
+    end
+  end
+
+  @impl true
+  def handle_event(event, params, socket) do
+    case handle_model_picker_event(event, params, socket) do
+      {:halt, socket} -> {:noreply, socket}
+      :cont -> {:noreply, socket}
     end
   end
 
@@ -780,6 +803,11 @@ defmodule SynkadeWeb.IdeLive do
                   <%!-- Bottom toolbar --%>
                   <div class="flex items-center justify-between px-3 pb-2.5">
                     <div class="flex items-center gap-1">
+                      <.model_trigger
+                        agent_kind={ide_resolved_agent_kind(assigns)}
+                        selected_model={@selected_model}
+                        truncate
+                      />
                     </div>
                     <div class="flex items-center gap-1.5">
                       <label class="btn btn-ghost btn-sm btn-square cursor-pointer" title="Attach files">
@@ -797,6 +825,12 @@ defmodule SynkadeWeb.IdeLive do
                   </div>
                 </div>
               </.form>
+              <.search_picker
+                name="model_picker"
+                state={@model_picker}
+                placeholder="Search models..."
+                empty_message="No models available"
+              />
             </div>
           </div>
 
@@ -1196,7 +1230,7 @@ defmodule SynkadeWeb.IdeLive do
         {agent_name, instruction, agent_id} =
           SynkadeWeb.IssueLiveHelpers.resolve_dispatch(socket.assigns.current_scope, full_message)
 
-        case Issues.dispatch_issue(issue, instruction, agent_id) do
+        case Issues.dispatch_issue(issue, instruction, agent_id, model: socket.assigns.selected_model) do
           {:ok, _} ->
             {:noreply,
              socket
@@ -1233,7 +1267,7 @@ defmodule SynkadeWeb.IdeLive do
     {agent_name, instruction, agent_id} =
       SynkadeWeb.IssueLiveHelpers.resolve_dispatch(socket.assigns.current_scope, full_message)
 
-    case Issues.dispatch_issue(issue, instruction, agent_id) do
+    case Issues.dispatch_issue(issue, instruction, agent_id, model: socket.assigns.selected_model) do
       {:ok, _} ->
         socket =
           socket
@@ -1431,6 +1465,27 @@ defmodule SynkadeWeb.IdeLive do
     dir = Path.dirname(path)
     if dir == ".", do: "", else: dir <> "/"
   end
+
+  defp ide_resolved_agent_kind(assigns) do
+    cond do
+      assigns.running_entry && assigns.running_entry[:agent_kind] ->
+        assigns.running_entry[:agent_kind]
+
+      assigns.issue ->
+        setting = Settings.get_settings_for_user(assigns.current_scope.user.id)
+        resolved_agent_kind(assigns.issue, assigns.agents, setting, [assigns.project])
+
+      true ->
+        # New chat — resolve from project/user defaults
+        setting = Settings.get_settings_for_user(assigns.current_scope.user.id)
+        agent = Settings.resolve_agent(assigns.agents,
+          project_agent_id: assigns.project && assigns.project.default_agent_id,
+          user_default_id: setting && setting.default_agent_id
+        )
+        agent && agent.kind
+    end
+  end
+
 
   # --- Turn diff helpers ---
 

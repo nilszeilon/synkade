@@ -34,7 +34,7 @@ defmodule SynkadeWeb.Layouts do
     default: nil,
     doc: "the current [scope](https://hexdocs.pm/phoenix/scopes.html)"
 
-  attr :picker, :map, default: %{open: false, query: "", results: [], loading: false}
+  attr :picker, :map, default: %{open: false, query: "", items: [], loading: false}
 
   slot :inner_block, required: true
 

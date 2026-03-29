@@ -8,7 +8,7 @@ defmodule SynkadeWeb.Api.AgentMeControllerTest do
 
   setup do
     scope = user_scope_fixture()
-    {:ok, agent} = Settings.create_agent(scope, %{name: "me-test-agent"})
+    {:ok, agent} = Settings.create_agent(scope, %{kind: "claude"})
     {:ok, token} = Settings.generate_agent_token(agent)
 
     {:ok, project} =
@@ -35,7 +35,7 @@ defmodule SynkadeWeb.Api.AgentMeControllerTest do
 
       assert %{"data" => data} = json_response(conn, 200)
       assert data["id"] == agent.id
-      assert data["name"] == "me-test-agent"
+      assert data["name"] == "claude"
       assert data["kind"] == "claude"
       assert data["pull"] == false
 

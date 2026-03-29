@@ -32,6 +32,7 @@ defmodule Synkade.Repo.Migrations.InitialSchema do
       add :user_id, references(:users, on_delete: :delete_all), null: false
       add :github_pat, :binary
       add :github_webhook_secret, :binary
+      add :default_model, :string
       add :execution_backend, :string, default: "local"
       add :execution_sprites_token, :binary
       add :execution_sprites_org, :string
@@ -51,7 +52,6 @@ defmodule Synkade.Repo.Migrations.InitialSchema do
       add :auth_mode, :string, default: "api_key"
       add :api_key, :binary
       add :oauth_token, :binary
-      add :model, :string
       add :api_token_hash, :string
       add :api_token, :binary
       timestamps(type: :utc_datetime)
@@ -73,6 +73,7 @@ defmodule Synkade.Repo.Migrations.InitialSchema do
       add :enabled, :boolean, default: true
       add :tracker_repo, :string
       add :default_agent_id, references(:agents, type: :binary_id, on_delete: :nilify_all)
+      add :default_model, :string
       timestamps(type: :utc_datetime)
     end
 

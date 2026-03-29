@@ -6,8 +6,10 @@ defmodule SynkadeWeb.Components.IssueView do
 
   import SynkadeWeb.CoreComponents
   import SynkadeWeb.Components.AgentBrand
+  import SynkadeWeb.Components.SearchPicker
   import SynkadeWeb.IssueLiveHelpers, only: [state_badge_class: 1, format_relative_time: 1]
   alias Synkade.Issues.Issue
+  alias Synkade.Settings.Agent
 
   attr :issue, :map, required: true
   attr :ancestors, :list, required: true
@@ -18,6 +20,9 @@ defmodule SynkadeWeb.Components.IssueView do
   attr :running_entry, :any, default: nil
   attr :back_path, :string, required: true
   attr :back_label, :string, default: "Back"
+  attr :selected_model, :string, default: nil
+  attr :resolved_agent_kind, :string, default: nil
+  attr :model_picker, :map, default: %{open: false, query: "", items: [], loading: false}
 
   def issue_full_view(assigns) do
     messages = (assigns.issue.metadata || %{})["messages"] || []
@@ -121,7 +126,7 @@ defmodule SynkadeWeb.Components.IssueView do
                   <span :if={msg["agent_kind"]} class={brand_color(msg["agent_kind"])}>
                     <.agent_icon kind={msg["agent_kind"]} class="size-3.5" />
                   </span>
-                  #{idx}{if msg["agent_name"], do: " — #{msg["agent_name"]}", else: ""}
+                  #{idx}{if msg["agent_kind"], do: " — #{agent_display_name(msg)}", else: ""}
                 </p>
                 <p class="text-sm whitespace-pre-wrap">{msg["text"]}</p>
               </div>
@@ -138,7 +143,7 @@ defmodule SynkadeWeb.Components.IssueView do
                   <span :if={msg["agent_kind"]} class={brand_color(msg["agent_kind"])}>
                     <.agent_icon kind={msg["agent_kind"]} class="size-3.5" />
                   </span>
-                  #{idx} — {msg["agent_name"] || "agent"} output
+                  #{idx} — {agent_display_name(msg)} output
                 </p>
                 <div class="collapse collapse-arrow bg-base-200 rounded">
                   <input type="checkbox" />
@@ -248,11 +253,21 @@ defmodule SynkadeWeb.Components.IssueView do
                 phx-debounce="300"
               ><%= @dispatch_form[:message].value %></textarea>
               <div class="flex items-center justify-between">
-                <p class="text-xs text-base-content/40">
-                  Prefix with @agent_name to target a specific agent
-                </p>
+                <div class="flex items-center gap-3">
+                  <.model_trigger
+                    agent_kind={@resolved_agent_kind}
+                    selected_model={@selected_model}
+                    show_hint
+                  />
+                </div>
                 <button type="submit" class="btn btn-sm btn-primary">Dispatch</button>
               </div>
+              <.search_picker
+                name="model_picker"
+                state={@model_picker}
+                placeholder="Search models..."
+                empty_message="No models available"
+              />
             </div>
           </.form>
         </div>
@@ -483,5 +498,65 @@ defmodule SynkadeWeb.Components.IssueView do
       |> String.trim()
 
     if result == "", do: nil, else: result
+  end
+
+  defp agent_display_name(msg) do
+    kind = msg["agent_kind"]
+
+    if kind && Agent.ephemeral_kind?(kind) do
+      brand_label(kind)
+    else
+      msg["agent_name"] || "agent"
+    end
+  end
+
+  @doc """
+  Model picker trigger button. Shows the current model and opens the picker on click.
+
+  - `truncate` — when true, shows only the last `/`-separated segment of the model ID
+  - `show_hint` — when true and no agent can be picked, shows a help text
+  """
+  attr :agent_kind, :string, default: nil
+  attr :selected_model, :string, default: nil
+  attr :truncate, :boolean, default: false
+  attr :show_hint, :boolean, default: false
+
+  def model_trigger(assigns) do
+    can_pick = assigns.agent_kind && Agent.adapter_module(assigns.agent_kind) != nil
+
+    current_label =
+      if assigns.selected_model && assigns.selected_model != "" do
+        if assigns.truncate do
+          assigns.selected_model |> String.split("/") |> List.last()
+        else
+          assigns.selected_model
+        end
+      else
+        "model"
+      end
+
+    assigns = assign(assigns, can_pick: can_pick, current_label: current_label)
+
+    ~H"""
+    <input type="hidden" name="dispatch[model]" value={@selected_model || ""} />
+    <%= if @can_pick do %>
+      <button
+        type="button"
+        phx-click="model_picker_open"
+        phx-value-kind={@agent_kind}
+        class="flex items-center gap-1.5 text-xs text-base-content/60 hover:text-base-content transition-colors"
+      >
+        <span :if={@agent_kind} class={brand_color(@agent_kind)}>
+          <.agent_icon kind={@agent_kind} class="size-3.5" />
+        </span>
+        {@current_label}
+        <.icon name="hero-chevron-up-down" class="size-3" />
+      </button>
+    <% else %>
+      <p :if={@show_hint} class="text-xs text-base-content/40">
+        Prefix with @agent to target a specific agent (e.g. @claude)
+      </p>
+    <% end %>
+    """
   end
 end

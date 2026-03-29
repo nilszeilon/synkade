@@ -64,7 +64,7 @@ defmodule SynkadeWeb.ConnCase do
   """
   def complete_onboarding(scope) do
     {:ok, _} = Synkade.Settings.save_settings(scope, %{github_pat: "ghp_test_token_fixture"})
-    {:ok, _} = Synkade.Settings.create_agent(scope, %{name: "onboarding-agent", kind: "claude", auth_mode: "api_key", api_key: "sk-test"})
+    {:ok, _} = Synkade.Settings.create_agent(scope, %{kind: "claude", auth_mode: "api_key", api_key: "sk-test"})
     :ok
   end
 

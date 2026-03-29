@@ -5,7 +5,9 @@ defmodule SynkadeWeb.ProjectsLive do
 
   alias Synkade.Jobs
   alias Synkade.Settings
-  alias Synkade.Settings.Project
+  alias Synkade.Settings.{Agent, Project}
+
+  import SynkadeWeb.Components.AgentBrand
 
   @impl true
   def mount(_params, _session, socket) do
@@ -750,10 +752,27 @@ defmodule SynkadeWeb.ProjectsLive do
         </option>
         <%= for agent <- @agents do %>
           <option value={agent.id} selected={@form[:default_agent_id].value == agent.id}>
-            {agent.name}
+            <%= if Agent.ephemeral_kind?(agent.kind), do: brand_label(agent.kind), else: agent.name %>
           </option>
         <% end %>
       </select>
+    </div>
+
+    <div class="form-control">
+      <label class="label"><span class="label-text">Model override (optional)</span></label>
+      <input
+        type="text"
+        class="input input-bordered w-full"
+        name={@form[:default_model].name}
+        id={@form[:default_model].id}
+        value={@form[:default_model].value}
+        placeholder="Leave blank to use global default"
+      />
+      <label class="label">
+        <span class="label-text-alt text-base-content/60">
+          Overrides the global default model for this project
+        </span>
+      </label>
     </div>
     """
   end

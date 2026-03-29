@@ -14,11 +14,13 @@ defmodule Synkade.Settings.Project do
 
     belongs_to :default_agent, Synkade.Settings.Agent, type: :binary_id
 
+    field :default_model, :string
+
     timestamps()
   end
 
   @required_fields ~w(name)a
-  @optional_fields ~w(enabled tracker_repo default_agent_id user_id)a
+  @optional_fields ~w(enabled tracker_repo default_agent_id default_model user_id)a
 
   def changeset(project, attrs) do
     project

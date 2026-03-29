@@ -7,6 +7,38 @@ defmodule Synkade.Agent.OpenCode do
 
   require Logger
 
+  @fetch_timeout 15_000
+
+  @impl true
+  def fetch_models(_api_key) do
+    task =
+      Task.async(fn ->
+        opencode = System.find_executable("opencode") || "opencode"
+
+        case System.cmd("bash", ["-lc", "#{opencode} models"],
+               stderr_to_stdout: true,
+               env: [{"NO_COLOR", "1"}]
+             ) do
+          {output, 0} ->
+            items =
+              output
+              |> String.split("\n", trim: true)
+              |> Enum.map(&String.trim/1)
+              |> Enum.reject(&(&1 == ""))
+              |> Enum.map(fn model_id -> {model_id, model_id} end)
+
+            {:ok, items}
+
+          {output, _code} ->
+            {:error, "opencode models failed: #{String.slice(output, 0..200)}"}
+        end
+      end)
+
+    Task.await(task, @fetch_timeout)
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
   @port_line_bytes 1_048_576
 
   @impl true

@@ -7,7 +7,7 @@ defmodule SynkadeWeb.Plugs.AgentAuthTest do
 
   setup do
     scope = user_scope_fixture()
-    {:ok, agent} = Settings.create_agent(scope, %{name: "auth-test-agent"})
+    {:ok, agent} = Settings.create_agent(scope, %{kind: "claude"})
     {:ok, token} = Settings.generate_agent_token(agent)
     agent = Settings.get_agent!(agent.id)
     %{agent: agent, token: token, scope: scope}

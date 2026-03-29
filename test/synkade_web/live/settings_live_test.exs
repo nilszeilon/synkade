@@ -3,8 +3,6 @@ defmodule SynkadeWeb.SettingsLiveTest do
 
   import Phoenix.LiveViewTest
 
-  alias Synkade.Settings
-
   setup :register_and_log_in_user
 
   test "renders settings page with tabs", %{conn: conn} do
@@ -20,44 +18,26 @@ defmodule SynkadeWeb.SettingsLiveTest do
     assert html =~ "Personal Access Token"
   end
 
-  test "switches to agents tab and shows agent list", %{conn: conn} do
+  test "switches to agents tab and shows integrations", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/settings")
     html = view |> element(~s{button[phx-value-tab="agents"]}) |> render_click()
-    assert html =~ "New Agent"
-    assert html =~ "onboarding-agent"
-  end
-
-  test "agents tab shows existing agents", %{conn: conn, scope: scope} do
-    {:ok, _} = Settings.create_agent(scope, %{name: "my-claude", kind: "claude", model: "sonnet"})
-
-    {:ok, view, _html} = live(conn, "/settings")
-    html = view |> element(~s{button[phx-value-tab="agents"]}) |> render_click()
-    assert html =~ "my-claude"
+    assert html =~ "Integrations"
     assert html =~ "Claude Code"
-    assert html =~ "sonnet"
   end
 
-  test "opens new agent form", %{conn: conn} do
+  test "agents tab shows configured ephemeral agent", %{conn: conn} do
+    # The onboarding fixture already creates a claude agent
     {:ok, view, _html} = live(conn, "/settings")
-    view |> element(~s{button[phx-value-tab="agents"]}) |> render_click()
-    html = view |> element(~s{button[phx-click="new_agent"]}) |> render_click()
-    assert html =~ "New Agent"
-    assert html =~ "Name"
-    assert html =~ "Kind"
+    html = view |> element(~s{button[phx-value-tab="agents"]}) |> render_click()
+    assert html =~ "Claude Code"
+    assert html =~ "Connected"
   end
 
-  test "creates an agent", %{conn: conn} do
+  test "agents tab shows pull agents section", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/settings")
-    view |> element(~s{button[phx-value-tab="agents"]}) |> render_click()
-    view |> element(~s{button[phx-click="new_agent"]}) |> render_click()
-
-    view
-    |> form(~s{form[phx-submit="save_agent"]}, agent: %{name: "new-agent", kind: "claude"})
-    |> render_submit()
-
-    html = render(view)
-    assert html =~ "Agent saved"
-    assert html =~ "new-agent"
+    html = view |> element(~s{button[phx-value-tab="agents"]}) |> render_click()
+    assert html =~ "Pull Agents"
+    assert html =~ "New Pull Agent"
   end
 
   test "validates on change", %{conn: conn} do

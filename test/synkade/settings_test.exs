@@ -74,8 +74,9 @@ defmodule Synkade.SettingsTest do
     end
 
     test "returns agents sorted by name", %{scope: scope} do
-      {:ok, _} = Settings.create_agent(scope, %{name: "beta"})
-      {:ok, _} = Settings.create_agent(scope, %{name: "alpha"})
+      # Use pull kinds so we can set custom names
+      {:ok, _} = Settings.create_agent(scope, %{name: "beta", kind: "hermes"})
+      {:ok, _} = Settings.create_agent(scope, %{name: "alpha", kind: "openclaw"})
       agents = Settings.list_agents(scope)
       assert [%Agent{name: "alpha"}, %Agent{name: "beta"}] = agents
     end
@@ -83,7 +84,7 @@ defmodule Synkade.SettingsTest do
 
   describe "get_agent!/1" do
     test "returns agent by ID", %{scope: scope} do
-      {:ok, agent} = Settings.create_agent(scope, %{name: "test-agent"})
+      {:ok, agent} = Settings.create_agent(scope, %{name: "test-agent", kind: "hermes"})
       fetched = Settings.get_agent!(agent.id)
       assert fetched.id == agent.id
       assert fetched.name == "test-agent"
@@ -98,8 +99,13 @@ defmodule Synkade.SettingsTest do
 
   describe "get_agent_by_name/2" do
     test "returns agent by name", %{scope: scope} do
-      {:ok, _} = Settings.create_agent(scope, %{name: "named-agent"})
+      {:ok, _} = Settings.create_agent(scope, %{name: "named-agent", kind: "hermes"})
       assert %Agent{name: "named-agent"} = Settings.get_agent_by_name(scope, "named-agent")
+    end
+
+    test "returns ephemeral agent by kind name", %{scope: scope} do
+      {:ok, _} = Settings.create_agent(scope, %{kind: "claude"})
+      assert %Agent{name: "claude"} = Settings.get_agent_by_name(scope, "claude")
     end
 
     test "returns nil for missing name", %{scope: scope} do
@@ -108,16 +114,14 @@ defmodule Synkade.SettingsTest do
   end
 
   describe "create_agent/2" do
-    test "creates agent with valid attrs and auto-generated token", %{scope: scope} do
+    test "creates ephemeral agent with auto-name and token", %{scope: scope} do
       assert {:ok, %Agent{} = agent} =
                Settings.create_agent(scope, %{
-                 name: "my-agent",
                  kind: "claude",
-                 api_key: "sk-ant-test",
-                 model: "claude-sonnet-4-5-20250929"
+                 api_key: "sk-ant-test"
                })
 
-      assert agent.name == "my-agent"
+      assert agent.name == "claude"
       assert agent.kind == "claude"
       assert agent.api_key == "sk-ant-test"
       assert agent.api_token_hash != nil
@@ -125,55 +129,89 @@ defmodule Synkade.SettingsTest do
       assert String.starts_with?(agent.api_token, "synkade_")
     end
 
+    test "creates pull agent with custom name and token", %{scope: scope} do
+      assert {:ok, %Agent{} = agent} =
+               Settings.create_agent(scope, %{
+                 name: "my-hermes",
+                 kind: "hermes"
+               })
+
+      assert agent.name == "my-hermes"
+      assert agent.kind == "hermes"
+      assert agent.api_token != nil
+    end
+
     test "auto-generated token is verifiable", %{scope: scope} do
-      {:ok, agent} = Settings.create_agent(scope, %{name: "verify-auto"})
+      {:ok, agent} = Settings.create_agent(scope, %{kind: "claude"})
       assert {:ok, found} = Settings.verify_agent_token(agent.api_token)
       assert found.id == agent.id
     end
 
     test "returns error for duplicate name", %{scope: scope} do
-      {:ok, _} = Settings.create_agent(scope, %{name: "duplicate"})
-      assert {:error, changeset} = Settings.create_agent(scope, %{name: "duplicate"})
+      {:ok, _} = Settings.create_agent(scope, %{name: "duplicate", kind: "hermes"})
+      assert {:error, changeset} = Settings.create_agent(scope, %{name: "duplicate", kind: "openclaw"})
       errors = errors_on(changeset)
       assert errors[:name] || errors[:user_id]
     end
 
     test "broadcasts agents_updated", %{scope: scope} do
       Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic(scope))
-      {:ok, _} = Settings.create_agent(scope, %{name: "broadcast-test"})
+      {:ok, _} = Settings.create_agent(scope, %{kind: "claude"})
       assert_receive {:agents_updated}
     end
   end
 
+  describe "upsert_ephemeral_agent/2" do
+    test "creates when none exists", %{scope: scope} do
+      assert {:ok, %Agent{} = agent} =
+               Settings.upsert_ephemeral_agent(scope, %{"kind" => "claude", "api_key" => "sk-test"})
+
+      assert agent.name == "claude"
+      assert agent.api_key == "sk-test"
+    end
+
+    test "updates when one already exists", %{scope: scope} do
+      {:ok, first} = Settings.create_agent(scope, %{kind: "claude", api_key: "sk-old"})
+      {:ok, updated} = Settings.upsert_ephemeral_agent(scope, %{"kind" => "claude", "api_key" => "sk-new"})
+      assert updated.id == first.id
+      assert updated.api_key == "sk-new"
+    end
+  end
+
   describe "update_agent/3" do
-    test "updates agent fields", %{scope: scope} do
-      {:ok, agent} = Settings.create_agent(scope, %{name: "original"})
-      {:ok, updated} = Settings.update_agent(scope, agent, %{name: "renamed", model: "new-model"})
+    test "updates pull agent fields", %{scope: scope} do
+      {:ok, agent} = Settings.create_agent(scope, %{name: "original", kind: "hermes"})
+      {:ok, updated} = Settings.update_agent(scope, agent, %{name: "renamed"})
       assert updated.name == "renamed"
-      assert updated.model == "new-model"
+    end
+
+    test "ephemeral agent name stays as kind on update", %{scope: scope} do
+      {:ok, agent} = Settings.create_agent(scope, %{kind: "opencode"})
+      {:ok, updated} = Settings.update_agent(scope, agent, %{api_key: "sk-new"})
+      assert updated.name == "opencode"
     end
 
     test "broadcasts agents_updated", %{scope: scope} do
       Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic(scope))
-      {:ok, agent} = Settings.create_agent(scope, %{name: "update-broadcast"})
+      {:ok, agent} = Settings.create_agent(scope, %{name: "update-broadcast", kind: "hermes"})
       # Drain the create broadcast
       assert_receive {:agents_updated}
 
-      {:ok, _} = Settings.update_agent(scope, agent, %{model: "x"})
+      {:ok, _} = Settings.update_agent(scope, agent, %{name: "updated-broadcast"})
       assert_receive {:agents_updated}
     end
   end
 
   describe "delete_agent/2" do
     test "deletes agent", %{scope: scope} do
-      {:ok, agent} = Settings.create_agent(scope, %{name: "to-delete"})
+      {:ok, agent} = Settings.create_agent(scope, %{name: "to-delete", kind: "hermes"})
       {:ok, _} = Settings.delete_agent(scope, agent)
       assert Settings.get_agent_by_name(scope, "to-delete") == nil
     end
 
     test "broadcasts agents_updated", %{scope: scope} do
       Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic(scope))
-      {:ok, agent} = Settings.create_agent(scope, %{name: "delete-broadcast"})
+      {:ok, agent} = Settings.create_agent(scope, %{name: "delete-broadcast", kind: "hermes"})
       assert_receive {:agents_updated}
 
       {:ok, _} = Settings.delete_agent(scope, agent)
@@ -185,13 +223,13 @@ defmodule Synkade.SettingsTest do
 
   describe "generate_agent_token/1" do
     test "returns a plaintext token with synkade_ prefix", %{scope: scope} do
-      {:ok, agent} = Settings.create_agent(scope, %{name: "token-agent"})
+      {:ok, agent} = Settings.create_agent(scope, %{kind: "claude"})
       {:ok, token} = Settings.generate_agent_token(agent)
       assert String.starts_with?(token, "synkade_")
     end
 
     test "stores hash on agent record", %{scope: scope} do
-      {:ok, agent} = Settings.create_agent(scope, %{name: "token-hash-agent"})
+      {:ok, agent} = Settings.create_agent(scope, %{name: "token-hash-agent", kind: "hermes"})
       {:ok, _token} = Settings.generate_agent_token(agent)
       updated = Settings.get_agent!(agent.id)
       assert updated.api_token_hash != nil
@@ -200,7 +238,7 @@ defmodule Synkade.SettingsTest do
 
   describe "verify_agent_token/1" do
     test "verifies a valid token", %{scope: scope} do
-      {:ok, agent} = Settings.create_agent(scope, %{name: "verify-agent"})
+      {:ok, agent} = Settings.create_agent(scope, %{kind: "claude"})
       {:ok, token} = Settings.generate_agent_token(agent)
       assert {:ok, found} = Settings.verify_agent_token(token)
       assert found.id == agent.id
@@ -211,7 +249,7 @@ defmodule Synkade.SettingsTest do
     end
 
     test "rejects after token regeneration", %{scope: scope} do
-      {:ok, agent} = Settings.create_agent(scope, %{name: "regen-agent"})
+      {:ok, agent} = Settings.create_agent(scope, %{name: "regen-agent", kind: "hermes"})
       {:ok, old_token} = Settings.generate_agent_token(agent)
       agent = Settings.get_agent!(agent.id)
       {:ok, new_token} = Settings.generate_agent_token(agent)
@@ -222,7 +260,7 @@ defmodule Synkade.SettingsTest do
 
   describe "revoke_agent_token/2" do
     test "clears the token hash", %{scope: scope} do
-      {:ok, agent} = Settings.create_agent(scope, %{name: "revoke-agent"})
+      {:ok, agent} = Settings.create_agent(scope, %{kind: "claude"})
       {:ok, token} = Settings.generate_agent_token(agent)
       agent = Settings.get_agent!(agent.id)
       {:ok, revoked} = Settings.revoke_agent_token(scope, agent)

@@ -127,12 +127,12 @@ defmodule SynkadeWeb.OnboardingLive do
   def handle_event("save_agent", %{"agent" => params}, socket) do
     scope = socket.assigns.current_scope
 
-    case Settings.create_agent(scope, params) do
+    case Settings.upsert_ephemeral_agent(scope, params) do
       {:ok, agent} ->
         {:noreply,
          socket
          |> assign(:agent_created, agent)
-         |> put_flash(:info, "Agent created.")}
+         |> put_flash(:info, "Agent connected.")}
 
       {:error, changeset} ->
         {:noreply, assign(socket, :agent_form, to_form(changeset))}
@@ -305,12 +305,8 @@ defmodule SynkadeWeb.OnboardingLive do
   attr :agent_created, :any, default: nil
 
   defp step_agent(assigns) do
-    kind = assigns.form[:kind].value || "claude"
-    is_pull = Agent.pull_kind?(kind)
-    assigns = assign(assigns, :is_pull, is_pull)
-
     ~H"""
-    <h2 class="card-title text-lg mb-1">Set Up Your First Agent</h2>
+    <h2 class="card-title text-lg mb-1">Connect an Agent</h2>
     <p class="text-sm text-base-content/60 mb-4">
       Choose a coding agent and provide its credentials.
     </p>
@@ -321,7 +317,7 @@ defmodule SynkadeWeb.OnboardingLive do
           <.icon name="hero-check-circle" class="w-12 h-12" />
         </div>
         <p class="text-center">
-          Agent <span class="font-semibold">{@agent_created.name}</span> created successfully.
+          <span class="font-semibold">{brand_label(@agent_created.kind)}</span> connected.
         </p>
         <button type="button" phx-click="continue" class="btn btn-primary">Continue</button>
       </div>
@@ -329,86 +325,53 @@ defmodule SynkadeWeb.OnboardingLive do
       <.form for={@form} phx-change="validate_agent" phx-submit="save_agent">
         <div class="space-y-4">
           <div class="form-control">
-            <label class="label"><span class="label-text">Name</span></label>
-            <input
-              type="text"
-              class="input input-bordered w-full"
-              name={@form[:name].name}
-              id={@form[:name].id}
-              value={@form[:name].value}
-              placeholder="my-agent"
-            />
-            <.field_error field={@form[:name]} />
-          </div>
-
-          <div class="form-control">
-            <label class="label"><span class="label-text">Kind</span></label>
+            <label class="label"><span class="label-text">Agent</span></label>
             <input type="hidden" name={@form[:kind].name} value={@form[:kind].value || "claude"} />
             <div class="grid grid-cols-3 gap-2">
               <.agent_card kind="claude" selected={(@form[:kind].value || "claude") == "claude"} />
               <.agent_card kind="opencode" selected={@form[:kind].value == "opencode"} />
               <.agent_card kind="codex" selected={@form[:kind].value == "codex"} />
-              <.agent_card kind="hermes" selected={@form[:kind].value == "hermes"} />
-              <.agent_card kind="openclaw" selected={@form[:kind].value == "openclaw"} />
             </div>
           </div>
 
-          <%= unless @is_pull do %>
-            <div class="form-control">
-              <label class="label"><span class="label-text">Auth Mode</span></label>
-              <select
-                class="select select-bordered w-full"
-                name={@form[:auth_mode].name}
-                id={@form[:auth_mode].id}
-              >
-                <option value="api_key" selected={(@form[:auth_mode].value || "api_key") == "api_key"}>
-                  API Key
-                </option>
-                <option value="oauth" selected={@form[:auth_mode].value == "oauth"}>
-                  OAuth Token
-                </option>
-              </select>
-            </div>
+          <div class="form-control">
+            <label class="label"><span class="label-text">Auth Mode</span></label>
+            <select
+              class="select select-bordered w-full"
+              name={@form[:auth_mode].name}
+              id={@form[:auth_mode].id}
+            >
+              <option value="api_key" selected={(@form[:auth_mode].value || "api_key") == "api_key"}>
+                API Key
+              </option>
+              <option value="oauth" selected={@form[:auth_mode].value == "oauth"}>
+                OAuth Token
+              </option>
+            </select>
+          </div>
 
-            <%= if (@form[:auth_mode].value || "api_key") == "api_key" do %>
-              <div class="form-control">
-                <label class="label"><span class="label-text">API Key</span></label>
-                <input
-                  type="password"
-                  class="input input-bordered w-full"
-                  name={@form[:api_key].name}
-                  id={@form[:api_key].id}
-                  value={@form[:api_key].value}
-                  placeholder="sk-ant-..."
-                />
-              </div>
-            <% else %>
-              <div class="form-control">
-                <label class="label"><span class="label-text">OAuth Token</span></label>
-                <input
-                  type="password"
-                  class="input input-bordered w-full"
-                  name={@form[:oauth_token].name}
-                  id={@form[:oauth_token].id}
-                  value={@form[:oauth_token].value}
-                  placeholder="oauth-token-..."
-                />
-              </div>
-            <% end %>
-
+          <%= if (@form[:auth_mode].value || "api_key") == "api_key" do %>
             <div class="form-control">
-              <label class="label"><span class="label-text">Model (optional)</span></label>
+              <label class="label"><span class="label-text">API Key</span></label>
               <input
-                type="text"
+                type="password"
                 class="input input-bordered w-full"
-                name={@form[:model].name}
-                id={@form[:model].id}
-                value={@form[:model].value}
-                placeholder={
-                  if @form[:kind].value == "opencode",
-                    do: "openrouter/minimax/minimax-m2.5",
-                    else: "claude-sonnet-4-5-20250929"
-                }
+                name={@form[:api_key].name}
+                id={@form[:api_key].id}
+                value={@form[:api_key].value}
+                placeholder="sk-ant-..."
+              />
+            </div>
+          <% else %>
+            <div class="form-control">
+              <label class="label"><span class="label-text">OAuth Token</span></label>
+              <input
+                type="password"
+                class="input input-bordered w-full"
+                name={@form[:oauth_token].name}
+                id={@form[:oauth_token].id}
+                value={@form[:oauth_token].value}
+                placeholder="oauth-token-..."
               />
             </div>
           <% end %>
@@ -416,7 +379,7 @@ defmodule SynkadeWeb.OnboardingLive do
 
         <div class="flex justify-between mt-6">
           <button type="button" phx-click="back" class="btn btn-ghost">Back</button>
-          <button type="submit" class="btn btn-primary">Create Agent</button>
+          <button type="submit" class="btn btn-primary">Connect</button>
         </div>
       </.form>
     <% end %>
