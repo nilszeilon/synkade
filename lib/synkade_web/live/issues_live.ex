@@ -3,6 +3,8 @@ defmodule SynkadeWeb.IssuesLive do
 
   import SynkadeWeb.Components.IssueView
   import SynkadeWeb.IssueLiveHelpers
+  import SynkadeWeb.ModelPickerHelpers,
+    only: [handle_model_picker_event: 3, handle_model_picker_info: 2, model_picker_assigns: 0]
 
   alias Synkade.{Issues, Jobs, Settings}
   alias Synkade.Issues.Issue
@@ -42,7 +44,9 @@ defmodule SynkadeWeb.IssuesLive do
       |> assign(:collapsed, MapSet.new())
       |> SynkadeWeb.Sidebar.assign_sidebar(scope)
       |> assign(:agents, Settings.list_agents(scope))
+      |> assign(:setting, Settings.get_settings(scope))
       |> assign(:selected_agent_id, nil)
+      |> assign(model_picker_assigns())
       |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
       |> assign(:session_events, [])
       |> assign(:session_id, nil)
@@ -157,8 +161,11 @@ defmodule SynkadeWeb.IssuesLive do
   end
 
   @impl true
-  def handle_info(_msg, socket) do
-    {:noreply, socket}
+  def handle_info(msg, socket) do
+    case handle_model_picker_info(msg, socket) do
+      {:halt, socket} -> {:noreply, socket}
+      :cont -> {:noreply, socket}
+    end
   end
 
   @impl true
@@ -285,8 +292,10 @@ defmodule SynkadeWeb.IssuesLive do
   end
 
   @impl true
-  def handle_event("dispatch_issue", %{"dispatch" => %{"message" => message}}, socket) do
-    message = String.trim(message)
+  def handle_event("dispatch_issue", %{"dispatch" => dispatch_params}, socket) do
+    message = String.trim(dispatch_params["message"] || "")
+    model = dispatch_params["model"]
+    model = if model == "", do: nil, else: model
 
     if message == "" do
       {:noreply, put_flash(socket, :error, "Dispatch message cannot be empty")}
@@ -294,11 +303,12 @@ defmodule SynkadeWeb.IssuesLive do
       issue = socket.assigns.selected_issue.issue
       {agent_name, instruction, agent_id} = resolve_dispatch(socket.assigns.current_scope, message)
 
-      case Issues.dispatch_issue(issue, instruction, agent_id) do
+      case Issues.dispatch_issue(issue, instruction, agent_id, model: model) do
         {:ok, _} ->
           socket =
             socket
             |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
+            |> assign(:selected_model, nil)
             |> load_issues()
             |> put_flash(
               :info,
@@ -358,6 +368,14 @@ defmodule SynkadeWeb.IssuesLive do
       {:noreply, push_event(socket, "phx:copy", %{text: "claude --resume #{session_id}"})}
     else
       {:noreply, put_flash(socket, :error, "No session ID available")}
+    end
+  end
+
+  @impl true
+  def handle_event(event, params, socket) do
+    case handle_model_picker_event(event, params, socket) do
+      {:halt, socket} -> {:noreply, socket}
+      :cont -> {:noreply, socket}
     end
   end
 
@@ -440,6 +458,9 @@ defmodule SynkadeWeb.IssuesLive do
               running_entry={find_running_entry(@running, @selected_issue.issue.id)}
               back_path={issues_path(@state_filter)}
               back_label="Issues"
+              selected_model={@selected_model}
+              resolved_agent_kind={resolved_agent_kind(@selected_issue.issue, @agents, @setting, @projects)}
+              model_picker={@model_picker}
             />
 
           <% @view_mode == :create -> %>

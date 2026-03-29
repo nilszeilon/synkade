@@ -8,6 +8,42 @@ defmodule Synkade.Agent.ClaudeCode do
   require Logger
 
   @impl true
+  def fetch_models(api_key) do
+    headers = [
+      {"x-api-key", api_key},
+      {"anthropic-version", "2023-06-01"}
+    ]
+
+    case Req.get("https://api.anthropic.com/v1/models",
+           headers: headers,
+           receive_timeout: 10_000
+         ) do
+      {:ok, %{status: 200, body: %{"data" => models}}} ->
+        items =
+          models
+          |> Enum.filter(&String.starts_with?(&1["id"], "claude-"))
+          |> Enum.sort_by(& &1["created_at"], :desc)
+          |> Enum.map(fn m -> {humanize_model_id(m["id"]), m["id"]} end)
+
+        {:ok, items}
+
+      {:ok, %{status: status}} ->
+        {:error, "Anthropic API returned #{status}"}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp humanize_model_id(id) do
+    id
+    |> String.replace("claude-", "Claude ")
+    |> String.replace("-", " ")
+    |> String.replace(~r/\d{8}$/, "")
+    |> String.trim()
+  end
+
+  @impl true
   def start_session(config, prompt, workspace_path) do
     args = build_args(config, prompt, [])
     run_agent(config, args, workspace_path)

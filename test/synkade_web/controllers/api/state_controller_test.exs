@@ -7,7 +7,7 @@ defmodule SynkadeWeb.Api.StateControllerTest do
 
   setup do
     scope = user_scope_fixture()
-    {:ok, agent} = Settings.create_agent(scope, %{name: "state-test-agent"})
+    {:ok, agent} = Settings.create_agent(scope, %{kind: "claude"})
     {:ok, token} = Settings.generate_agent_token(agent)
     %{scope: scope, agent: agent, token: token}
   end

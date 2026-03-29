@@ -257,7 +257,9 @@ defmodule Synkade.Issues do
     |> Repo.all()
   end
 
-  def dispatch_issue(%Issue{} = issue, dispatch_message, assigned_agent_id \\ nil) do
+  def dispatch_issue(%Issue{} = issue, dispatch_message, assigned_agent_id \\ nil, opts \\ []) do
+    model = Keyword.get(opts, :model)
+
     {agent_name, agent_kind} =
       case assigned_agent_id do
         nil -> {nil, nil}
@@ -291,11 +293,16 @@ defmodule Synkade.Issues do
         _ -> issue
       end
 
+    metadata =
+      issue.metadata
+      |> Map.put("messages", messages ++ [new_entry])
+      |> then(fn m -> if model, do: Map.put(m, "model", model), else: Map.delete(m, "model") end)
+
     with {:ok, updated} <-
            update_issue(issue, %{
              dispatch_message: dispatch_message,
              assigned_agent_id: assigned_agent_id,
-             metadata: Map.put(issue.metadata || %{}, "messages", messages ++ [new_entry])
+             metadata: metadata
            }),
          {:ok, worked_on} <- transition_state(updated, "worked_on") do
       # Enqueue Oban job for non-pull-based agents

@@ -207,6 +207,27 @@ defmodule SynkadeWeb.IssueLiveHelpers do
   def maybe_put_parent(params, nil), do: params
   def maybe_put_parent(params, parent_id), do: Map.put(params, "parent_id", parent_id)
 
+  @doc """
+  Resolve the agent kind that would handle a given issue.
+  Used to populate the model picker with the correct agent's models.
+
+  Pass `projects` (list of project structs from socket assigns) to avoid a DB query.
+  """
+  def resolved_agent_kind(%Synkade.Issues.Issue{} = issue, agents, setting, projects) do
+    project = Enum.find(projects, &(&1.id == issue.project_id))
+
+    agent =
+      Settings.resolve_agent(agents,
+        assigned_agent_id: issue.assigned_agent_id,
+        project_agent_id: project && project.default_agent_id,
+        user_default_id: setting && setting.default_agent_id
+      )
+
+    agent && agent.kind
+  end
+
+  def resolved_agent_kind(_, _, _, _), do: nil
+
   # --- Formatting helpers ---
 
   @doc "CSS class for issue state badges."

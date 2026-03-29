@@ -68,8 +68,7 @@ defmodule Synkade.Settings.ConfigAdapterTest do
       agent = %Agent{
         kind: "claude",
         auth_mode: "api_key",
-        api_key: "sk-ant-test",
-        model: "claude-sonnet-4-5-20250929"
+        api_key: "sk-ant-test"
       }
 
       config = ConfigAdapter.agent_to_config(agent)
@@ -77,7 +76,7 @@ defmodule Synkade.Settings.ConfigAdapterTest do
       assert config["kind"] == "claude"
       assert config["auth_mode"] == "api_key"
       assert config["api_key"] == "sk-ant-test"
-      assert config["model"] == "claude-sonnet-4-5-20250929"
+      refute Map.has_key?(config, "model")
     end
 
     test "omits nil agent fields" do
@@ -86,7 +85,6 @@ defmodule Synkade.Settings.ConfigAdapterTest do
       config = ConfigAdapter.agent_to_config(agent)
 
       refute Map.has_key?(config, "api_key")
-      refute Map.has_key?(config, "model")
     end
 
     test "includes oauth_token for OAuth mode" do
@@ -143,8 +141,7 @@ defmodule Synkade.Settings.ConfigAdapterTest do
       agent = %Agent{
         kind: "claude",
         auth_mode: "api_key",
-        api_key: "sk-global",
-        model: "claude-sonnet-4-5-20250929"
+        api_key: "sk-global"
       }
 
       config = ConfigAdapter.resolve_project_config(global, project, agent)
@@ -159,7 +156,6 @@ defmodule Synkade.Settings.ConfigAdapterTest do
       # Agent config
       assert config["agent"]["kind"] == "claude"
       assert config["agent"]["api_key"] == "sk-global"
-      assert config["agent"]["model"] == "claude-sonnet-4-5-20250929"
     end
 
     test "agent config is placed under 'agent' key" do
@@ -181,6 +177,36 @@ defmodule Synkade.Settings.ConfigAdapterTest do
       config = ConfigAdapter.resolve_project_config(global, project, agent)
 
       assert config["user_id"] == "user-abc-123"
+    end
+
+    test "resolves model from project default_model" do
+      global = %Setting{github_pat: "ghp_test", default_model: "claude-sonnet-4-5-20250929"}
+      project = %Project{name: "test", default_model: "claude-opus-4-20250918"}
+      agent = %Agent{kind: "claude", auth_mode: "api_key"}
+
+      config = ConfigAdapter.resolve_project_config(global, project, agent)
+
+      assert config["agent"]["model"] == "claude-opus-4-20250918"
+    end
+
+    test "resolves model from global settings when project has none" do
+      global = %Setting{github_pat: "ghp_test", default_model: "claude-sonnet-4-5-20250929"}
+      project = %Project{name: "test"}
+      agent = %Agent{kind: "claude", auth_mode: "api_key"}
+
+      config = ConfigAdapter.resolve_project_config(global, project, agent)
+
+      assert config["agent"]["model"] == "claude-sonnet-4-5-20250929"
+    end
+
+    test "omits model from config when neither project nor settings specify one" do
+      global = %Setting{github_pat: "ghp_test"}
+      project = %Project{name: "test"}
+      agent = %Agent{kind: "claude", auth_mode: "api_key"}
+
+      config = ConfigAdapter.resolve_project_config(global, project, agent)
+
+      refute Map.has_key?(config["agent"], "model")
     end
   end
 end

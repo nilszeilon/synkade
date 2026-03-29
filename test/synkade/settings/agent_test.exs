@@ -5,12 +5,18 @@ defmodule Synkade.Settings.AgentTest do
 
   describe "changeset/2" do
     test "valid with required fields" do
-      changeset = Agent.changeset(%Agent{}, %{name: "my-agent"})
+      changeset = Agent.changeset(%Agent{}, %{name: "my-agent", kind: "hermes"})
       assert changeset.valid?
     end
 
-    test "requires name" do
-      changeset = Agent.changeset(%Agent{}, %{})
+    test "ephemeral agents auto-set name to kind" do
+      changeset = Agent.changeset(%Agent{}, %{kind: "claude"})
+      assert changeset.valid?
+      assert Ecto.Changeset.get_change(changeset, :name) == "claude"
+    end
+
+    test "requires name for pull agents" do
+      changeset = Agent.changeset(%Agent{}, %{kind: "hermes"})
       refute changeset.valid?
       assert %{name: ["can't be blank"]} = errors_on(changeset)
     end
@@ -23,13 +29,14 @@ defmodule Synkade.Settings.AgentTest do
 
     test "accepts valid kinds" do
       for kind <- ~w(claude codex opencode hermes openclaw) do
-        changeset = Agent.changeset(%Agent{}, %{name: "a", kind: kind})
+        name = if Agent.ephemeral_kind?(kind), do: kind, else: "test-#{kind}"
+        changeset = Agent.changeset(%Agent{}, %{name: name, kind: kind})
         assert changeset.valid?, "expected kind=#{kind} to be valid"
       end
     end
 
     test "validates auth_mode inclusion" do
-      changeset = Agent.changeset(%Agent{}, %{name: "a", auth_mode: "basic"})
+      changeset = Agent.changeset(%Agent{}, %{name: "a", kind: "hermes", auth_mode: "basic"})
       refute changeset.valid?
       assert %{auth_mode: [_]} = errors_on(changeset)
     end
@@ -38,10 +45,9 @@ defmodule Synkade.Settings.AgentTest do
       changeset =
         Agent.changeset(%Agent{}, %{
           name: "full-agent",
-          kind: "claude",
+          kind: "hermes",
           auth_mode: "api_key",
-          api_key: "sk-ant-test",
-          model: "claude-sonnet-4-5-20250929"
+          api_key: "sk-ant-test"
         })
 
       assert changeset.valid?
@@ -56,7 +62,24 @@ defmodule Synkade.Settings.AgentTest do
       agent = %Agent{}
       assert agent.auth_mode == "api_key"
     end
+  end
 
+  describe "ephemeral_kind?/1" do
+    test "claude is ephemeral" do
+      assert Agent.ephemeral_kind?("claude")
+    end
+
+    test "codex is ephemeral" do
+      assert Agent.ephemeral_kind?("codex")
+    end
+
+    test "opencode is ephemeral" do
+      assert Agent.ephemeral_kind?("opencode")
+    end
+
+    test "hermes is not ephemeral" do
+      refute Agent.ephemeral_kind?("hermes")
+    end
   end
 
   describe "pull_kind?/1" do

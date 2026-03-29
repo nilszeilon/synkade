@@ -238,7 +238,7 @@ defmodule Synkade.IssuesTest do
 
     test "sets assigned_agent_id when provided", %{project: project, scope: scope} do
       {:ok, agent} =
-        Synkade.Settings.create_agent(scope, %{name: "researcher", model: "claude-sonnet-4-5-20250929"})
+        Synkade.Settings.create_agent(scope, %{kind: "claude"})
 
       {:ok, issue} = Issues.create_issue(%{body: "# Research Y", project_id: project.id})
       {:ok, dispatched} = Issues.dispatch_issue(issue, "investigate Y", agent.id)

@@ -218,9 +218,26 @@ defmodule Synkade.Settings do
     Repo.all(from(a in Agent, where: a.user_id == ^user_id, order_by: [asc: a.name]))
   end
 
+  @doc "Lists ephemeral agents (claude, codex, opencode) for the scoped user."
+  def list_ephemeral_agents(%Scope{user: user}) do
+    kinds = Agent.ephemeral_kinds()
+    Repo.all(from(a in Agent, where: a.user_id == ^user.id and a.kind in ^kinds, order_by: [asc: a.kind]))
+  end
+
+  @doc "Lists pull-based agents (hermes, openclaw) for the scoped user."
+  def list_pull_agents(%Scope{user: user}) do
+    kinds = Agent.pull_kinds()
+    Repo.all(from(a in Agent, where: a.user_id == ^user.id and a.kind in ^kinds, order_by: [asc: a.name]))
+  end
+
   @doc "Gets a single agent by ID. Raises if not found."
   def get_agent!(id) do
     Repo.get!(Agent, id)
+  end
+
+  @doc "Gets an ephemeral agent by kind for the scoped user."
+  def get_ephemeral_agent(%Scope{user: user}, kind) do
+    Repo.one(from(a in Agent, where: a.user_id == ^user.id and a.kind == ^kind))
   end
 
   @doc "Gets a single agent by name for the scoped user."
@@ -244,6 +261,16 @@ defmodule Synkade.Settings do
 
       error ->
         error
+    end
+  end
+
+  @doc "Creates or updates an ephemeral agent (one-per-kind)."
+  def upsert_ephemeral_agent(%Scope{} = scope, attrs) do
+    kind = attrs["kind"] || attrs[:kind] || "claude"
+
+    case get_ephemeral_agent(scope, kind) do
+      nil -> create_agent(scope, attrs)
+      existing -> update_agent(scope, existing, attrs)
     end
   end
 

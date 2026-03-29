@@ -25,7 +25,6 @@ defmodule Synkade.Settings.ConfigAdapter do
       "auth_mode" => a.auth_mode,
       "api_key" => a.api_key,
       "oauth_token" => a.oauth_token,
-      "model" => a.model,
       "synkade_api_token" => a.api_token
     }
     |> reject_nils()
@@ -50,6 +49,11 @@ defmodule Synkade.Settings.ConfigAdapter do
     global_config = to_config(global)
     project_config = project_to_config(project)
     agent_config = agent_to_config(agent)
+
+    resolved_model = project.default_model || global.default_model
+
+    agent_config =
+      if resolved_model, do: Map.put(agent_config, "model", resolved_model), else: agent_config
 
     deep_merge(global_config, project_config)
     |> Map.put("agent", agent_config)

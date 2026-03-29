@@ -25,6 +25,9 @@ defmodule Synkade.Settings.Setting do
     # Default agent
     belongs_to :default_agent, Synkade.Settings.Agent, type: :binary_id
 
+    # Default model (global)
+    field :default_model, :string
+
     timestamps()
   end
 
@@ -35,7 +38,7 @@ defmodule Synkade.Settings.Setting do
 
   def changeset(setting, attrs) do
     setting
-    |> cast(attrs, @github_fields ++ @execution_fields ++ [:theme, :user_id, :default_agent_id])
+    |> cast(attrs, @github_fields ++ @execution_fields ++ [:theme, :user_id, :default_agent_id, :default_model])
     |> validate_required([:github_pat])
     |> validate_inclusion(:execution_backend, ["local", "sprites"])
     |> validate_inclusion(:theme, @valid_themes)

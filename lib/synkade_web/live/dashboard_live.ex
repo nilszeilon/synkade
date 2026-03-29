@@ -4,6 +4,8 @@ defmodule SynkadeWeb.DashboardLive do
   import SynkadeWeb.Components.IssueView
   import SynkadeWeb.Components.TokenChart
   import SynkadeWeb.IssueLiveHelpers
+  import SynkadeWeb.ModelPickerHelpers,
+    only: [handle_model_picker_event: 3, handle_model_picker_info: 2, model_picker_assigns: 0]
 
   alias Synkade.{Issues, Jobs, Settings}
   alias Synkade.Tracker.Client, as: TrackerClient
@@ -51,7 +53,9 @@ defmodule SynkadeWeb.DashboardLive do
       |> assign(:board_error, nil)
       |> assign(:modal, nil)
       |> assign(:agents, Settings.list_agents(scope))
+      |> assign(:setting, Settings.get_settings(scope))
       |> assign(:selected_agent_id, nil)
+      |> assign(model_picker_assigns())
       |> assign(:view_mode, :board)
       |> assign(:selected_issue, nil)
       |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
@@ -380,8 +384,11 @@ defmodule SynkadeWeb.DashboardLive do
   end
 
   @impl true
-  def handle_info(_msg, socket) do
-    {:noreply, socket}
+  def handle_info(msg, socket) do
+    case handle_model_picker_info(msg, socket) do
+      {:halt, socket} -> {:noreply, socket}
+      :cont -> {:noreply, socket}
+    end
   end
 
   @impl true
@@ -467,8 +474,10 @@ defmodule SynkadeWeb.DashboardLive do
   end
 
   @impl true
-  def handle_event("dispatch_issue", %{"dispatch" => %{"message" => message}}, socket) do
-    message = String.trim(message)
+  def handle_event("dispatch_issue", %{"dispatch" => dispatch_params}, socket) do
+    message = String.trim(dispatch_params["message"] || "")
+    model = dispatch_params["model"]
+    model = if model == "", do: nil, else: model
 
     if message == "" do
       {:noreply, put_flash(socket, :error, "Dispatch message cannot be empty")}
@@ -481,13 +490,14 @@ defmodule SynkadeWeb.DashboardLive do
 
       {agent_name, instruction, agent_id} = resolve_dispatch(socket.assigns.current_scope, message)
 
-      case Issues.dispatch_issue(issue, instruction, agent_id) do
+      case Issues.dispatch_issue(issue, instruction, agent_id, model: model) do
         {:ok, _} ->
           send(self(), :load_board)
 
           socket =
             socket
             |> assign(:modal, nil)
+            |> assign(:selected_model, nil)
             |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
             |> put_flash(
               :info,
@@ -795,6 +805,14 @@ defmodule SynkadeWeb.DashboardLive do
     end
   end
 
+  @impl true
+  def handle_event(event, params, socket) do
+    case handle_model_picker_event(event, params, socket) do
+      {:halt, socket} -> {:noreply, socket}
+      :cont -> {:noreply, socket}
+    end
+  end
+
   # --- Private helpers ---
 
   defp dashboard_path(project_name, issue_id \\ nil) do
@@ -1038,6 +1056,9 @@ defmodule SynkadeWeb.DashboardLive do
               running_entry={find_running_entry(@running, @selected_issue.issue.id)}
               back_path={dashboard_path(@current_project)}
               back_label={@current_project || "Overview"}
+              selected_model={@selected_model}
+              resolved_agent_kind={resolved_agent_kind(@selected_issue.issue, @agents, @setting, @projects)}
+              model_picker={@model_picker}
             />
 
             <!-- Edit modal (overlaid on detail view) -->

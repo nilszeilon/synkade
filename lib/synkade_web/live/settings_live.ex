@@ -36,11 +36,12 @@ defmodule SynkadeWeb.SettingsLive do
      |> assign(:current_theme, current_theme)
      |> assign(:connection_status, nil)
      |> assign(:connection_testing, false)
-     |> assign(:agents, Settings.list_agents(scope))
+     |> refresh_agent_lists(scope)
      |> assign(:agent_editing, nil)
      |> assign(:agent_form, nil)
      |> assign(:agent_token_visible, MapSet.new())
      |> assign(:pull_setup_step, nil)
+     |> assign(:editing_ephemeral_kind, nil)
      |> assign(:skills, Skills.list_skills(scope))
      |> assign(:skill_form, nil)
      |> assign(:pat_mode, if(setting && setting.github_pat, do: :masked, else: :editing))
@@ -127,11 +128,102 @@ defmodule SynkadeWeb.SettingsLive do
     end
   end
 
-  # --- Agent events ---
+  @impl true
+  def handle_event("set_default_model", %{"value" => model}, socket) do
+    scope = socket.assigns.current_scope
+    model = if model == "", do: nil, else: model
+
+    case Settings.save_settings(scope, %{default_model: model}) do
+      {:ok, setting} ->
+        {:noreply,
+         socket
+         |> assign(:setting, setting)
+         |> put_flash(:info, "Default model updated.")}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Failed to update default model.")}
+    end
+  end
+
+  # --- Ephemeral agent events ---
+
+  @impl true
+  def handle_event("configure_ephemeral", %{"kind" => kind}, socket) do
+    scope = socket.assigns.current_scope
+    agent = Settings.get_ephemeral_agent(scope, kind) || %Agent{kind: kind}
+    changeset = Settings.change_agent(agent)
+
+    {:noreply,
+     socket
+     |> assign(:editing_ephemeral_kind, kind)
+     |> assign(:agent_form, to_form(changeset))}
+  end
+
+  @impl true
+  def handle_event("cancel_ephemeral", _params, socket) do
+    {:noreply, assign(socket, editing_ephemeral_kind: nil, agent_form: nil)}
+  end
+
+  @impl true
+  def handle_event("validate_ephemeral", %{"agent" => params}, socket) do
+    kind = socket.assigns.editing_ephemeral_kind
+    scope = socket.assigns.current_scope
+    agent = Settings.get_ephemeral_agent(scope, kind) || %Agent{kind: kind}
+
+    changeset =
+      Settings.change_agent(agent, normalize_agent_params(Map.put(params, "kind", kind)))
+      |> Map.put(:action, :validate)
+
+    {:noreply, assign(socket, :agent_form, to_form(changeset))}
+  end
+
+  @impl true
+  def handle_event("save_ephemeral", %{"agent" => params}, socket) do
+    scope = socket.assigns.current_scope
+    kind = socket.assigns.editing_ephemeral_kind
+    params = normalize_agent_params(Map.put(params, "kind", kind))
+
+    case Settings.upsert_ephemeral_agent(scope, params) do
+      {:ok, _agent} ->
+        {:noreply,
+         socket
+         |> refresh_agent_lists(scope)
+         |> assign(:editing_ephemeral_kind, nil)
+         |> assign(:agent_form, nil)
+         |> put_flash(:info, "#{kind} configured.")}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, :agent_form, to_form(changeset))}
+    end
+  end
+
+  @impl true
+  def handle_event("remove_ephemeral", %{"kind" => kind}, socket) do
+    scope = socket.assigns.current_scope
+
+    case Settings.get_ephemeral_agent(scope, kind) do
+      nil ->
+        {:noreply, socket}
+
+      agent ->
+        case Settings.delete_agent(scope, agent) do
+          {:ok, _} ->
+            {:noreply,
+             socket
+             |> refresh_agent_lists(scope)
+             |> put_flash(:info, "#{kind} removed.")}
+
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, "Failed to remove agent.")}
+        end
+    end
+  end
+
+  # --- Pull agent events ---
 
   @impl true
   def handle_event("new_agent", _params, socket) do
-    changeset = Settings.change_agent(%Agent{})
+    changeset = Settings.change_agent(%Agent{kind: "hermes"})
 
     {:noreply,
      socket
@@ -204,7 +296,7 @@ defmodule SynkadeWeb.SettingsLive do
       {:ok, agent} ->
         socket =
           socket
-          |> assign(:agents, Settings.list_agents(scope))
+          |> refresh_agent_lists(scope)
           |> put_flash(:info, "Agent saved.")
 
         socket =
@@ -248,7 +340,7 @@ defmodule SynkadeWeb.SettingsLive do
       {:ok, _} ->
         {:noreply,
          socket
-         |> assign(:agents, Settings.list_agents(scope))
+         |> refresh_agent_lists(scope)
          |> assign(:agent_editing, nil)
          |> assign(:agent_form, nil)
          |> put_flash(:info, "Agent deleted.")}
@@ -419,7 +511,7 @@ defmodule SynkadeWeb.SettingsLive do
 
   @impl true
   def handle_info({:agents_updated}, socket) do
-    {:noreply, assign(socket, :agents, Settings.list_agents(socket.assigns.current_scope))}
+    {:noreply, refresh_agent_lists(socket, socket.assigns.current_scope)}
   end
 
   @impl true
@@ -549,6 +641,9 @@ defmodule SynkadeWeb.SettingsLive do
         <div class={if @active_tab != "agents", do: "hidden"}>
           <.agents_tab
             agents={@agents}
+            ephemeral_agents={@ephemeral_agents}
+            pull_agents={@pull_agents}
+            editing_ephemeral_kind={@editing_ephemeral_kind}
             agent_editing={@agent_editing}
             agent_form={@agent_form}
             agent_token_visible={@agent_token_visible}
@@ -710,6 +805,9 @@ defmodule SynkadeWeb.SettingsLive do
   end
 
   attr :agents, :list, required: true
+  attr :ephemeral_agents, :list, required: true
+  attr :pull_agents, :list, required: true
+  attr :editing_ephemeral_kind, :string, default: nil
   attr :agent_editing, :any, required: true
   attr :agent_form, :any, required: true
   attr :agent_token_visible, :any, required: true
@@ -717,165 +815,218 @@ defmodule SynkadeWeb.SettingsLive do
   attr :setting, :any, default: nil
 
   defp agents_tab(assigns) do
+    ephemeral_by_kind = Map.new(assigns.ephemeral_agents, fn a -> {a.kind, a} end)
+    assigns = assign(assigns, :ephemeral_by_kind, ephemeral_by_kind)
+
     ~H"""
     <div>
-      <%= if @agent_editing do %>
-        <.agent_form form={@agent_form} editing={@agent_editing} agent_token_visible={@agent_token_visible} pull_setup_step={@pull_setup_step} />
-      <% else %>
-        <%= if @agents != [] do %>
-          <div class="form-control mb-6">
-            <label class="label"><span class="label-text font-medium">Default Agent</span></label>
-            <p class="text-xs text-base-content/50 mb-2">Used for all projects unless overridden per-project.</p>
-            <select
-              class="select select-bordered w-full max-w-xs"
-              phx-change="set_default_agent"
-              name="default_agent_id"
-            >
-              <option value="" selected={is_nil(@setting && @setting.default_agent_id)}>
-                First agent
+      <%!-- Global defaults --%>
+      <%= if @agents != [] do %>
+        <div class="form-control mb-6">
+          <label class="label"><span class="label-text font-medium">Default Agent</span></label>
+          <p class="text-xs text-base-content/50 mb-2">Used for all projects unless overridden per-project.</p>
+          <select
+            class="select select-bordered w-full max-w-xs"
+            phx-change="set_default_agent"
+            name="default_agent_id"
+          >
+            <option value="" selected={is_nil(@setting && @setting.default_agent_id)}>
+              First agent
+            </option>
+            <%= for agent <- @agents do %>
+              <option
+                value={agent.id}
+                selected={@setting && @setting.default_agent_id == agent.id}
+              >
+                <%= if Agent.ephemeral_kind?(agent.kind), do: brand_label(agent.kind), else: agent.name %>
               </option>
-              <%= for agent <- @agents do %>
-                <option
-                  value={agent.id}
-                  selected={@setting && @setting.default_agent_id == agent.id}
-                >
-                  {agent.name}
-                </option>
-              <% end %>
-            </select>
-          </div>
-        <% end %>
+            <% end %>
+          </select>
+        </div>
 
+        <div class="form-control mb-6">
+          <label class="label"><span class="label-text font-medium">Default Model</span></label>
+          <p class="text-xs text-base-content/50 mb-2">
+            Leave blank to use each agent's built-in default. For OpenCode, use provider/model format.
+          </p>
+          <input
+            type="text"
+            class="input input-bordered w-full max-w-xs"
+            name="default_model"
+            value={@setting && @setting.default_model}
+            placeholder="e.g. claude-sonnet-4-5-20250929"
+            phx-blur="set_default_model"
+          />
+        </div>
+      <% end %>
+
+      <%!-- Integrations (ephemeral agents) --%>
+      <div class="mb-8">
+        <h3 class="text-sm font-semibold mb-1">Integrations</h3>
+        <p class="text-xs text-base-content/50 mb-4">Configure your coding agents. One per type.</p>
+
+        <div class="grid grid-cols-3 gap-3">
+          <%= for kind <- Agent.ephemeral_kinds() do %>
+            <% agent = @ephemeral_by_kind[kind] %>
+            <div class={[
+              "card bg-base-200 border p-4 transition-all",
+              if(agent, do: "border-success/30", else: "border-base-300")
+            ]}>
+              <div class="flex flex-col items-center gap-2 mb-3">
+                <span class={brand_color(kind)}>
+                  <.agent_icon kind={kind} class="size-6" />
+                </span>
+                <span class="font-medium text-sm">{brand_label(kind)}</span>
+                <%= if agent do %>
+                  <span class="badge badge-success badge-sm">Connected</span>
+                <% else %>
+                  <span class="badge badge-ghost badge-sm">Not configured</span>
+                <% end %>
+              </div>
+
+              <%= if @editing_ephemeral_kind == kind do %>
+                <.ephemeral_form form={@agent_form} kind={kind} />
+              <% else %>
+                <div class="flex justify-center gap-2">
+                  <button
+                    type="button"
+                    phx-click="configure_ephemeral"
+                    phx-value-kind={kind}
+                    class="btn btn-ghost btn-xs"
+                  >
+                    {if agent, do: "Edit", else: "Configure"}
+                  </button>
+                  <%= if agent do %>
+                    <button
+                      type="button"
+                      phx-click="remove_ephemeral"
+                      phx-value-kind={kind}
+                      class="btn btn-ghost btn-xs text-error"
+                      data-confirm={"Remove #{brand_label(kind)} integration?"}
+                    >
+                      Remove
+                    </button>
+                  <% end %>
+                </div>
+              <% end %>
+            </div>
+          <% end %>
+        </div>
+      </div>
+
+      <%!-- Pull-based agents --%>
+      <div>
         <div class="flex items-center justify-between mb-4">
-          <p class="text-sm text-base-content/60">Manage agent configurations for your projects.</p>
+          <div>
+            <h3 class="text-sm font-semibold">Pull Agents</h3>
+            <p class="text-xs text-base-content/50">Self-hosted agents that poll for work. Multiple instances allowed.</p>
+          </div>
           <button type="button" phx-click="new_agent" class="btn btn-primary btn-sm">
-            New Agent
+            New Pull Agent
           </button>
         </div>
 
-        <%= if @agents == [] do %>
-          <div class="text-center py-12 text-base-content/50">
-            <p>No agents configured yet.</p>
+        <%= if @agent_editing do %>
+          <.agent_form form={@agent_form} editing={@agent_editing} agent_token_visible={@agent_token_visible} pull_setup_step={@pull_setup_step} />
+        <% else %>
+          <%= if @pull_agents == [] do %>
+            <div class="text-center py-8 text-base-content/50 text-sm">
+              No pull agents configured.
+            </div>
+          <% else %>
+            <div class="overflow-x-auto">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Kind</th>
+                    <th>Token</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <%= for agent <- @pull_agents do %>
+                    <tr>
+                      <td class="font-medium">{agent.name}</td>
+                      <td class="text-sm text-base-content/60">
+                        <span class="inline-flex items-center gap-1.5">
+                          <span class={brand_color(agent.kind)}>
+                            <.agent_icon kind={agent.kind} class="size-4" />
+                          </span>
+                          {brand_label(agent.kind)}
+                        </span>
+                      </td>
+                      <td>
+                        <%= if agent.api_token_hash do %>
+                          <%= if MapSet.member?(@agent_token_visible, agent.id) do %>
+                            <code class="text-xs break-all select-all">{agent.api_token}</code>
+                          <% else %>
+                            <span class="badge badge-success badge-sm">Active</span>
+                          <% end %>
+                        <% else %>
+                          <span class="badge badge-ghost badge-sm">None</span>
+                        <% end %>
+                      </td>
+                      <td class="text-right space-x-1">
+                        <%= if agent.api_token_hash do %>
+                          <%= if MapSet.member?(@agent_token_visible, agent.id) do %>
+                            <button type="button" phx-click="hide_agent_token" phx-value-id={agent.id} class="btn btn-ghost btn-xs">Hide</button>
+                          <% else %>
+                            <button type="button" phx-click="show_agent_token" phx-value-id={agent.id} class="btn btn-ghost btn-xs">Show</button>
+                          <% end %>
+                          <button type="button" phx-click="generate_agent_token" phx-value-id={agent.id} class="btn btn-ghost btn-xs" data-confirm="Regenerate token? The current token will be invalidated.">Regenerate</button>
+                          <button type="button" phx-click="revoke_agent_token" phx-value-id={agent.id} class="btn btn-ghost btn-xs text-warning" data-confirm="Revoke this agent's API token?">Revoke</button>
+                        <% else %>
+                          <button type="button" phx-click="generate_agent_token" phx-value-id={agent.id} class="btn btn-ghost btn-xs">Generate Token</button>
+                        <% end %>
+                        <button type="button" phx-click="edit_agent" phx-value-id={agent.id} class="btn btn-ghost btn-xs">Edit</button>
+                        <button type="button" phx-click="delete_agent" phx-value-id={agent.id} class="btn btn-ghost btn-xs text-error" data-confirm="Delete this agent?">Delete</button>
+                      </td>
+                    </tr>
+                  <% end %>
+                </tbody>
+              </table>
+            </div>
+          <% end %>
+        <% end %>
+      </div>
+    </div>
+    """
+  end
+
+  attr :form, :any, required: true
+  attr :kind, :string, required: true
+
+  defp ephemeral_form(assigns) do
+    ~H"""
+    <.form for={@form} phx-change="validate_ephemeral" phx-submit="save_ephemeral" class="mt-2">
+      <div class="space-y-3">
+        <div class="form-control">
+          <label class="label label-text text-xs">Auth Mode</label>
+          <select class="select select-bordered select-sm w-full" name={@form[:auth_mode].name} id={@form[:auth_mode].id}>
+            <option value="api_key" selected={(@form[:auth_mode].value || "api_key") == "api_key"}>API Key</option>
+            <option value="oauth" selected={@form[:auth_mode].value == "oauth"}>OAuth Token</option>
+          </select>
+        </div>
+
+        <%= if (@form[:auth_mode].value || "api_key") == "api_key" do %>
+          <div class="form-control">
+            <label class="label label-text text-xs">API Key</label>
+            <input type="password" class="input input-bordered input-sm w-full" name={@form[:api_key].name} id={@form[:api_key].id} value={@form[:api_key].value} placeholder="sk-ant-..." />
           </div>
         <% else %>
-          <div class="overflow-x-auto">
-            <table class="table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Kind</th>
-                  <th>Model</th>
-                  <th>Mode</th>
-                  <th>Token</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                <%= for agent <- @agents do %>
-                  <tr>
-                    <td class="font-medium">{agent.name}</td>
-                    <td class="text-sm text-base-content/60">
-                      <span class="inline-flex items-center gap-1.5">
-                        <span class={brand_color(agent.kind)}>
-                          <.agent_icon kind={agent.kind} class="size-4" />
-                        </span>
-                        {brand_label(agent.kind)}
-                      </span>
-                    </td>
-                    <td class="text-sm text-base-content/60">{agent.model || "-"}</td>
-                    <td class="text-sm">
-                      <%= if agent.kind in ~w(hermes openclaw) do %>
-                        <span class="badge badge-secondary badge-sm">Pull</span>
-                      <% else %>
-                        <span class="badge badge-ghost badge-sm">Ephemeral</span>
-                      <% end %>
-                    </td>
-                    <td>
-                      <%= if agent.api_token_hash do %>
-                        <%= if MapSet.member?(@agent_token_visible, agent.id) do %>
-                          <code class="text-xs break-all select-all">{agent.api_token}</code>
-                        <% else %>
-                          <span class="badge badge-success badge-sm">Active</span>
-                        <% end %>
-                      <% else %>
-                        <span class="badge badge-ghost badge-sm">None</span>
-                      <% end %>
-                    </td>
-                    <td class="text-right space-x-1">
-                      <%= if agent.api_token_hash do %>
-                        <%= if MapSet.member?(@agent_token_visible, agent.id) do %>
-                          <button
-                            type="button"
-                            phx-click="hide_agent_token"
-                            phx-value-id={agent.id}
-                            class="btn btn-ghost btn-xs"
-                          >
-                            Hide
-                          </button>
-                        <% else %>
-                          <button
-                            type="button"
-                            phx-click="show_agent_token"
-                            phx-value-id={agent.id}
-                            class="btn btn-ghost btn-xs"
-                          >
-                            Show
-                          </button>
-                        <% end %>
-                        <button
-                          type="button"
-                          phx-click="generate_agent_token"
-                          phx-value-id={agent.id}
-                          class="btn btn-ghost btn-xs"
-                          data-confirm="Regenerate token? The current token will be invalidated."
-                        >
-                          Regenerate
-                        </button>
-                        <button
-                          type="button"
-                          phx-click="revoke_agent_token"
-                          phx-value-id={agent.id}
-                          class="btn btn-ghost btn-xs text-warning"
-                          data-confirm="Revoke this agent's API token?"
-                        >
-                          Revoke
-                        </button>
-                      <% else %>
-                        <button
-                          type="button"
-                          phx-click="generate_agent_token"
-                          phx-value-id={agent.id}
-                          class="btn btn-ghost btn-xs"
-                        >
-                          Generate Token
-                        </button>
-                      <% end %>
-                      <button
-                        type="button"
-                        phx-click="edit_agent"
-                        phx-value-id={agent.id}
-                        class="btn btn-ghost btn-xs"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        phx-click="delete_agent"
-                        phx-value-id={agent.id}
-                        class="btn btn-ghost btn-xs text-error"
-                        data-confirm="Delete this agent?"
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                <% end %>
-              </tbody>
-            </table>
+          <div class="form-control">
+            <label class="label label-text text-xs">OAuth Token</label>
+            <input type="password" class="input input-bordered input-sm w-full" name={@form[:oauth_token].name} id={@form[:oauth_token].id} value={@form[:oauth_token].value} placeholder="oauth-token-..." />
           </div>
         <% end %>
-      <% end %>
-    </div>
+      </div>
+
+      <div class="flex gap-2 mt-3">
+        <button type="submit" class="btn btn-primary btn-xs">Save</button>
+        <button type="button" phx-click="cancel_ephemeral" class="btn btn-ghost btn-xs">Cancel</button>
+      </div>
+    </.form>
     """
   end
 
@@ -885,7 +1036,7 @@ defmodule SynkadeWeb.SettingsLive do
   attr :pull_setup_step, :atom, default: nil
 
   defp agent_form(assigns) do
-    kind = assigns.form[:kind].value || "claude"
+    kind = assigns.form[:kind].value || "hermes"
     assigns = assign(assigns, :is_pull, Agent.pull_kind?(kind))
 
     ~H"""
@@ -895,7 +1046,7 @@ defmodule SynkadeWeb.SettingsLive do
           <.pull_setup_wizard editing={@editing} step={@pull_setup_step} />
         <% else %>
           <h2 class="card-title text-lg">
-            {if @editing == :new, do: "New Agent", else: "Edit Agent"}
+            {if @editing == :new, do: "New Pull Agent", else: "Edit Agent"}
           </h2>
 
           <.form for={@form} phx-change="validate_agent" phx-submit="save_agent">
@@ -908,90 +1059,19 @@ defmodule SynkadeWeb.SettingsLive do
                   name={@form[:name].name}
                   id={@form[:name].id}
                   value={@form[:name].value}
-                  placeholder="my-agent"
+                  placeholder="hermes-laptop"
                 />
                 <.field_error field={@form[:name]} />
               </div>
 
               <div class="form-control">
                 <label class="label"><span class="label-text">Kind</span></label>
-                <input type="hidden" name={@form[:kind].name} value={@form[:kind].value || "claude"} />
-                <div class="grid grid-cols-3 gap-2">
-                  <.agent_card kind="claude" selected={(@form[:kind].value || "claude") == "claude"} />
-                  <.agent_card kind="opencode" selected={@form[:kind].value == "opencode"} />
-                  <.agent_card kind="codex" selected={@form[:kind].value == "codex"} />
-                  <.agent_card kind="hermes" selected={@form[:kind].value == "hermes"} />
+                <input type="hidden" name={@form[:kind].name} value={@form[:kind].value || "hermes"} />
+                <div class="grid grid-cols-2 gap-2">
+                  <.agent_card kind="hermes" selected={(@form[:kind].value || "hermes") == "hermes"} />
                   <.agent_card kind="openclaw" selected={@form[:kind].value == "openclaw"} />
                 </div>
               </div>
-
-              <%= unless @is_pull do %>
-                <div class="form-control">
-                  <label class="label"><span class="label-text">Auth Mode</span></label>
-                  <select
-                    class="select select-bordered w-full"
-                    name={@form[:auth_mode].name}
-                    id={@form[:auth_mode].id}
-                  >
-                    <option value="api_key" selected={(@form[:auth_mode].value || "api_key") == "api_key"}>
-                      API Key
-                    </option>
-                    <option value="oauth" selected={@form[:auth_mode].value == "oauth"}>
-                      OAuth Token
-                    </option>
-                  </select>
-                </div>
-
-                <%= if (@form[:auth_mode].value || "api_key") == "api_key" do %>
-                  <div class="form-control">
-                    <label class="label"><span class="label-text">API Key</span></label>
-                    <input
-                      type="password"
-                      class="input input-bordered w-full"
-                      name={@form[:api_key].name}
-                      id={@form[:api_key].id}
-                      value={@form[:api_key].value}
-                      placeholder="sk-ant-..."
-                    />
-                  </div>
-                <% else %>
-                  <div class="form-control">
-                    <label class="label"><span class="label-text">OAuth Token</span></label>
-                    <input
-                      type="password"
-                      class="input input-bordered w-full"
-                      name={@form[:oauth_token].name}
-                      id={@form[:oauth_token].id}
-                      value={@form[:oauth_token].value}
-                      placeholder="oauth-token-..."
-                    />
-                  </div>
-                <% end %>
-
-                <div class="form-control">
-                  <label class="label"><span class="label-text">Model (optional)</span></label>
-                  <input
-                    type="text"
-                    class="input input-bordered w-full"
-                    name={@form[:model].name}
-                    id={@form[:model].id}
-                    value={@form[:model].value}
-                    placeholder={
-                      if @form[:kind].value == "opencode",
-                        do: "openrouter/minimax/minimax-m2.5",
-                        else: "claude-sonnet-4-5-20250929"
-                    }
-                  />
-                  <%= if @form[:kind].value == "opencode" do %>
-                    <label class="label">
-                      <span class="label-text-alt text-base-content/60">
-                        For OpenRouter use provider/model format, e.g. openrouter/minimax/minimax-m2.5
-                      </span>
-                    </label>
-                  <% end %>
-                </div>
-
-              <% end %>
 
               <%= if @is_pull and @editing != :new do %>
                 <div class="form-control">
@@ -1359,4 +1439,13 @@ defmodule SynkadeWeb.SettingsLive do
   end
 
   defp normalize_agent_params(params), do: params
+
+  defp refresh_agent_lists(socket, scope) do
+    agents = Settings.list_agents(scope)
+
+    socket
+    |> assign(:agents, agents)
+    |> assign(:ephemeral_agents, Enum.filter(agents, &Agent.ephemeral_kind?(&1.kind)))
+    |> assign(:pull_agents, Enum.filter(agents, &Agent.pull_kind?(&1.kind)))
+  end
 end
