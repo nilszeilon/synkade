@@ -304,15 +304,23 @@ defmodule SynkadeWeb.OnboardingLive do
       <div class="space-y-4">
         <div class="form-control">
           <label class="label"><span class="label-text">Personal Access Token</span></label>
-          <input
-            type="password"
-            class="input input-bordered w-full"
-            name={@form[:github_pat].name}
-            id={@form[:github_pat].id}
-            value={@form[:github_pat].value}
-            placeholder="ghp_..."
-          />
-          <.field_error field={@form[:github_pat]} />
+          <%= if @pat_saved do %>
+            <input
+              type="password"
+              class="input input-bordered w-full"
+              value="••••••••••••"
+              disabled
+            />
+          <% else %>
+            <input
+              type="password"
+              class="input input-bordered w-full"
+              name={@form[:github_pat].name}
+              id={@form[:github_pat].id}
+              placeholder="ghp_..."
+            />
+            <.field_error field={@form[:github_pat]} />
+          <% end %>
         </div>
 
         <div class="flex items-center gap-3">
