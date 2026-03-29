@@ -71,27 +71,33 @@ defmodule Synkade.Workspace.Manager do
     repo_path = main_repo_path(root, project_name)
 
     if File.dir?(Path.join(repo_path, ".git")) do
-      # Already cloned — fetch latest
+      update_remote_url(config, repo_path)
       fetch_main_repo(repo_path)
     else
-      # First time — clone
       clone_main_repo(config, repo_path)
+    end
+  end
+
+  defp update_remote_url(config, repo_path) do
+    repo = Config.get(config, "tracker", "repo")
+    api_key = Config.get(config, "tracker", "api_key")
+    url = build_repo_url(repo, api_key)
+    System.cmd("git", ["remote", "set-url", "origin", url], cd: repo_path, stderr_to_stdout: true)
+    :ok
+  end
+
+  defp build_repo_url(repo, api_key) do
+    cond do
+      String.starts_with?(repo, "/") -> repo
+      api_key && api_key != "" -> "https://#{api_key}@github.com/#{repo}.git"
+      true -> "https://github.com/#{repo}.git"
     end
   end
 
   defp clone_main_repo(config, repo_path) do
     repo = Config.get(config, "tracker", "repo")
     api_key = Config.get(config, "tracker", "api_key")
-
-    url =
-      cond do
-        # Local path (for development/testing)
-        String.starts_with?(repo, "/") -> repo
-        # Authenticated GitHub URL
-        api_key && api_key != "" -> "https://#{api_key}@github.com/#{repo}.git"
-        # Public GitHub URL
-        true -> "https://github.com/#{repo}.git"
-      end
+    url = build_repo_url(repo, api_key)
 
     File.mkdir_p!(repo_path)
     Logger.info("Cloning #{repo} into #{repo_path}")
