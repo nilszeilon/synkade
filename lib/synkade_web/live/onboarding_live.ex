@@ -69,22 +69,8 @@ defmodule SynkadeWeb.OnboardingLive do
 
   @impl true
   def handle_event("test_connection", _params, socket) do
-    socket = assign(socket, testing_connection: true, connection_status: nil)
     form_data = socket.assigns.settings_form.params || %{}
-    lv = self()
-
-    Task.start(fn ->
-      token = form_data["github_pat"] || ""
-      result = ConnectionTest.test_pat(token, nil)
-      send(lv, {:connection_result, result})
-    end)
-
-    {:noreply, socket}
-  end
-
-  @impl true
-  def handle_event("save_pat", %{"setting" => params}, socket) do
-    token = (params["github_pat"] || "") |> String.trim()
+    token = (form_data["github_pat"] || "") |> String.trim()
 
     if token == "" do
       {:noreply, put_flash(socket, :error, "Please enter a Personal Access Token.")}
@@ -94,10 +80,33 @@ defmodule SynkadeWeb.OnboardingLive do
 
       Task.start(fn ->
         result = ConnectionTest.test_pat(token, nil)
-        send(lv, {:pat_save_result, result, params})
+        send(lv, {:connection_result, result, form_data})
       end)
 
       {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_event("save_pat", %{"setting" => params}, socket) do
+    if socket.assigns.pat_saved do
+      {:noreply, socket}
+    else
+      token = (params["github_pat"] || "") |> String.trim()
+
+      if token == "" do
+        {:noreply, put_flash(socket, :error, "Please enter a Personal Access Token.")}
+      else
+        socket = assign(socket, testing_connection: true, connection_status: nil)
+        lv = self()
+
+        Task.start(fn ->
+          result = ConnectionTest.test_pat(token, nil)
+          send(lv, {:pat_save_result, result, params})
+        end)
+
+        {:noreply, socket}
+      end
     end
   end
 
@@ -187,8 +196,33 @@ defmodule SynkadeWeb.OnboardingLive do
   # --- Info handlers ---
 
   @impl true
-  def handle_info({:connection_result, result}, socket) do
-    {:noreply, assign(socket, testing_connection: false, connection_status: result)}
+  def handle_info({:connection_result, result, params}, socket) do
+    scope = socket.assigns.current_scope
+
+    case result do
+      {:ok, _msg} ->
+        case Settings.save_settings(scope, params) do
+          {:ok, setting} ->
+            {:noreply,
+             socket
+             |> assign(:setting, setting)
+             |> assign(:pat_saved, true)
+             |> assign(:testing_connection, false)
+             |> assign(:connection_status, result)
+             |> assign(:settings_form, to_form(Settings.change_settings(scope, setting)))
+             |> put_flash(:info, "GitHub connected.")}
+
+          {:error, _changeset} ->
+            {:noreply,
+             socket
+             |> assign(:testing_connection, false)
+             |> assign(:connection_status, result)
+             |> put_flash(:error, "Connection valid but failed to save. Try Save & Continue.")}
+        end
+
+      {:error, _reason} ->
+        {:noreply, assign(socket, testing_connection: false, connection_status: result)}
+    end
   end
 
   @impl true
