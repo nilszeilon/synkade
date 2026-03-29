@@ -43,6 +43,7 @@ defmodule SynkadeWeb.SettingsLive do
      |> assign(:pull_setup_step, nil)
      |> assign(:skills, Skills.list_skills(scope))
      |> assign(:skill_form, nil)
+     |> assign(:pat_mode, if(setting && setting.github_pat, do: :masked, else: :editing))
      |> assign_form(changeset)}
   end
 
@@ -69,6 +70,7 @@ defmodule SynkadeWeb.SettingsLive do
         {:noreply,
          socket
          |> assign(:setting, setting)
+         |> assign(:pat_mode, if(setting.github_pat, do: :masked, else: :editing))
          |> assign_form(Settings.change_settings(scope, setting))
          |> put_flash(:info, "Settings saved.")}
 
@@ -78,14 +80,29 @@ defmodule SynkadeWeb.SettingsLive do
   end
 
   @impl true
+  def handle_event("change_pat", _params, socket) do
+    {:noreply, assign(socket, :pat_mode, :editing)}
+  end
+
+  @impl true
+  def handle_event("cancel_change_pat", _params, socket) do
+    {:noreply, assign(socket, :pat_mode, :masked)}
+  end
+
+  @impl true
   def handle_event("test_connection", _params, socket) do
     socket = assign(socket, connection_testing: true, connection_status: nil)
     form_data = socket.assigns.form.params || %{}
 
+    token =
+      case socket.assigns.pat_mode do
+        :masked -> socket.assigns.setting && socket.assigns.setting.github_pat
+        :editing -> form_data["github_pat"]
+      end || ""
+
     lv = self()
 
     Task.start(fn ->
-      token = form_data["github_pat"] || ""
       result = ConnectionTest.test_pat(token, nil)
       send(lv, {:connection_result, result})
     end)
@@ -516,6 +533,7 @@ defmodule SynkadeWeb.SettingsLive do
               form={@form}
               connection_status={@connection_status}
               connection_testing={@connection_testing}
+              pat_mode={@pat_mode}
             />
           </div>
 
@@ -633,32 +651,35 @@ defmodule SynkadeWeb.SettingsLive do
   attr :form, :any, required: true
   attr :connection_status, :any, default: nil
   attr :connection_testing, :boolean, default: false
+  attr :pat_mode, :atom, required: true
 
   defp github_tab(assigns) do
     ~H"""
     <div class="space-y-4">
       <div class="form-control">
         <label class="label"><span class="label-text">Personal Access Token</span></label>
-        <input
-          type="password"
-          class="input input-bordered w-full"
-          name={@form[:github_pat].name}
-          id={@form[:github_pat].id}
-          value={@form[:github_pat].value}
-          placeholder="ghp_..."
-        />
-        <.field_error field={@form[:github_pat]} />
-      </div>
-
-      <div class="form-control">
-        <label class="label"><span class="label-text">Webhook Secret (optional)</span></label>
-        <input
-          type="password"
-          class="input input-bordered w-full"
-          name={@form[:github_webhook_secret].name}
-          id={@form[:github_webhook_secret].id}
-          value={@form[:github_webhook_secret].value}
-        />
+        <%= if @pat_mode == :masked do %>
+          <div class="flex gap-2">
+            <input
+              type="password"
+              class="input input-bordered w-full"
+              value="••••••••••••"
+              disabled
+            />
+            <button type="button" phx-click="change_pat" class="btn btn-outline btn-sm shrink-0">
+              Change
+            </button>
+          </div>
+        <% else %>
+          <input
+            type="password"
+            class="input input-bordered w-full"
+            name={@form[:github_pat].name}
+            id={@form[:github_pat].id}
+            placeholder="ghp_..."
+          />
+          <.field_error field={@form[:github_pat]} />
+        <% end %>
       </div>
 
       <div class="flex items-center gap-4 mt-4">
