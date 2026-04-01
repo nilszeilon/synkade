@@ -42,17 +42,24 @@ defmodule Synkade.Execution.AgentRunner do
     project_map = %{name: project.name, config: project.config, db_id: project.db_id}
     issue_map = Map.from_struct(issue)
 
-    dispatch_message =
+    {dispatch_message, conversation_messages} =
       try do
         case Synkade.Issues.get_issue(issue.id) do
-          nil -> nil
-          db_issue -> db_issue.dispatch_message
+          nil ->
+            {nil, []}
+
+          db_issue ->
+            # Include all messages except the last dispatch (which is the current one)
+            all_messages = (db_issue.metadata || %{})["messages"] || []
+            prior_messages = drop_trailing_dispatch(all_messages)
+
+            {db_issue.dispatch_message, prior_messages}
         end
       catch
-        _, _ -> nil
+        _, _ -> {nil, []}
       end
 
-    Renderer.render(project_map, issue_map, attempt, dispatch_message)
+    Renderer.render(project_map, issue_map, attempt, dispatch_message, conversation_messages)
   end
 
   defp start_agent(config, prompt, env_ref) do
@@ -212,6 +219,16 @@ defmodule Synkade.Execution.AgentRunner do
   end
 
   defp normalize_state(state), do: state |> String.trim() |> String.downcase()
+
+  # Drop the last dispatch message (the current one) from conversation history
+  defp drop_trailing_dispatch([]), do: []
+
+  defp drop_trailing_dispatch(messages) do
+    case List.last(messages) do
+      %{"type" => "dispatch"} -> Enum.drop(messages, -1)
+      _ -> messages
+    end
+  end
 
   defp record_event_tokens(events, user_id, config_model) do
     events

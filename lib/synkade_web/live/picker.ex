@@ -1,6 +1,7 @@
 defmodule SynkadeWeb.Picker do
   @moduledoc """
   Global command palette (cmd+k). Searches issues and navigates on select.
+  Also supports an agent picker mode for choosing which agent to hand off to.
 
   Uses the generic `SearchPicker` component under the hood.
 
@@ -14,6 +15,8 @@ defmodule SynkadeWeb.Picker do
 
   alias Synkade.Issues.Issue
   alias SynkadeWeb.Components.SearchPicker
+
+  @default_state %{open: false, query: "", items: [], loading: false, mode: :issues, context: nil}
 
   def on_mount(:picker, _params, _session, socket) do
     socket =
@@ -32,42 +35,82 @@ defmodule SynkadeWeb.Picker do
     {:halt, assign(socket, :picker, %{SearchPicker.default() | open: true, loading: true})}
   end
 
+  defp handle_picker_event("open_agent_picker", %{"project" => project_name}, socket) do
+    agents = load_agents(socket)
+
+    case agents do
+      [single] ->
+        # Only one agent — skip picker, go straight to chat
+        {:halt,
+         socket
+         |> push_navigate(to: "/chat/#{project_name}?agent=#{single.id}")}
+
+      _ ->
+        picker = %{
+          @default_state
+          | open: true,
+            loading: false,
+            mode: :agents,
+            items: agents,
+            context: %{project: project_name}
+        }
+        picker = Map.put(picker, :all_items, agents)
+
+        {:halt, assign(socket, :picker, picker)}
+    end
+  end
+
   defp handle_picker_event("picker_close", _params, socket) do
     {:halt, assign(socket, :picker, SearchPicker.default())}
   end
 
   defp handle_picker_event("picker_search", %{"query" => query}, socket) do
-    send(self(), {:picker_search, query})
-    picker = %{socket.assigns.picker | query: query, loading: true}
-    {:halt, assign(socket, :picker, picker)}
+    picker = socket.assigns.picker
+
+    case Map.get(picker, :mode, :issues) do
+      :agents ->
+        # Client-side filter for agents (small list, no async needed)
+        all_items = Map.get(picker, :all_items, picker.items)
+        filtered = SearchPicker.filter_items(all_items, query)
+        {:halt, assign(socket, :picker, %{picker | query: query, items: filtered})}
+
+      _ ->
+        send(self(), {:picker_search, query})
+        {:halt, assign(socket, :picker, %{picker | query: query, loading: true})}
+    end
   end
 
-  defp handle_picker_event("picker_submit", %{"query" => query}, socket) do
+  defp handle_picker_event("picker_submit", %{"query" => _query}, socket) do
     picker = socket.assigns.picker
 
     case picker.items do
       [first | _] ->
-        {:halt,
-         socket
-         |> assign(:picker, SearchPicker.default())
-         |> push_navigate(to: "/issues/#{first.id}")}
-
-      [] when query != "" ->
-        {:halt, assign(socket, :picker, SearchPicker.default())}
+        {:halt, socket |> assign(:picker, SearchPicker.default()) |> navigate_picker(picker, first.id)}
 
       _ ->
-        {:halt, socket}
+        {:halt, assign(socket, :picker, SearchPicker.default())}
     end
   end
 
   defp handle_picker_event("picker_select", %{"id" => id}, socket) do
-    {:halt,
-     socket
-     |> assign(:picker, SearchPicker.default())
-     |> push_navigate(to: "/issues/#{id}")}
+    picker = socket.assigns.picker
+    {:halt, socket |> assign(:picker, SearchPicker.default()) |> navigate_picker(picker, id)}
   end
 
   defp handle_picker_event(_event, _params, socket), do: {:cont, socket}
+
+  # --- Navigation ---
+
+  defp navigate_picker(socket, picker, id) do
+    case Map.get(picker, :mode, :issues) do
+      :agents ->
+        project = get_in(picker, [:context, :project])
+        push_navigate(socket, to: "/chat/#{project}?agent=#{id}")
+
+      _ ->
+        push_navigate(socket, to: "/issues/#{id}")
+    end
+  end
 
   # --- Info handlers ---
 
@@ -112,17 +155,49 @@ defmodule SynkadeWeb.Picker do
     end)
   end
 
+  defp load_agents(socket) do
+    scope = socket.assigns[:current_scope]
+
+    agents =
+      if scope do
+        Synkade.Settings.list_agents(scope)
+      else
+        []
+      end
+
+    Enum.map(agents, fn agent ->
+      %{
+        id: agent.id,
+        label: agent.name,
+        description: agent.kind
+      }
+    end)
+  end
+
   # --- Component ---
 
   attr :picker, :map, required: true
 
   def picker(assigns) do
+    mode = Map.get(assigns.picker, :mode, :issues)
+
+    {placeholder, empty_message} =
+      case mode do
+        :agents -> {"Which agent?", "No agents configured"}
+        _ -> {"Search issues...", "No issues found"}
+      end
+
+    assigns =
+      assigns
+      |> assign(:placeholder, placeholder)
+      |> assign(:empty_message, empty_message)
+
     ~H"""
     <.search_picker
       name="picker"
       state={@picker}
-      placeholder="Search issues..."
-      empty_message="No issues found"
+      placeholder={@placeholder}
+      empty_message={@empty_message}
     />
     """
   end

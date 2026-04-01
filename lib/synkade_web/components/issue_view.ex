@@ -22,6 +22,7 @@ defmodule SynkadeWeb.Components.IssueView do
   attr :selected_model, :string, default: nil
   attr :resolved_agent_kind, :string, default: nil
   attr :model_picker, :map, default: %{open: false, query: "", items: [], loading: false}
+  attr :selected_dispatch_agent_id, :string, default: nil
 
   def issue_full_view(assigns) do
     messages = (assigns.issue.metadata || %{})["messages"] || []
@@ -214,9 +215,30 @@ defmodule SynkadeWeb.Components.IssueView do
         <div :if={@issue.state in ["backlog", "done"]} class="mb-3">
           <.form for={@dispatch_form} phx-submit="dispatch_issue">
             <div class="flex flex-col gap-2">
+              <div :if={@agents != []} class="flex items-center gap-2">
+                <input type="hidden" name="dispatch[agent_id]" value={@selected_dispatch_agent_id || ""} />
+                <button
+                  :for={agent <- @agents}
+                  type="button"
+                  phx-click="select_dispatch_agent"
+                  phx-value-id={agent.id}
+                  class={[
+                    "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm transition-all cursor-pointer",
+                    if(@selected_dispatch_agent_id == agent.id,
+                      do: "border-primary ring-1 ring-primary bg-primary/10",
+                      else: "border-base-300 hover:border-base-content/30"
+                    )
+                  ]}
+                >
+                  <span class={brand_color(agent.kind)}>
+                    <.agent_icon kind={agent.kind} class="size-4" />
+                  </span>
+                  <span class="text-xs">{agent.name}</span>
+                </button>
+              </div>
               <textarea
                 name="dispatch[message]"
-                placeholder="@agent instructions..."
+                placeholder="Instructions..."
                 class="textarea textarea-bordered textarea-sm w-full font-mono min-h-24"
                 rows="4"
                 phx-debounce="300"
