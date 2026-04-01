@@ -28,7 +28,7 @@ defmodule Synkade.Agent.Behaviour do
 
   @callback build_env(config :: map()) :: [{charlist(), charlist()}]
 
-  @callback parse_event(line :: binary()) :: {:ok, Event.t()} | :skip
+  @callback parse_event(line :: binary()) :: {:ok, Event.t()} | {:ok, [Event.t()]} | :skip
 
   @doc "Fetch available models from the provider API. Returns `{:ok, [{label, id}]}` or `{:error, reason}`."
   @callback fetch_models(api_key :: String.t()) ::

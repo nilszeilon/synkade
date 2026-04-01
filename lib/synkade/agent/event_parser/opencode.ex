@@ -2,9 +2,14 @@ defmodule Synkade.Agent.EventParser.OpenCode do
   @moduledoc """
   Event parser for OpenCode agent.
 
-  OpenCode JSON format:
-    - tool_use: {"type": "tool_use", "part": {"tool": "Read", "state": {"status": "completed"|"running", "input": {...}, "output": "..."}}}
+  OpenCode JSON format (real observed output from `opencode run --format json`):
+    - tool_use: {"type": "tool_use", "part": {"type": "tool", "tool": "read", "callID": "functions.read:0",
+        "state": {"status": "completed"|"error", "input": {"filePath": "..."}, "output": "...",
+                  "title": "short description", "metadata": {...}}}}
+    - text:     {"type": "text", "part": {"type": "text", "text": "..."}}
+    - step:     {"type": "step_start"|"step_finish", "part": {"type": "step-start"|"step-finish", ...}}
     - No separate tool_result events — status is carried inside part.state.status.
+    - Input keys are camelCase (filePath, oldString, etc.) — normalized to snake_case.
   """
 
   @behaviour Synkade.Agent.EventParser
@@ -15,8 +20,23 @@ defmodule Synkade.Agent.EventParser.OpenCode do
     state = part["state"] || %{}
     name = part["tool"] || raw["name"] || "tool"
     input = state["input"] || part["input"] || %{}
-    input = if is_map(input), do: input, else: %{}
+    input = if is_map(input), do: normalize_keys(input), else: %{}
     {name, input}
+  end
+
+  # OpenCode sends camelCase keys (filePath, oldString, etc.)
+  # Normalize to snake_case so extract_detail finds them.
+  @key_map %{
+    "filePath" => "file_path",
+    "oldString" => "old_string",
+    "newString" => "new_string",
+    "old_string" => "old_string",
+    "new_string" => "new_string",
+    "file_path" => "file_path"
+  }
+
+  defp normalize_keys(input) when is_map(input) do
+    Map.new(input, fn {k, v} -> {Map.get(@key_map, k, k), v} end)
   end
 
   @impl true
