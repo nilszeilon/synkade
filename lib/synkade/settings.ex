@@ -94,12 +94,22 @@ defmodule Synkade.Settings do
 
   @doc "Lists enabled projects for the scoped user."
   def list_enabled_projects(%Scope{user: user}) do
-    Repo.all(from(p in Project, where: p.user_id == ^user.id and p.enabled == true, order_by: [asc: p.name]))
+    Repo.all(
+      from(p in Project,
+        where: p.user_id == ^user.id and p.enabled == true,
+        order_by: [asc: p.name]
+      )
+    )
   end
 
   @doc "Lists enabled projects for a user_id (for workers, no Scope)."
   def list_enabled_projects_for_user(user_id) do
-    Repo.all(from(p in Project, where: p.user_id == ^user_id and p.enabled == true, order_by: [asc: p.name]))
+    Repo.all(
+      from(p in Project,
+        where: p.user_id == ^user_id and p.enabled == true,
+        order_by: [asc: p.name]
+      )
+    )
   end
 
   @doc "Gets a single project by ID. Raises if not found."
@@ -218,25 +228,13 @@ defmodule Synkade.Settings do
     Repo.all(from(a in Agent, where: a.user_id == ^user_id, order_by: [asc: a.name]))
   end
 
-  @doc "Lists ephemeral agents (claude, codex, opencode) for the scoped user."
-  def list_ephemeral_agents(%Scope{user: user}) do
-    kinds = Agent.ephemeral_kinds()
-    Repo.all(from(a in Agent, where: a.user_id == ^user.id and a.kind in ^kinds, order_by: [asc: a.kind]))
-  end
-
-  @doc "Lists pull-based agents (hermes, openclaw) for the scoped user."
-  def list_pull_agents(%Scope{user: user}) do
-    kinds = Agent.pull_kinds()
-    Repo.all(from(a in Agent, where: a.user_id == ^user.id and a.kind in ^kinds, order_by: [asc: a.name]))
-  end
-
   @doc "Gets a single agent by ID. Raises if not found."
   def get_agent!(id) do
     Repo.get!(Agent, id)
   end
 
-  @doc "Gets an ephemeral agent by kind for the scoped user."
-  def get_ephemeral_agent(%Scope{user: user}, kind) do
+  @doc "Gets an agent by kind for the scoped user."
+  def get_agent_by_kind(%Scope{user: user}, kind) do
     Repo.one(from(a in Agent, where: a.user_id == ^user.id and a.kind == ^kind))
   end
 
@@ -264,11 +262,11 @@ defmodule Synkade.Settings do
     end
   end
 
-  @doc "Creates or updates an ephemeral agent (one-per-kind)."
-  def upsert_ephemeral_agent(%Scope{} = scope, attrs) do
+  @doc "Creates or updates an agent (one-per-kind)."
+  def upsert_agent(%Scope{} = scope, attrs) do
     kind = attrs["kind"] || attrs[:kind] || "claude"
 
-    case get_ephemeral_agent(scope, kind) do
+    case get_agent_by_kind(scope, kind) do
       nil -> create_agent(scope, attrs)
       existing -> update_agent(scope, existing, attrs)
     end

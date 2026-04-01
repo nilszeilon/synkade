@@ -21,7 +21,7 @@ defmodule SynkadeWeb.SettingsLiveTest do
   test "switches to agents tab and shows integrations", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/settings")
     html = view |> element(~s{button[phx-value-tab="agents"]}) |> render_click()
-    assert html =~ "Integrations"
+    assert html =~ "Agents"
     assert html =~ "Claude Code"
   end
 
@@ -33,11 +33,11 @@ defmodule SynkadeWeb.SettingsLiveTest do
     assert html =~ "Connected"
   end
 
-  test "agents tab shows pull agents section", %{conn: conn} do
+  test "agents tab shows all agent kinds", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/settings")
     html = view |> element(~s{button[phx-value-tab="agents"]}) |> render_click()
-    assert html =~ "Pull Agents"
-    assert html =~ "New Pull Agent"
+    assert html =~ "Agents"
+    assert html =~ "Hermes"
   end
 
   test "shows masked PAT with change button when PAT exists", %{conn: conn} do

@@ -18,6 +18,7 @@ defmodule SynkadeWeb.Api.AgentHeartbeatController do
       issue ->
         if has_project_access?(agent, issue.project_id) do
           Issues.update_issue_heartbeat(issue_id, "[#{status}] #{params["message"] || ""}")
+          Synkade.Jobs.broadcast_jobs_changed(issue.project_id)
           json(conn, %{ok: true})
         else
           conn |> put_status(403) |> json(%{error: "forbidden"})

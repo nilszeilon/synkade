@@ -253,7 +253,8 @@ defmodule Synkade.IssuesTest do
       {:ok, issue} =
         Issues.create_issue(%{body: "# Done issue", project_id: project.id, state: "done"})
 
-      assert {:error, :invalid_transition} = Issues.dispatch_issue(issue, "try again")
+      {:ok, dispatched} = Issues.dispatch_issue(issue, "try again")
+      assert dispatched.state == "worked_on"
     end
   end
 

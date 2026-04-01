@@ -48,13 +48,7 @@ defmodule Synkade.Workers.AgentWorker do
 
         {:snooze, 30}
       else
-        # Skip pull-based agents
-        if agent && Synkade.Settings.Agent.pull_kind?(agent.kind) do
-          Logger.info("AgentWorker: skipping pull-based agent #{agent.name}")
-          :ok
-        else
-          execute_agent(issue, setting, db_project, agent, job)
-        end
+        execute_agent(issue, setting, db_project, agent, job)
       end
     end
   end

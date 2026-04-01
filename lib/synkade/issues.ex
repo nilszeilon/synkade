@@ -262,7 +262,9 @@ defmodule Synkade.Issues do
 
     {agent_name, agent_kind} =
       case assigned_agent_id do
-        nil -> {nil, nil}
+        nil ->
+          {nil, nil}
+
         id ->
           try do
             agent = Synkade.Settings.get_agent!(id)
@@ -272,7 +274,8 @@ defmodule Synkade.Issues do
           end
       end
 
-    messages = (issue.metadata["messages"] || [])
+    messages = issue.metadata["messages"] || []
+
     new_entry = %{
       "type" => "dispatch",
       "agent_name" => agent_name,
@@ -284,13 +287,17 @@ defmodule Synkade.Issues do
     # Ensure we can reach worked_on from any state
     issue =
       case issue.state do
-        "worked_on" -> issue
+        "worked_on" ->
+          issue
+
         "done" ->
           case transition_state(issue, "backlog") do
             {:ok, backlog} -> backlog
             _ -> issue
           end
-        _ -> issue
+
+        _ ->
+          issue
       end
 
     metadata =
@@ -305,33 +312,18 @@ defmodule Synkade.Issues do
              metadata: metadata
            }),
          {:ok, worked_on} <- transition_state(updated, "worked_on") do
-      # Enqueue Oban job for non-pull-based agents
-      unless pull_based_agent?(assigned_agent_id) do
-        %{issue_id: worked_on.id, project_id: worked_on.project_id}
-        |> Synkade.Workers.AgentWorker.new()
-        |> Oban.insert()
-      end
+      %{issue_id: worked_on.id, project_id: worked_on.project_id}
+      |> Synkade.Workers.AgentWorker.new()
+      |> Oban.insert()
 
       {:ok, worked_on}
     end
   end
 
-  # dispatch_issue can be called from any state — transition directly to worked_on
-
-  defp pull_based_agent?(nil), do: false
-
-  defp pull_based_agent?(agent_id) do
-    case Synkade.Settings.get_agent!(agent_id) do
-      %{kind: kind} -> Synkade.Settings.Agent.pull_kind?(kind)
-      _ -> false
-    end
-  rescue
-    _ -> false
-  end
-
   @doc "Appends an agent output entry to the issue message history."
   def append_agent_output(%Issue{} = issue, agent_output, agent_name \\ nil, agent_kind \\ nil) do
-    messages = (issue.metadata["messages"] || [])
+    messages = issue.metadata["messages"] || []
+
     new_entry = %{
       "type" => "agent",
       "agent_name" => agent_name,
@@ -382,7 +374,7 @@ defmodule Synkade.Issues do
 
   @doc "Cycles a recurring issue from done back to worked_on, appending a system message."
   def cycle_recurring_issue(%Issue{state: "done", recurring: true} = issue) do
-    messages = (issue.metadata["messages"] || [])
+    messages = issue.metadata["messages"] || []
 
     new_entry = %{
       "type" => "system",

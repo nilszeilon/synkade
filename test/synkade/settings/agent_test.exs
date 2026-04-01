@@ -5,20 +5,15 @@ defmodule Synkade.Settings.AgentTest do
 
   describe "changeset/2" do
     test "valid with required fields" do
-      changeset = Agent.changeset(%Agent{}, %{name: "my-agent", kind: "hermes"})
+      changeset = Agent.changeset(%Agent{}, %{kind: "hermes"})
       assert changeset.valid?
+      assert Ecto.Changeset.get_change(changeset, :name) == "hermes"
     end
 
-    test "ephemeral agents auto-set name to kind" do
+    test "auto-sets name to kind for all agents" do
       changeset = Agent.changeset(%Agent{}, %{kind: "claude"})
       assert changeset.valid?
       assert Ecto.Changeset.get_change(changeset, :name) == "claude"
-    end
-
-    test "requires name for pull agents" do
-      changeset = Agent.changeset(%Agent{}, %{kind: "hermes"})
-      refute changeset.valid?
-      assert %{name: ["can't be blank"]} = errors_on(changeset)
     end
 
     test "validates kind inclusion" do
@@ -29,14 +24,13 @@ defmodule Synkade.Settings.AgentTest do
 
     test "accepts valid kinds" do
       for kind <- ~w(claude codex opencode hermes openclaw) do
-        name = if Agent.ephemeral_kind?(kind), do: kind, else: "test-#{kind}"
-        changeset = Agent.changeset(%Agent{}, %{name: name, kind: kind})
+        changeset = Agent.changeset(%Agent{}, %{kind: kind})
         assert changeset.valid?, "expected kind=#{kind} to be valid"
       end
     end
 
     test "validates auth_mode inclusion" do
-      changeset = Agent.changeset(%Agent{}, %{name: "a", kind: "hermes", auth_mode: "basic"})
+      changeset = Agent.changeset(%Agent{}, %{kind: "hermes", auth_mode: "basic"})
       refute changeset.valid?
       assert %{auth_mode: [_]} = errors_on(changeset)
     end
@@ -44,7 +38,6 @@ defmodule Synkade.Settings.AgentTest do
     test "accepts all fields" do
       changeset =
         Agent.changeset(%Agent{}, %{
-          name: "full-agent",
           kind: "hermes",
           auth_mode: "api_key",
           api_key: "sk-ant-test"
@@ -64,43 +57,14 @@ defmodule Synkade.Settings.AgentTest do
     end
   end
 
-  describe "ephemeral_kind?/1" do
-    test "claude is ephemeral" do
-      assert Agent.ephemeral_kind?("claude")
-    end
-
-    test "codex is ephemeral" do
-      assert Agent.ephemeral_kind?("codex")
-    end
-
-    test "opencode is ephemeral" do
-      assert Agent.ephemeral_kind?("opencode")
-    end
-
-    test "hermes is not ephemeral" do
-      refute Agent.ephemeral_kind?("hermes")
-    end
-  end
-
-  describe "pull_kind?/1" do
-    test "hermes is a pull kind" do
-      assert Agent.pull_kind?("hermes")
-    end
-
-    test "openclaw is a pull kind" do
-      assert Agent.pull_kind?("openclaw")
-    end
-
-    test "claude is not a pull kind" do
-      refute Agent.pull_kind?("claude")
-    end
-
-    test "codex is not a pull kind" do
-      refute Agent.pull_kind?("codex")
-    end
-
-    test "opencode is not a pull kind" do
-      refute Agent.pull_kind?("opencode")
+  describe "kinds/0" do
+    test "returns all supported kinds" do
+      kinds = Agent.kinds()
+      assert "claude" in kinds
+      assert "codex" in kinds
+      assert "opencode" in kinds
+      assert "hermes" in kinds
+      assert "openclaw" in kinds
     end
   end
 

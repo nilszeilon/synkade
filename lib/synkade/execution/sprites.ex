@@ -10,7 +10,10 @@ defmodule Synkade.Execution.Sprites do
   # Install scripts for agent tooling on sprites.
   # Each value is a shell command that installs the agent binary.
   @agent_install_scripts %{
-    "opencode" => "curl -fsSL https://opencode.ai/install | bash"
+    "opencode" => "curl -fsSL https://opencode.ai/install | bash",
+    "hermes" =>
+      "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash",
+    "openclaw" => "npm install -g openclaw@latest"
   }
 
   @impl true

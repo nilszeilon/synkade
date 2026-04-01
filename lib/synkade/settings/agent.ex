@@ -5,8 +5,7 @@ defmodule Synkade.Settings.Agent do
   @primary_key {:id, :binary_id, autogenerate: true}
   @timestamps_opts [type: :utc_datetime]
 
-  @ephemeral_kinds ~w(claude codex opencode)
-  @pull_kinds ~w(hermes openclaw)
+  @kinds ~w(claude codex opencode hermes openclaw)
 
   schema "agents" do
     belongs_to :user, Synkade.Accounts.User
@@ -27,32 +26,26 @@ defmodule Synkade.Settings.Agent do
   def changeset(agent, attrs) do
     agent
     |> cast(attrs, @fields)
-    |> maybe_set_ephemeral_name()
+    |> maybe_set_name()
     |> validate_required([:name])
     |> unique_constraint([:user_id, :name])
-    |> validate_inclusion(:kind, @ephemeral_kinds ++ @pull_kinds)
+    |> validate_inclusion(:kind, @kinds)
     |> validate_inclusion(:auth_mode, ["api_key", "oauth"])
   end
 
-  defp maybe_set_ephemeral_name(changeset) do
+  defp maybe_set_name(changeset) do
     kind = get_field(changeset, :kind) || "claude"
-
-    if ephemeral_kind?(kind) do
-      put_change(changeset, :name, kind)
-    else
-      changeset
-    end
+    put_change(changeset, :name, kind)
   end
 
-  def ephemeral_kind?(kind), do: kind in @ephemeral_kinds
-  def ephemeral_kinds, do: @ephemeral_kinds
-  def pull_kind?(kind), do: kind in @pull_kinds
-  def pull_kinds, do: @pull_kinds
+  def kinds, do: @kinds
 
   @kind_modules %{
     "claude" => Synkade.Agent.ClaudeCode,
     "codex" => Synkade.Agent.Codex,
-    "opencode" => Synkade.Agent.OpenCode
+    "opencode" => Synkade.Agent.OpenCode,
+    "hermes" => Synkade.Agent.Hermes,
+    "openclaw" => Synkade.Agent.OpenClaw
   }
 
   @doc "Returns the adapter module for an agent kind."

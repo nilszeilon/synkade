@@ -37,8 +37,6 @@ defmodule SynkadeWeb.Api.AgentMeControllerTest do
       assert data["id"] == agent.id
       assert data["name"] == "claude"
       assert data["kind"] == "claude"
-      assert data["pull"] == false
-
       assert [%{"id" => project_id, "name" => "me-test-project"}] = data["projects"]
       assert project_id == project.id
     end

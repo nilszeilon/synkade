@@ -503,7 +503,7 @@ defmodule SynkadeWeb.Components.IssueView do
   defp agent_display_name(msg) do
     kind = msg["agent_kind"]
 
-    if kind && Agent.ephemeral_kind?(kind) do
+    if kind do
       brand_label(kind)
     else
       msg["agent_name"] || "agent"

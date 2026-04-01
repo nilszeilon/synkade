@@ -16,7 +16,8 @@ defmodule Synkade.Jobs do
       projects: projects,
       running: running_agents_map(scope),
       retry_attempts: retrying_agents_map(scope),
-      awaiting_review: %{},  # stub: kept for snapshot compat
+      # stub: kept for snapshot compat
+      awaiting_review: %{},
       agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, runtime_seconds: 0.0},
       agent_totals_by_project: %{},
       config_error: config_error,
@@ -100,6 +101,19 @@ defmodule Synkade.Jobs do
     Phoenix.PubSub.broadcast(Synkade.PubSub, pubsub_topic(scope), {:jobs_changed})
   end
 
+  @doc "Broadcast jobs_changed for a project (looks up the owning user)."
+  def broadcast_jobs_changed(project_id) do
+    case Synkade.Settings.get_project!(project_id) do
+      %{user_id: user_id} ->
+        Phoenix.PubSub.broadcast(Synkade.PubSub, pubsub_topic(user_id), {:jobs_changed})
+
+      _ ->
+        :ok
+    end
+  rescue
+    _ -> :ok
+  end
+
   @doc "Load projects configuration from Settings for the scoped user."
   def load_projects(%Scope{} = scope) do
     settings = try_load(fn -> Synkade.Settings.get_settings(scope) end)
@@ -142,7 +156,6 @@ defmodule Synkade.Jobs do
               name: project.name,
               db_id: project.id,
               config: config,
-
               max_concurrent_agents: Synkade.Workflow.Config.max_concurrent_agents(config),
               enabled: project.enabled
             }
@@ -165,6 +178,10 @@ defmodule Synkade.Jobs do
   end
 
   defp running_agents_map(%Scope{} = scope) do
+    oban_running_entries(scope)
+  end
+
+  defp oban_running_entries(%Scope{} = scope) do
     jobs = running_agents(scope)
     project_cache = load_project_names(scope)
 
