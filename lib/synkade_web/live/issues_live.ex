@@ -46,6 +46,7 @@ defmodule SynkadeWeb.IssuesLive do
       |> assign(:agents, Settings.list_agents(scope))
       |> assign(:setting, Settings.get_settings(scope))
       |> assign(:selected_agent_id, nil)
+      |> assign(:selected_dispatch_agent_id, nil)
       |> assign(model_picker_assigns())
       |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
       |> assign(:session_events, [])
@@ -227,6 +228,16 @@ defmodule SynkadeWeb.IssuesLive do
   end
 
   @impl true
+  def handle_event("select_dispatch_agent", %{"id" => agent_id}, socket) do
+    socket =
+      socket
+      |> assign(:selected_dispatch_agent_id, agent_id)
+      |> assign(:selected_model, nil)
+
+    {:noreply, socket}
+  end
+
+  @impl true
   def handle_event("save_issue", params, socket) do
     issue_params = params["issue"]
     project_id = issue_params["project_id"] || socket.assigns.form_project_id
@@ -296,12 +307,27 @@ defmodule SynkadeWeb.IssuesLive do
     message = String.trim(dispatch_params["message"] || "")
     model = dispatch_params["model"]
     model = if model == "", do: nil, else: model
+    picker_agent_id = dispatch_params["agent_id"]
+    picker_agent_id = if picker_agent_id == "", do: nil, else: picker_agent_id
 
     if message == "" do
       {:noreply, put_flash(socket, :error, "Dispatch message cannot be empty")}
     else
       issue = socket.assigns.selected_issue.issue
       {agent_name, instruction, agent_id} = resolve_dispatch(socket.assigns.current_scope, message)
+
+      # @agent syntax overrides the picker; otherwise use picker selection
+      {agent_name, agent_id} =
+        if agent_id do
+          {agent_name, agent_id}
+        else
+          case picker_agent_id do
+            nil -> {nil, nil}
+            id ->
+              agent = Enum.find(socket.assigns.agents, &(&1.id == id))
+              {agent && agent.name, id}
+          end
+        end
 
       case Issues.dispatch_issue(issue, instruction, agent_id, model: model) do
         {:ok, _} ->
@@ -421,6 +447,15 @@ defmodule SynkadeWeb.IssuesLive do
     end
   end
 
+  defp dispatch_agent_kind(selected_agent_id, agents, issue, setting, projects) do
+    if selected_agent_id do
+      agent = Enum.find(agents, &(&1.id == selected_agent_id))
+      agent && agent.kind
+    else
+      resolved_agent_kind(issue, agents, setting, projects)
+    end
+  end
+
   defp new_issue_path(filter, parent_id) do
     params = %{"new" => "true"}
     params = if filter, do: Map.put(params, "filter", filter), else: params
@@ -459,8 +494,9 @@ defmodule SynkadeWeb.IssuesLive do
               back_path={issues_path(@state_filter)}
               back_label="Issues"
               selected_model={@selected_model}
-              resolved_agent_kind={resolved_agent_kind(@selected_issue.issue, @agents, @setting, @projects)}
+              resolved_agent_kind={dispatch_agent_kind(@selected_dispatch_agent_id, @agents, @selected_issue.issue, @setting, @projects)}
               model_picker={@model_picker}
+              selected_dispatch_agent_id={@selected_dispatch_agent_id}
             />
 
           <% @view_mode == :create -> %>

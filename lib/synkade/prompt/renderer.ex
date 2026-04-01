@@ -25,6 +25,24 @@ defmodule Synkade.Prompt.Renderer do
   {% endif %}
   """
 
+  @conversation_template """
+  {% if conversation_messages.size > 0 %}
+
+  ## Conversation History
+  {% for msg in conversation_messages %}
+  {% if msg.type == "dispatch" %}
+  ### User{% if msg.agent_name %} (to {{ msg.agent_name }}){% endif %}:
+  {{ msg.text }}
+  {% elsif msg.type == "agent" %}
+  ### {{ msg.agent_name | default: "Agent" }} output:
+  {{ msg.text }}
+  {% elsif msg.type == "system" %}
+  _System: {{ msg.text }}_
+  {% endif %}
+  {% endfor %}
+  {% endif %}
+  """
+
   @dispatch_template """
   {% if dispatch_message %}
 
@@ -40,26 +58,35 @@ defmodule Synkade.Prompt.Renderer do
           map(),
           integer() | nil,
           list(),
-          String.t() | nil
+          String.t() | nil,
+          list()
         ) ::
           {:ok, String.t()} | {:error, term()}
-  def render(project, issue, attempt \\ nil, ancestors \\ [], dispatch_message \\ nil)
+  def render(project, issue, attempt \\ nil, ancestors \\ [], dispatch_message \\ nil, conversation_messages \\ [])
 
-  def render(project, issue, attempt, ancestors, dispatch_message) do
-    do_render(@default_template, project, issue, attempt, ancestors, dispatch_message)
+  def render(project, issue, attempt, ancestors, dispatch_message, conversation_messages) do
+    do_render(@default_template, project, issue, attempt, ancestors, dispatch_message, conversation_messages)
   end
 
   @doc "Render with a custom template. Used for testing."
   def render_custom(template, project, issue, attempt \\ nil, ancestors \\ [], dispatch_message \\ nil) do
-    do_render(template || @default_template, project, issue, attempt, ancestors, dispatch_message)
+    do_render(template || @default_template, project, issue, attempt, ancestors, dispatch_message, [])
   end
 
-  defp do_render(template, project, issue, attempt, ancestors, dispatch_message) do
+  defp do_render(template, project, issue, attempt, ancestors, dispatch_message, conversation_messages) do
 
     # Add ancestor context if there are ancestors
     template =
       if ancestors != [] do
         @ancestor_template <> template
+      else
+        template
+      end
+
+    # Add conversation history before the current dispatch
+    template =
+      if conversation_messages != [] do
+        template <> @conversation_template
       else
         template
       end
@@ -82,7 +109,8 @@ defmodule Synkade.Prompt.Renderer do
         "attempt" => attempt,
         "ancestors" => Enum.map(ancestors, &stringify_keys/1),
         "has_parent" => ancestors != [],
-        "dispatch_message" => dispatch_message
+        "dispatch_message" => dispatch_message,
+        "conversation_messages" => truncate_messages(conversation_messages)
       }
 
     with {:ok, parsed} <- parse_template(template),
@@ -136,4 +164,20 @@ defmodule Synkade.Prompt.Renderer do
   defp format_error(%{message: msg}), do: msg
   defp format_error(error) when is_binary(error), do: error
   defp format_error(error), do: inspect(error)
+
+  @max_agent_output_chars 2000
+
+  defp truncate_messages(messages) when is_list(messages) do
+    Enum.map(messages, fn msg ->
+      case msg do
+        %{"type" => "agent", "text" => text} when is_binary(text) and byte_size(text) > @max_agent_output_chars ->
+          Map.put(msg, "text", String.slice(text, -@max_agent_output_chars..-1))
+
+        _ ->
+          msg
+      end
+    end)
+  end
+
+  defp truncate_messages(_), do: []
 end
