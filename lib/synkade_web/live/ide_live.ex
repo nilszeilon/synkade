@@ -38,7 +38,6 @@ defmodule SynkadeWeb.IdeLive do
           |> assign(:active_tab, :issues)
           |> assign(:current_project, project.name)
           |> assign(:issue, nil)
-          |> assign(:ancestors, [])
           |> assign(:project, project)
           |> assign(:projects, orc_state.projects)
           |> assign(:running, orc_state.running)
@@ -58,6 +57,7 @@ defmodule SynkadeWeb.IdeLive do
           |> assign(:session_events, [])
           |> assign(:session_id, nil)
           |> assign(:session_subscribed, nil)
+          |> assign(:selected_dispatch_agent_id, nil)
           |> assign(:turn_start_sha, nil)
           |> assign(:turn_started_at, nil)
           |> assign(:last_turn_files, [])
@@ -90,7 +90,6 @@ defmodule SynkadeWeb.IdeLive do
         end
 
         orc_state = Jobs.get_state(scope)
-        ancestors = Issues.ancestor_chain(issue)
         project = Settings.get_project!(issue.project_id)
         workspace_path = resolve_workspace_path(scope, project, issue)
 
@@ -123,7 +122,6 @@ defmodule SynkadeWeb.IdeLive do
           |> assign(:active_tab, :issues)
           |> assign(:current_project, project.name)
           |> assign(:issue, issue)
-          |> assign(:ancestors, ancestors)
           |> assign(:project, project)
           |> assign(:projects, orc_state.projects)
           |> assign(:running, orc_state.running)
@@ -143,6 +141,7 @@ defmodule SynkadeWeb.IdeLive do
           |> assign(:session_events, session_events)
           |> assign(:session_id, session_id)
           |> assign(:session_subscribed, session_subscribed)
+          |> assign(:selected_dispatch_agent_id, nil)
           |> assign(:turn_start_sha, if(session_subscribed, do: current_head_sha(workspace_path), else: nil))
           |> assign(:turn_started_at, if(session_subscribed, do: System.monotonic_time(:millisecond), else: nil))
           |> assign(:last_turn_files, [])
@@ -162,6 +161,18 @@ defmodule SynkadeWeb.IdeLive do
 
         {:ok, socket}
     end
+  end
+
+  @impl true
+  def handle_params(params, _uri, socket) do
+    # Pick up agent query param from agent picker navigation
+    socket =
+      case params["agent"] do
+        nil -> socket
+        agent_id -> assign(socket, :selected_dispatch_agent_id, agent_id)
+      end
+
+    {:noreply, socket}
   end
 
   # --- Handle Info ---
@@ -265,12 +276,9 @@ defmodule SynkadeWeb.IdeLive do
         {:noreply, push_navigate(socket, to: "/issues")}
 
       updated ->
-        ancestors = Issues.ancestor_chain(updated)
-
         {:noreply,
          socket
          |> assign(:issue, updated)
-         |> assign(:ancestors, ancestors)
          |> SynkadeWeb.Sidebar.assign_sidebar(socket.assigns.current_scope)}
     end
   end
@@ -357,6 +365,14 @@ defmodule SynkadeWeb.IdeLive do
     else
       {:noreply, socket}
     end
+  end
+
+  @impl true
+  def handle_event("select_dispatch_agent", %{"id" => agent_id}, socket) do
+    {:noreply,
+     socket
+     |> assign(:selected_dispatch_agent_id, agent_id)
+     |> assign(:selected_model, nil)}
   end
 
   @impl true
@@ -603,10 +619,7 @@ defmodule SynkadeWeb.IdeLive do
                   </div>
 
                   <%!-- Issue context --%>
-                  <div :if={@issue && (body_without_title(@issue.body) || @ancestors != [])} class="space-y-2 mb-2">
-                    <div :for={ancestor <- Enum.reverse(@ancestors)} class="text-xs text-base-content/40">
-                      {Issue.title(ancestor)}
-                    </div>
+                  <div :if={@issue && body_without_title(@issue.body)} class="space-y-2 mb-2">
                     <div :if={body_without_title(@issue.body)} class="flex justify-end">
                       <div class="max-w-[85%] rounded-2xl rounded-br-sm bg-primary/10 px-4 py-2.5 text-sm prose-chat">
                         {md(body_without_title(@issue.body))}
@@ -800,9 +813,32 @@ defmodule SynkadeWeb.IdeLive do
                     phx-hook="SubmitOnEnter"
                   ><%= @dispatch_form[:message].value %></textarea>
 
+                  <%!-- Agent selector + hidden field --%>
+                  <input type="hidden" name="dispatch[agent_id]" value={@selected_dispatch_agent_id || ""} />
+
                   <%!-- Bottom toolbar --%>
                   <div class="flex items-center justify-between px-3 pb-2.5">
-                    <div class="flex items-center gap-1">
+                    <div class="flex items-center gap-1.5">
+                      <button
+                        :for={agent <- @agents}
+                        type="button"
+                        phx-click="select_dispatch_agent"
+                        phx-value-id={agent.id}
+                        class={[
+                          "flex items-center gap-1 px-2 py-1 rounded-md border text-xs transition-all cursor-pointer",
+                          if(@selected_dispatch_agent_id == agent.id,
+                            do: "border-primary bg-primary/10",
+                            else: "border-transparent hover:border-base-content/20"
+                          )
+                        ]}
+                        title={agent.name}
+                      >
+                        <span class={brand_color(agent.kind)}>
+                          <.agent_icon kind={agent.kind} class="size-3.5" />
+                        </span>
+                        <span class="text-base-content/60">{agent.name}</span>
+                      </button>
+                      <span class="text-base-content/10 mx-0.5">|</span>
                       <.model_trigger
                         agent_kind={ide_resolved_agent_kind(assigns)}
                         selected_model={@selected_model}
@@ -1228,7 +1264,7 @@ defmodule SynkadeWeb.IdeLive do
     case Issues.create_issue(%{project_id: project.id, body: body}) do
       {:ok, issue} ->
         {agent_name, instruction, agent_id} =
-          SynkadeWeb.IssueLiveHelpers.resolve_dispatch(socket.assigns.current_scope, full_message)
+          resolve_dispatch_with_picker(socket, full_message)
 
         case Issues.dispatch_issue(issue, instruction, agent_id, model: socket.assigns.selected_model) do
           {:ok, _} ->
@@ -1265,7 +1301,7 @@ defmodule SynkadeWeb.IdeLive do
       end
 
     {agent_name, instruction, agent_id} =
-      SynkadeWeb.IssueLiveHelpers.resolve_dispatch(socket.assigns.current_scope, full_message)
+      resolve_dispatch_with_picker(socket, full_message)
 
     case Issues.dispatch_issue(issue, instruction, agent_id, model: socket.assigns.selected_model) do
       {:ok, _} ->
@@ -1466,23 +1502,48 @@ defmodule SynkadeWeb.IdeLive do
     if dir == ".", do: "", else: dir <> "/"
   end
 
+  # Resolve dispatch agent: @agent syntax wins, then picker, then nil
+  defp resolve_dispatch_with_picker(socket, message) do
+    {agent_name, instruction, agent_id} =
+      SynkadeWeb.IssueLiveHelpers.resolve_dispatch(socket.assigns.current_scope, message)
+
+    if agent_id do
+      {agent_name, instruction, agent_id}
+    else
+      picker_id = socket.assigns.selected_dispatch_agent_id
+
+      case picker_id do
+        nil -> {nil, instruction, nil}
+        id ->
+          agent = Enum.find(socket.assigns.agents, &(&1.id == id))
+          {agent && agent.name, instruction, id}
+      end
+    end
+  end
+
   defp ide_resolved_agent_kind(assigns) do
-    cond do
-      assigns.running_entry && assigns.running_entry[:agent_kind] ->
-        assigns.running_entry[:agent_kind]
+    # If user explicitly picked an agent in the dispatch form, use that
+    if assigns.selected_dispatch_agent_id do
+      agent = Enum.find(assigns.agents, &(&1.id == assigns.selected_dispatch_agent_id))
+      agent && agent.kind
+    else
+      cond do
+        assigns.running_entry && assigns.running_entry[:agent_kind] ->
+          assigns.running_entry[:agent_kind]
 
-      assigns.issue ->
-        setting = Settings.get_settings_for_user(assigns.current_scope.user.id)
-        resolved_agent_kind(assigns.issue, assigns.agents, setting, [assigns.project])
+        assigns.issue ->
+          setting = Settings.get_settings_for_user(assigns.current_scope.user.id)
+          resolved_agent_kind(assigns.issue, assigns.agents, setting, [assigns.project])
 
-      true ->
-        # New chat — resolve from project/user defaults
-        setting = Settings.get_settings_for_user(assigns.current_scope.user.id)
-        agent = Settings.resolve_agent(assigns.agents,
-          project_agent_id: assigns.project && assigns.project.default_agent_id,
-          user_default_id: setting && setting.default_agent_id
-        )
-        agent && agent.kind
+        true ->
+          # New chat — resolve from project/user defaults
+          setting = Settings.get_settings_for_user(assigns.current_scope.user.id)
+          agent = Settings.resolve_agent(assigns.agents,
+            project_agent_id: assigns.project && assigns.project.default_agent_id,
+            user_default_id: setting && setting.default_agent_id
+          )
+          agent && agent.kind
+      end
     end
   end
 

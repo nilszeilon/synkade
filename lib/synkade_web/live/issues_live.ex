@@ -39,13 +39,12 @@ defmodule SynkadeWeb.IssuesLive do
       |> assign(:view_mode, :list)
       |> assign(:form, nil)
       |> assign(:form_project_id, nil)
-      |> assign(:form_parent_id, nil)
-      |> assign(:create_ancestors, [])
       |> assign(:collapsed, MapSet.new())
       |> SynkadeWeb.Sidebar.assign_sidebar(scope)
       |> assign(:agents, Settings.list_agents(scope))
       |> assign(:setting, Settings.get_settings(scope))
       |> assign(:selected_agent_id, nil)
+      |> assign(:selected_dispatch_agent_id, nil)
       |> assign(model_picker_assigns())
       |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
       |> assign(:session_events, [])
@@ -139,11 +138,15 @@ defmodule SynkadeWeb.IssuesLive do
   @impl true
   def handle_info({:projects_updated}, socket) do
     projects = Settings.list_projects(socket.assigns.current_scope)
+    state = Jobs.get_state(socket.assigns.current_scope)
 
     {:noreply,
      socket
      |> assign(:db_projects, projects)
-     |> assign(:project_names, Map.new(projects, &{&1.id, &1.name}))}
+     |> assign(:project_names, Map.new(projects, &{&1.id, &1.name}))
+     |> assign(:projects, state.projects)
+     |> assign(:running, state.running)
+     |> SynkadeWeb.Sidebar.assign_sidebar(socket.assigns.current_scope)}
   end
 
   @impl true
@@ -200,9 +203,8 @@ defmodule SynkadeWeb.IssuesLive do
   end
 
   @impl true
-  def handle_event("new_issue", params, socket) do
-    parent_id = params["parent_id"]
-    path = new_issue_path(socket.assigns.state_filter, parent_id)
+  def handle_event("new_issue", _params, socket) do
+    path = new_issue_path(socket.assigns.state_filter)
     {:noreply, push_patch(socket, to: path)}
   end
 
@@ -227,6 +229,16 @@ defmodule SynkadeWeb.IssuesLive do
   end
 
   @impl true
+  def handle_event("select_dispatch_agent", %{"id" => agent_id}, socket) do
+    socket =
+      socket
+      |> assign(:selected_dispatch_agent_id, agent_id)
+      |> assign(:selected_model, nil)
+
+    {:noreply, socket}
+  end
+
+  @impl true
   def handle_event("save_issue", params, socket) do
     issue_params = params["issue"]
     project_id = issue_params["project_id"] || socket.assigns.form_project_id
@@ -234,7 +246,6 @@ defmodule SynkadeWeb.IssuesLive do
     issue_params =
       issue_params
       |> Map.put("project_id", project_id)
-      |> SynkadeWeb.IssueLiveHelpers.maybe_put_parent(socket.assigns[:form_parent_id])
 
     case Issues.create_issue(issue_params) do
       {:ok, issue} ->
@@ -296,6 +307,8 @@ defmodule SynkadeWeb.IssuesLive do
     message = String.trim(dispatch_params["message"] || "")
     model = dispatch_params["model"]
     model = if model == "", do: nil, else: model
+    picker_agent_id = dispatch_params["agent_id"]
+    picker_agent_id = if picker_agent_id == "", do: nil, else: picker_agent_id
 
     if message == "" do
       {:noreply, put_flash(socket, :error, "Dispatch message cannot be empty")}
@@ -303,12 +316,28 @@ defmodule SynkadeWeb.IssuesLive do
       issue = socket.assigns.selected_issue.issue
       {agent_name, instruction, agent_id} = resolve_dispatch(socket.assigns.current_scope, message)
 
+      # @agent syntax overrides the picker; otherwise use picker selection
+      {agent_name, agent_id} =
+        if agent_id do
+          {agent_name, agent_id}
+        else
+          case picker_agent_id do
+            nil -> {nil, nil}
+            id ->
+              agent = Enum.find(socket.assigns.agents, &(&1.id == id))
+              {agent && agent.name, id}
+          end
+        end
+
       case Issues.dispatch_issue(issue, instruction, agent_id, model: model) do
         {:ok, _} ->
+          issue = socket.assigns.selected_issue.issue
+          db_project = Enum.find(socket.assigns.db_projects, &(&1.id == issue.project_id))
+
           socket =
             socket
             |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
-            |> assign(:selected_model, nil)
+            |> assign(:selected_model, db_project && db_project.default_model)
             |> load_issues()
             |> put_flash(
               :info,
@@ -421,10 +450,18 @@ defmodule SynkadeWeb.IssuesLive do
     end
   end
 
-  defp new_issue_path(filter, parent_id) do
+  defp dispatch_agent_kind(selected_agent_id, agents, issue, setting, projects) do
+    if selected_agent_id do
+      agent = Enum.find(agents, &(&1.id == selected_agent_id))
+      agent && agent.kind
+    else
+      resolved_agent_kind(issue, agents, setting, projects)
+    end
+  end
+
+  defp new_issue_path(filter) do
     params = %{"new" => "true"}
     params = if filter, do: Map.put(params, "filter", filter), else: params
-    params = if parent_id, do: Map.put(params, "parent_id", parent_id), else: params
     "/issues?" <> URI.encode_query(params)
   end
 
@@ -450,7 +487,6 @@ defmodule SynkadeWeb.IssuesLive do
           <% @view_mode == :detail && @selected_issue -> %>
             <.issue_full_view
               issue={@selected_issue.issue}
-              ancestors={@selected_issue.ancestors}
               dispatch_form={@dispatch_form}
               agents={@agents}
               session_events={@session_events}
@@ -459,8 +495,9 @@ defmodule SynkadeWeb.IssuesLive do
               back_path={issues_path(@state_filter)}
               back_label="Issues"
               selected_model={@selected_model}
-              resolved_agent_kind={resolved_agent_kind(@selected_issue.issue, @agents, @setting, @projects)}
+              resolved_agent_kind={dispatch_agent_kind(@selected_dispatch_agent_id, @agents, @selected_issue.issue, @setting, @projects)}
               model_picker={@model_picker}
+              selected_dispatch_agent_id={@selected_dispatch_agent_id}
             />
 
           <% @view_mode == :create -> %>
@@ -470,8 +507,6 @@ defmodule SynkadeWeb.IssuesLive do
               agents={@agents}
               selected_agent_id={@selected_agent_id}
               form_project_id={@form_project_id}
-              form_parent_id={@form_parent_id}
-              create_ancestors={@create_ancestors}
               back_path={issues_path(@state_filter)}
             />
 

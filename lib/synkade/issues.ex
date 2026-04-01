@@ -22,7 +22,7 @@ defmodule Synkade.Issues do
       join: p in Project,
       on: i.project_id == p.id,
       where: p.user_id == ^user_id and i.state != "done",
-      order_by: [asc: i.position, asc: i.inserted_at]
+      order_by: [asc: i.inserted_at]
     )
     |> Repo.all()
     |> Enum.group_by(& &1.project_id)
@@ -34,14 +34,12 @@ defmodule Synkade.Issues do
     query =
       from(i in Issue,
         where: i.project_id == ^project_id,
-        order_by: [asc: i.position, asc: i.inserted_at]
+        order_by: [asc: i.inserted_at]
       )
 
     query =
       Enum.reduce(opts, query, fn
         {:state, state}, q -> where(q, [i], i.state == ^state)
-        {:parent_id, nil}, q -> where(q, [i], is_nil(i.parent_id))
-        {:parent_id, pid}, q -> where(q, [i], i.parent_id == ^pid)
         _, q -> q
       end)
 
@@ -88,15 +86,13 @@ defmodule Synkade.Issues do
   def list_issues_filtered(project_id, states) when is_list(states) do
     from(i in Issue,
       where: i.project_id == ^project_id and i.state in ^states,
-      order_by: [asc: i.position, asc: i.inserted_at]
+      order_by: [asc: i.inserted_at]
     )
     |> Repo.all()
   end
 
   def get_issue!(id) do
-    Issue
-    |> Repo.get!(id)
-    |> Repo.preload(children: children_preload_query())
+    Repo.get!(Issue, id)
   end
 
   def get_issue(id) do
@@ -104,8 +100,6 @@ defmodule Synkade.Issues do
   end
 
   def create_issue(attrs) do
-    attrs = compute_depth(attrs)
-
     result =
       %Issue{}
       |> Issue.changeset(attrs)
@@ -258,6 +252,8 @@ defmodule Synkade.Issues do
   end
 
   def dispatch_issue(%Issue{} = issue, dispatch_message, assigned_agent_id \\ nil, opts \\ []) do
+    # Re-read from DB to get fresh metadata (avoids stale messages from LiveView struct)
+    issue = get_issue!(issue.id)
     model = Keyword.get(opts, :model)
 
     {agent_name, agent_kind} =
@@ -322,6 +318,8 @@ defmodule Synkade.Issues do
 
   @doc "Appends an agent output entry to the issue message history."
   def append_agent_output(%Issue{} = issue, agent_output, agent_name \\ nil, agent_kind \\ nil) do
+    # Re-read from DB to get fresh metadata
+    issue = get_issue!(issue.id)
     messages = issue.metadata["messages"] || []
 
     new_entry = %{
@@ -338,13 +336,20 @@ defmodule Synkade.Issues do
     })
   end
 
-  # --- Tree Operations ---
+  @doc "Appends a system error message to the issue message history."
+  def append_error_message(%Issue{} = issue, error_text) do
+    issue = get_issue!(issue.id)
+    messages = (issue.metadata || %{})["messages"] || []
 
-  def ancestor_chain(%Issue{parent_id: nil}), do: []
+    new_entry = %{
+      "type" => "system",
+      "text" => error_text,
+      "at" => DateTime.utc_now() |> DateTime.to_iso8601()
+    }
 
-  def ancestor_chain(%Issue{parent_id: parent_id}) do
-    parent = get_issue!(parent_id)
-    ancestor_chain(parent) ++ [parent]
+    update_issue(issue, %{
+      metadata: Map.put(issue.metadata || %{}, "messages", messages ++ [new_entry])
+    })
   end
 
   def list_worked_on_issues(project_id) do
@@ -390,58 +395,12 @@ defmodule Synkade.Issues do
     end
   end
 
-  # --- Agent Child Creation ---
-
-  def create_children_from_agent(%Issue{} = parent, children_attrs_list)
-      when is_list(children_attrs_list) do
-    children_attrs_list
-    |> Enum.with_index()
-    |> Enum.map(fn {attrs, index} ->
-      attrs = stringify_keys(attrs)
-
-      attrs =
-        attrs
-        |> Map.put("project_id", parent.project_id)
-        |> Map.put("parent_id", parent.id)
-        |> Map.put("depth", parent.depth + 1)
-        |> Map.put("state", "backlog")
-        |> Map.put_new("position", index)
-
-      create_issue(attrs)
-    end)
-  end
-
   # --- Private ---
-
-  defp compute_depth(attrs) do
-    attrs = stringify_keys(attrs)
-    parent_id = attrs["parent_id"]
-
-    if parent_id do
-      case Repo.get(Issue, parent_id) do
-        %Issue{depth: parent_depth} ->
-          Map.put(attrs, "depth", parent_depth + 1)
-
-        nil ->
-          attrs
-      end
-    else
-      Map.put_new(attrs, "depth", 0)
-    end
-  end
-
-  defp stringify_keys(map) when is_map(map) do
-    Map.new(map, fn {k, v} -> {to_string(k), v} end)
-  end
 
   defp interval_to_seconds(amount, "hours"), do: amount * 3600
   defp interval_to_seconds(amount, "days"), do: amount * 86400
   defp interval_to_seconds(amount, "weeks"), do: amount * 604_800
   defp interval_to_seconds(amount, _), do: amount * 3600
-
-  defp children_preload_query do
-    from(i in Issue, order_by: [asc: i.position, asc: i.inserted_at])
-  end
 
   defp broadcast_update(%Issue{project_id: project_id}) do
     user_id = Repo.one(from(p in Project, where: p.id == ^project_id, select: p.user_id))

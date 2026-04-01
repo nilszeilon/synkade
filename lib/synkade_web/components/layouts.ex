@@ -114,13 +114,14 @@ defmodule SynkadeWeb.Layouts do
                 >
                   <.icon name="hero-link" class="size-3" />
                 </.link>
-                <.link
-                  navigate={"/chat/#{name}"}
+                <button
+                  phx-click="open_agent_picker"
+                  phx-value-project={name}
                   class="hover:text-primary"
                   title="New chat"
                 >
                   <.icon name="hero-plus" class="size-3" />
-                </.link>
+                </button>
               </span>
             </div>
             <%!-- Issues list --%>

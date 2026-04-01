@@ -5,7 +5,7 @@ defmodule SynkadeWeb.DashboardLive do
   import SynkadeWeb.Components.TokenChart
   import SynkadeWeb.IssueLiveHelpers
   import SynkadeWeb.ModelPickerHelpers,
-    only: [handle_model_picker_event: 3, handle_model_picker_info: 2, model_picker_assigns: 0]
+    only: [handle_model_picker_event: 3, handle_model_picker_info: 2, model_picker_assigns: 0, model_picker_assigns: 1]
 
   alias Synkade.{Issues, Jobs, Settings}
   alias Synkade.Tracker.Client, as: TrackerClient
@@ -25,6 +25,7 @@ defmodule SynkadeWeb.DashboardLive do
       Phoenix.PubSub.subscribe(Synkade.PubSub, Jobs.pubsub_topic(scope))
       Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic(scope))
       Phoenix.PubSub.subscribe(Synkade.PubSub, Issues.pubsub_topic(scope.user.id))
+      Phoenix.PubSub.subscribe(Synkade.PubSub, "token_usage:#{scope.user.id}")
     end
 
     state = Jobs.get_state(scope)
@@ -64,8 +65,6 @@ defmodule SynkadeWeb.DashboardLive do
       |> assign(:session_subscribed, nil)
       |> assign(:form, nil)
       |> assign(:form_project_id, nil)
-      |> assign(:form_parent_id, nil)
-      |> assign(:create_ancestors, [])
       |> assign(:tracker_issues, [])
       |> assign(:tracker_filter, "")
       |> assign(:tracker_loading, false)
@@ -147,6 +146,16 @@ defmodule SynkadeWeb.DashboardLive do
           |> assign(:selected_issue, nil)
           |> assign(:view_mode, if(project_name, do: :board, else: :overview))
       end
+
+    # Look up DB project so model picker can load/persist default_model
+    db_project =
+      if project_name,
+        do: Settings.get_project_by_name(socket.assigns.current_scope, project_name)
+
+    socket =
+      socket
+      |> assign(:project, db_project)
+      |> assign(model_picker_assigns(db_project))
 
     if connected?(socket) && project_name && socket.assigns.view_mode not in [:detail, :create] do
       send(self(), :load_board)
@@ -383,6 +392,21 @@ defmodule SynkadeWeb.DashboardLive do
     {:noreply, socket}
   end
 
+  def handle_info(:token_usage_updated, socket) do
+    {:noreply, assign_chart_data(socket)}
+  end
+
+  @impl true
+  def handle_info({:projects_updated}, socket) do
+    state = Jobs.get_state(socket.assigns.current_scope)
+
+    {:noreply,
+     socket
+     |> assign(:projects, state.projects)
+     |> assign(:running, state.running)
+     |> SynkadeWeb.Sidebar.assign_sidebar(socket.assigns.current_scope)}
+  end
+
   @impl true
   def handle_info(msg, socket) do
     case handle_model_picker_info(msg, socket) do
@@ -494,10 +518,12 @@ defmodule SynkadeWeb.DashboardLive do
         {:ok, _} ->
           send(self(), :load_board)
 
+          project = socket.assigns[:project]
+
           socket =
             socket
             |> assign(:modal, nil)
-            |> assign(:selected_model, nil)
+            |> assign(:selected_model, project && project.default_model)
             |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
             |> put_flash(
               :info,
@@ -568,8 +594,7 @@ defmodule SynkadeWeb.DashboardLive do
 
   @impl true
   def handle_event("new_issue", params, socket) do
-    parent_id = params["parent_id"]
-    path = new_issue_path(socket.assigns.current_project, parent_id: parent_id)
+    path = new_issue_path(socket.assigns.current_project, body: params["body"])
     {:noreply, push_patch(socket, to: path)}
   end
 
@@ -674,7 +699,6 @@ defmodule SynkadeWeb.DashboardLive do
     issue_params =
       issue_params
       |> Map.put("project_id", project_id)
-      |> SynkadeWeb.IssueLiveHelpers.maybe_put_parent(socket.assigns[:form_parent_id])
 
     case Issues.create_issue(issue_params) do
       {:ok, issue} ->
@@ -758,10 +782,8 @@ defmodule SynkadeWeb.DashboardLive do
         # Update selected_issue if in detail view
         socket =
           if socket.assigns.view_mode == :detail do
-            ancestors = Issues.ancestor_chain(updated)
-
             socket
-            |> assign(:selected_issue, %{issue: updated, ancestors: ancestors})
+            |> assign(:selected_issue, %{issue: updated})
             |> assign(:modal, nil)
             |> put_flash(:info, "Issue updated")
           else
@@ -832,7 +854,6 @@ defmodule SynkadeWeb.DashboardLive do
   defp new_issue_path(project_name, opts \\ []) do
     base = if project_name, do: "/projects/#{project_name}", else: "/"
     params = %{"new" => "true"}
-    params = if opts[:parent_id], do: Map.put(params, "parent_id", opts[:parent_id]), else: params
     params = if opts[:body], do: Map.put(params, "body", opts[:body]), else: params
     base <> "?" <> URI.encode_query(params)
   end
@@ -1048,7 +1069,6 @@ defmodule SynkadeWeb.DashboardLive do
           <% @view_mode == :detail && @selected_issue -> %>
             <.issue_full_view
               issue={@selected_issue.issue}
-              ancestors={@selected_issue.ancestors}
               dispatch_form={@dispatch_form}
               agents={@agents}
               session_events={@session_events}
@@ -1071,8 +1091,6 @@ defmodule SynkadeWeb.DashboardLive do
               agents={@agents}
               selected_agent_id={@selected_agent_id}
               form_project_id={@form_project_id}
-              form_parent_id={@form_parent_id}
-              create_ancestors={@create_ancestors}
               back_path={dashboard_path(@current_project)}
             />
 

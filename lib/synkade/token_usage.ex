@@ -32,30 +32,34 @@ defmodule Synkade.TokenUsage do
   def record_usage(user_id, model, input_tokens, output_tokens, agent_id \\ nil)
 
   def record_usage(user_id, model, input_tokens, output_tokens, agent_id)
-      when is_integer(user_id) and is_binary(model) and is_integer(input_tokens) and
+      when is_binary(user_id) and is_binary(model) and is_integer(input_tokens) and
              is_integer(output_tokens) do
     today = Date.utc_today()
 
-    Repo.insert(
-      %__MODULE__{
-        user_id: user_id,
-        date: today,
-        model: model,
-        input_tokens: input_tokens,
-        output_tokens: output_tokens,
-        agent_id: agent_id
-      },
-      on_conflict:
-        from(t in __MODULE__,
-          update: [
-            set: [
-              input_tokens: fragment("? + ?", t.input_tokens, ^input_tokens),
-              output_tokens: fragment("? + ?", t.output_tokens, ^output_tokens)
+    result =
+      Repo.insert(
+        %__MODULE__{
+          user_id: user_id,
+          date: today,
+          model: model,
+          input_tokens: input_tokens,
+          output_tokens: output_tokens,
+          agent_id: agent_id
+        },
+        on_conflict:
+          from(t in __MODULE__,
+            update: [
+              set: [
+                input_tokens: fragment("? + ?", t.input_tokens, ^input_tokens),
+                output_tokens: fragment("? + ?", t.output_tokens, ^output_tokens)
+              ]
             ]
-          ]
-        ),
-      conflict_target: {:unsafe_fragment, conflict_target_fragment(agent_id)}
-    )
+          ),
+        conflict_target: {:unsafe_fragment, conflict_target_fragment(agent_id)}
+      )
+
+    Phoenix.PubSub.broadcast(Synkade.PubSub, "token_usage:#{user_id}", :token_usage_updated)
+    result
   end
 
   def record_usage(_user_id, _model, _input, _output, _agent_id), do: :ok
