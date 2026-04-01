@@ -53,8 +53,6 @@ defmodule Synkade.Issues.IssueTest do
     test "defaults", %{project: project} do
       changeset = Issue.changeset(%Issue{}, %{project_id: project.id})
       assert get_field(changeset, :state) == "backlog"
-      assert get_field(changeset, :depth) == 0
-      assert get_field(changeset, :position) == 0
     end
   end
 

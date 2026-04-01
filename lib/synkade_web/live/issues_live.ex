@@ -39,8 +39,6 @@ defmodule SynkadeWeb.IssuesLive do
       |> assign(:view_mode, :list)
       |> assign(:form, nil)
       |> assign(:form_project_id, nil)
-      |> assign(:form_parent_id, nil)
-      |> assign(:create_ancestors, [])
       |> assign(:collapsed, MapSet.new())
       |> SynkadeWeb.Sidebar.assign_sidebar(scope)
       |> assign(:agents, Settings.list_agents(scope))
@@ -200,9 +198,8 @@ defmodule SynkadeWeb.IssuesLive do
   end
 
   @impl true
-  def handle_event("new_issue", params, socket) do
-    parent_id = params["parent_id"]
-    path = new_issue_path(socket.assigns.state_filter, parent_id)
+  def handle_event("new_issue", _params, socket) do
+    path = new_issue_path(socket.assigns.state_filter)
     {:noreply, push_patch(socket, to: path)}
   end
 
@@ -234,7 +231,6 @@ defmodule SynkadeWeb.IssuesLive do
     issue_params =
       issue_params
       |> Map.put("project_id", project_id)
-      |> SynkadeWeb.IssueLiveHelpers.maybe_put_parent(socket.assigns[:form_parent_id])
 
     case Issues.create_issue(issue_params) do
       {:ok, issue} ->
@@ -421,10 +417,9 @@ defmodule SynkadeWeb.IssuesLive do
     end
   end
 
-  defp new_issue_path(filter, parent_id) do
+  defp new_issue_path(filter) do
     params = %{"new" => "true"}
     params = if filter, do: Map.put(params, "filter", filter), else: params
-    params = if parent_id, do: Map.put(params, "parent_id", parent_id), else: params
     "/issues?" <> URI.encode_query(params)
   end
 
@@ -450,7 +445,6 @@ defmodule SynkadeWeb.IssuesLive do
           <% @view_mode == :detail && @selected_issue -> %>
             <.issue_full_view
               issue={@selected_issue.issue}
-              ancestors={@selected_issue.ancestors}
               dispatch_form={@dispatch_form}
               agents={@agents}
               session_events={@session_events}
@@ -470,8 +464,6 @@ defmodule SynkadeWeb.IssuesLive do
               agents={@agents}
               selected_agent_id={@selected_agent_id}
               form_project_id={@form_project_id}
-              form_parent_id={@form_parent_id}
-              create_ancestors={@create_ancestors}
               back_path={issues_path(@state_filter)}
             />
 
