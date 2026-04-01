@@ -168,6 +168,7 @@ defmodule Synkade.Agent.Hermes do
       type: data["type"] || "unknown",
       session_id: data["session_id"] || get_in(data, ["metadata", "session_id"]),
       message: extract_message(data),
+      model: data["model"] || get_in(data, ["usage", "model"]),
       input_tokens: get_in(data, ["usage", "input_tokens"]) || 0,
       output_tokens: get_in(data, ["usage", "output_tokens"]) || 0,
       total_tokens:

@@ -62,6 +62,7 @@ defmodule SynkadeWeb.Router do
     patch "/issues/:id", AgentIssuesController, :update
     post "/issues/:id/checkout", AgentIssuesController, :checkout
     post "/heartbeat", AgentHeartbeatController, :create
+    post "/tokens", AgentTokenController, :create
 
     get "/state", StateController, :index
     get "/projects", StateController, :projects

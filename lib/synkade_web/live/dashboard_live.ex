@@ -25,6 +25,7 @@ defmodule SynkadeWeb.DashboardLive do
       Phoenix.PubSub.subscribe(Synkade.PubSub, Jobs.pubsub_topic(scope))
       Phoenix.PubSub.subscribe(Synkade.PubSub, Settings.pubsub_topic(scope))
       Phoenix.PubSub.subscribe(Synkade.PubSub, Issues.pubsub_topic(scope.user.id))
+      Phoenix.PubSub.subscribe(Synkade.PubSub, "token_usage:#{scope.user.id}")
     end
 
     state = Jobs.get_state(scope)
@@ -379,6 +380,10 @@ defmodule SynkadeWeb.DashboardLive do
       |> assign(:session_id, event.session_id || socket.assigns.session_id)
 
     {:noreply, socket}
+  end
+
+  def handle_info(:token_usage_updated, socket) do
+    {:noreply, assign_chart_data(socket)}
   end
 
   @impl true
