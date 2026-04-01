@@ -139,11 +139,15 @@ defmodule SynkadeWeb.IssuesLive do
   @impl true
   def handle_info({:projects_updated}, socket) do
     projects = Settings.list_projects(socket.assigns.current_scope)
+    state = Jobs.get_state(socket.assigns.current_scope)
 
     {:noreply,
      socket
      |> assign(:db_projects, projects)
-     |> assign(:project_names, Map.new(projects, &{&1.id, &1.name}))}
+     |> assign(:project_names, Map.new(projects, &{&1.id, &1.name}))
+     |> assign(:projects, state.projects)
+     |> assign(:running, state.running)
+     |> SynkadeWeb.Sidebar.assign_sidebar(socket.assigns.current_scope)}
   end
 
   @impl true

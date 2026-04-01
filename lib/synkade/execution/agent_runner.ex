@@ -34,6 +34,7 @@ defmodule Synkade.Execution.AgentRunner do
           "AgentRunner failed for #{project_name}:#{issue.identifier}: #{inspect(reason)}"
         )
 
+        broadcast_error(issue.id, "Agent failed to start: #{inspect(reason)}")
         {:error, reason}
     end
   end
@@ -129,11 +130,15 @@ defmodule Synkade.Execution.AgentRunner do
 
       {:exit, code} ->
         Logger.warning("Agent exited with code #{code} for #{project.name}:#{issue.identifier}")
+
+        broadcast_error(issue.id, "Agent exited with code #{code}")
         {:error, {:agent_exit, code}, session}
 
       :timeout ->
         Logger.warning("Agent turn timed out for #{project.name}:#{issue.identifier}")
         BackendClient.stop_agent(config, session)
+
+        broadcast_error(issue.id, "Agent timed out")
         {:error, :turn_timeout, session}
     end
   end
@@ -232,5 +237,19 @@ defmodule Synkade.Execution.AgentRunner do
       output = Enum.sum(Enum.map(model_events, & &1.output_tokens))
       TokenUsage.record_usage(user_id, model, input, output)
     end)
+  end
+
+  defp broadcast_error(issue_id, message) do
+    event = %Synkade.Agent.Event{
+      type: "error",
+      message: message,
+      timestamp: DateTime.utc_now()
+    }
+
+    Phoenix.PubSub.broadcast(
+      Synkade.PubSub,
+      "agent_events:#{issue_id}",
+      {:agent_event, event}
+    )
   end
 end

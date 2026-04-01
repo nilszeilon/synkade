@@ -10,11 +10,11 @@ defmodule SynkadeWeb.Plugs.Theme do
         %{user: user} when not is_nil(user) ->
           case Synkade.Settings.get_settings_for_user(user.id) do
             %{theme: theme} when is_binary(theme) -> theme
-            _ -> "ops"
+            _ -> "paper"
           end
 
         _ ->
-          "ops"
+          "paper"
       end
 
     assign(conn, :theme, theme)
