@@ -62,7 +62,6 @@ defmodule SynkadeWeb.Api.AgentIssuesController do
       attrs = %{
         project_id: project_id,
         body: body,
-        parent_id: params["parent_id"],
         state: params["state"] || "backlog"
       }
 
@@ -176,36 +175,6 @@ defmodule SynkadeWeb.Api.AgentIssuesController do
             {:error, :already_claimed} ->
               conn |> put_status(409) |> json(%{error: "issue is not in queued state"})
           end
-        else
-          conn |> put_status(403) |> json(%{error: "forbidden"})
-        end
-    end
-  end
-
-  def create_children(conn, %{"id" => id} = params) do
-    agent = conn.assigns.current_agent
-    children_attrs = params["children"] || []
-
-    case Issues.get_issue(id) do
-      nil ->
-        conn |> put_status(404) |> json(%{error: "not found"})
-
-      parent ->
-        if has_project_access?(agent, parent.project_id) do
-          children_maps =
-            Enum.map(children_attrs, fn child ->
-              body = child["body"] || assemble_body(child["title"], child["description"])
-              %{body: body}
-            end)
-
-          results = Issues.create_children_from_agent(parent, children_maps)
-
-          created =
-            results
-            |> Enum.filter(&match?({:ok, _}, &1))
-            |> Enum.map(fn {:ok, issue} -> issue end)
-
-          conn |> put_status(201) |> json(SynkadeWeb.Api.AgentIssuesJSON.issues(created))
         else
           conn |> put_status(403) |> json(%{error: "forbidden"})
         end

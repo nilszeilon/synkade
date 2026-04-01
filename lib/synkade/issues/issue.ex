@@ -13,8 +13,6 @@ defmodule Synkade.Issues.Issue do
   schema "issues" do
     field :body, :string
     field :state, :string, default: "backlog"
-    field :depth, :integer, default: 0
-    field :position, :integer, default: 0
     field :agent_output, :string
     field :github_issue_url, :string
     field :github_pr_url, :string
@@ -29,9 +27,7 @@ defmodule Synkade.Issues.Issue do
     field :last_heartbeat_message, :string
 
     belongs_to :project, Synkade.Settings.Project
-    belongs_to :parent, __MODULE__
     belongs_to :assigned_agent, Synkade.Settings.Agent
-    has_many :children, __MODULE__, foreign_key: :parent_id
 
     timestamps()
   end
@@ -50,8 +46,7 @@ defmodule Synkade.Issues.Issue do
   end
 
   @required_fields ~w(project_id)a
-  @optional_fields ~w(body state depth position parent_id
-                      agent_output github_issue_url github_pr_url metadata
+  @optional_fields ~w(body state agent_output github_issue_url github_pr_url metadata
                       dispatch_message assigned_agent_id
                       auto_merge recurring recurrence_interval recurrence_unit
                       last_heartbeat_at last_heartbeat_message)a
@@ -65,7 +60,6 @@ defmodule Synkade.Issues.Issue do
     |> validate_inclusion(:recurrence_unit, ~w(hours days weeks))
     |> validate_recurrence_minimum()
     |> foreign_key_constraint(:project_id)
-    |> foreign_key_constraint(:parent_id)
   end
 
   # Enforce minimum recurrence of 1 hour

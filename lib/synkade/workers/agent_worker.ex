@@ -103,22 +103,24 @@ defmodule Synkade.Workers.AgentWorker do
     tracker_issue = db_issue_to_tracker_issue(issue, db_project.name)
     attempt = job.attempt
 
-    case AgentRunner.run(project, tracker_issue, attempt) do
+    case AgentRunner.run(project, tracker_issue, attempt, db_project.user_id) do
       {:ok, {:pr_created, pr_url}, _session} ->
         handle_pr_created(issue, pr_url)
         :ok
 
-      {:ok, {:completed_with_output, agent_output, children}, _session} ->
-        handle_completed(issue, agent_output, children, agent)
+      {:ok, {:completed_with_output, agent_output}, _session} ->
+        handle_completed(issue, agent_output, agent)
         :ok
 
       {:ok, _reason, _session} ->
         :ok
 
       {:error, reason, _session} ->
+        handle_error(issue, reason, job)
         {:error, reason}
 
       {:error, reason} ->
+        handle_error(issue, reason, job)
         {:error, reason}
     end
   end
@@ -129,11 +131,27 @@ defmodule Synkade.Workers.AgentWorker do
     e -> Logger.warning("AgentWorker: failed to handle PR: #{inspect(e)}")
   end
 
-  defp handle_completed(issue, agent_output, children, agent) do
+  defp handle_error(issue, reason, job) do
+    error_text = format_error(reason)
+    Issues.append_error_message(issue, "Agent failed: #{error_text} (attempt #{job.attempt}/#{job.max_attempts})")
+
+    if job.attempt >= job.max_attempts do
+      Issues.append_error_message(issue, "All retries exhausted. Returning issue to backlog.")
+      Issues.transition_state(issue, "backlog")
+    end
+  rescue
+    e -> Logger.warning("AgentWorker: failed to handle error: #{inspect(e)}")
+  end
+
+  defp format_error({:agent_exit, code}), do: "exited with code #{code}"
+  defp format_error(:turn_timeout), do: "timed out"
+  defp format_error(reason) when is_binary(reason), do: reason
+  defp format_error(reason), do: inspect(reason)
+
+  defp handle_completed(issue, agent_output, agent) do
     agent_name = agent && agent.name
     agent_kind = agent && agent.kind
     Issues.append_agent_output(issue, agent_output, agent_name, agent_kind)
-    if issue && children != [], do: Issues.create_children_from_agent(issue, children)
   rescue
     e -> Logger.warning("AgentWorker: failed to handle completion: #{inspect(e)}")
   end

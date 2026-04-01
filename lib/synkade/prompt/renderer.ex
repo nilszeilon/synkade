@@ -10,21 +10,6 @@ defmodule Synkade.Prompt.Renderer do
   Use the synkade skill for git workflow, PR creation, API access, and status reporting.
   """
 
-  @ancestor_template """
-  {% if has_parent %}
-
-  ## Context from parent issues
-  {% for ancestor in ancestors %}
-  ### {{ ancestor.title }}
-  {{ ancestor.body }}
-  {% if ancestor.agent_output %}
-  #### Findings:
-  {{ ancestor.agent_output }}
-  {% endif %}
-  {% endfor %}
-  {% endif %}
-  """
-
   @conversation_template """
   {% if conversation_messages.size > 0 %}
 
@@ -53,36 +38,20 @@ defmodule Synkade.Prompt.Renderer do
 
   @auto_merge_line "\nAfter creating the PR, merge it immediately with `gh pr merge --merge`.\n"
 
-  @spec render(
-          map(),
-          map(),
-          integer() | nil,
-          list(),
-          String.t() | nil,
-          list()
-        ) ::
+  @spec render(map(), map(), integer() | nil, String.t() | nil, list()) ::
           {:ok, String.t()} | {:error, term()}
-  def render(project, issue, attempt \\ nil, ancestors \\ [], dispatch_message \\ nil, conversation_messages \\ [])
+  def render(project, issue, attempt \\ nil, dispatch_message \\ nil, conversation_messages \\ [])
 
-  def render(project, issue, attempt, ancestors, dispatch_message, conversation_messages) do
-    do_render(@default_template, project, issue, attempt, ancestors, dispatch_message, conversation_messages)
+  def render(project, issue, attempt, dispatch_message, conversation_messages) do
+    do_render(@default_template, project, issue, attempt, dispatch_message, conversation_messages)
   end
 
   @doc "Render with a custom template. Used for testing."
-  def render_custom(template, project, issue, attempt \\ nil, ancestors \\ [], dispatch_message \\ nil) do
-    do_render(template || @default_template, project, issue, attempt, ancestors, dispatch_message, [])
+  def render_custom(template, project, issue, attempt \\ nil, dispatch_message \\ nil) do
+    do_render(template || @default_template, project, issue, attempt, dispatch_message, [])
   end
 
-  defp do_render(template, project, issue, attempt, ancestors, dispatch_message, conversation_messages) do
-
-    # Add ancestor context if there are ancestors
-    template =
-      if ancestors != [] do
-        @ancestor_template <> template
-      else
-        template
-      end
-
+  defp do_render(template, project, issue, attempt, dispatch_message, conversation_messages) do
     # Add conversation history before the current dispatch
     template =
       if conversation_messages != [] do
@@ -107,8 +76,6 @@ defmodule Synkade.Prompt.Renderer do
         "project" => stringify_keys(project),
         "issue" => stringify_keys(issue),
         "attempt" => attempt,
-        "ancestors" => Enum.map(ancestors, &stringify_keys/1),
-        "has_parent" => ancestors != [],
         "dispatch_message" => dispatch_message,
         "conversation_messages" => truncate_messages(conversation_messages)
       }

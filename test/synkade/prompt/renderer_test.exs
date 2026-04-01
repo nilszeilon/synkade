@@ -87,7 +87,7 @@ defmodule Synkade.Prompt.RendererTest do
     end
   end
 
-  describe "render/6 with auto_merge" do
+  describe "render/4 with auto_merge" do
     test "includes auto-merge line when enabled" do
       issue = Map.put(@issue, :auto_merge, true)
       assert {:ok, rendered} = Renderer.render(@project, issue)
@@ -100,23 +100,23 @@ defmodule Synkade.Prompt.RendererTest do
     end
   end
 
-  describe "render/6 with dispatch_message" do
+  describe "render/4 with dispatch_message" do
     test "includes dispatch message in rendered output" do
       template = "Work on {{ issue.identifier }}"
-      assert {:ok, rendered} = Renderer.render_custom(template, @project, @issue, nil, [], "look into X")
+      assert {:ok, rendered} = Renderer.render_custom(template, @project, @issue, nil, "look into X")
       assert rendered =~ "## Human Instructions"
       assert rendered =~ "look into X"
     end
 
     test "omits dispatch section when nil" do
       template = "Work on {{ issue.identifier }}"
-      assert {:ok, rendered} = Renderer.render_custom(template, @project, @issue, nil, [], nil)
+      assert {:ok, rendered} = Renderer.render_custom(template, @project, @issue, nil, nil)
       refute rendered =~ "## Human Instructions"
     end
 
     test "omits dispatch section when not provided" do
       template = "Work on {{ issue.identifier }}"
-      assert {:ok, rendered} = Renderer.render_custom(template, @project, @issue, nil, [])
+      assert {:ok, rendered} = Renderer.render_custom(template, @project, @issue, nil)
       refute rendered =~ "## Human Instructions"
     end
   end

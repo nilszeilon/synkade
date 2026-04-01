@@ -7,10 +7,10 @@ defmodule Synkade.Execution.AgentRunner do
   alias Synkade.Execution.BackendClient
   alias Synkade.Tracker.Client, as: TrackerClient
   alias Synkade.Workflow.Config
-  alias Synkade.Issues.ChildParser
+  alias Synkade.TokenUsage
 
   @doc "Run a worker for an issue. Called from Oban AgentWorker."
-  def run(project, issue, attempt) do
+  def run(project, issue, attempt, user_id \\ nil) do
     config = project.config
     project_name = project.name
 
@@ -18,11 +18,13 @@ defmodule Synkade.Execution.AgentRunner do
       "AgentRunner starting for #{project_name}:#{issue.identifier} (attempt #{inspect(attempt)})"
     )
 
+    config_model = Config.get(config, "agent", "model")
+
     with {:ok, env_ref} <- BackendClient.setup_env(config, project_name, issue.identifier),
          :ok <- BackendClient.run_before_hook(config, env_ref),
          {:ok, prompt} <- render_prompt(project, issue, attempt),
          {:ok, session} <- start_agent(config, prompt, env_ref) do
-      result = event_loop(project, issue, session, config, 1)
+      result = event_loop(project, issue, session, config, 1, user_id, config_model)
       BackendClient.run_after_hook(config, env_ref)
       result
     else
@@ -31,6 +33,7 @@ defmodule Synkade.Execution.AgentRunner do
           "AgentRunner failed for #{project_name}:#{issue.identifier}: #{inspect(reason)}"
         )
 
+        broadcast_error(issue.id, "Agent failed to start: #{inspect(reason)}")
         {:error, reason}
     end
   end
@@ -39,48 +42,38 @@ defmodule Synkade.Execution.AgentRunner do
     project_map = %{name: project.name, config: project.config, db_id: project.db_id}
     issue_map = Map.from_struct(issue)
 
-    {ancestors, dispatch_message, conversation_messages, issue_map} =
+    {dispatch_message, conversation_messages} =
       try do
         case Synkade.Issues.get_issue(issue.id) do
           nil ->
-            {[], nil, [], issue_map}
+            {nil, []}
 
           db_issue ->
-            ancestor_maps =
-              Synkade.Issues.ancestor_chain(db_issue)
-              |> Enum.map(fn a ->
-                %{
-                  title: Synkade.Issues.Issue.title(a),
-                  body: a.body,
-                  agent_output: a.agent_output
-                }
-              end)
-
             # Include all messages except the last dispatch (which is the current one)
             all_messages = (db_issue.metadata || %{})["messages"] || []
             prior_messages = drop_trailing_dispatch(all_messages)
 
-            {ancestor_maps, db_issue.dispatch_message, prior_messages, issue_map}
+            {db_issue.dispatch_message, prior_messages}
         end
       catch
-        _, _ -> {[], nil, [], issue_map}
+        _, _ -> {nil, []}
       end
 
-    Renderer.render(project_map, issue_map, attempt, ancestors, dispatch_message, conversation_messages)
+    Renderer.render(project_map, issue_map, attempt, dispatch_message, conversation_messages)
   end
 
   defp start_agent(config, prompt, env_ref) do
     BackendClient.start_agent(config, prompt, env_ref)
   end
 
-  defp event_loop(project, issue, session, config, turn) do
+  defp event_loop(project, issue, session, config, turn, user_id, config_model) do
     turn_timeout = Config.get(config, "agent", "turn_timeout_ms") || 3_600_000
 
     case BackendClient.await_event(config, session, turn_timeout) do
       {:partial, chunk} ->
         pending = Map.get(session, :pending_line, "")
         session = Map.put(session, :pending_line, pending <> chunk)
-        event_loop(project, issue, session, config, turn)
+        event_loop(project, issue, session, config, turn, user_id, config_model)
 
       {:data, data} ->
         pending = Map.get(session, :pending_line, "")
@@ -97,13 +90,18 @@ defmodule Synkade.Execution.AgentRunner do
           )
         end
 
+        # Record token usage
+        if user_id do
+          record_event_tokens(events, user_id, config_model)
+        end
+
         # Update heartbeat on DB
         if events != [] do
           last = List.last(events)
           Synkade.Issues.update_issue_heartbeat(issue.id, last.message)
         end
 
-        event_loop(project, issue, session, config, turn)
+        event_loop(project, issue, session, config, turn, user_id, config_model)
 
       {:exit, 0} ->
         Logger.info("Agent exited normally for #{project.name}:#{issue.identifier}")
@@ -114,27 +112,30 @@ defmodule Synkade.Execution.AgentRunner do
 
           :none ->
             agent_output = collect_agent_output(session)
-            children = ChildParser.parse(agent_output)
 
-            if agent_output != "" or children != [] do
-              {:ok, {:completed_with_output, agent_output, children}, session}
+            if agent_output != "" do
+              {:ok, {:completed_with_output, agent_output}, session}
             else
-              check_and_continue(project, issue, session, config, turn)
+              check_and_continue(project, issue, session, config, turn, user_id, config_model)
             end
         end
 
       {:exit, code} ->
         Logger.warning("Agent exited with code #{code} for #{project.name}:#{issue.identifier}")
+
+        broadcast_error(issue.id, "Agent exited with code #{code}")
         {:error, {:agent_exit, code}, session}
 
       :timeout ->
         Logger.warning("Agent turn timed out for #{project.name}:#{issue.identifier}")
         BackendClient.stop_agent(config, session)
+
+        broadcast_error(issue.id, "Agent timed out")
         {:error, :turn_timeout, session}
     end
   end
 
-  defp check_and_continue(project, issue, session, config, turn) do
+  defp check_and_continue(project, issue, session, config, turn, user_id, config_model) do
     case TrackerClient.fetch_issue_states_by_ids(project.config, project.name, [issue.id]) do
       {:ok, states} ->
         current_state = Map.get(states, issue.id)
@@ -148,7 +149,7 @@ defmodule Synkade.Execution.AgentRunner do
 
           case BackendClient.continue_agent(config, session_id, continuation_prompt, session.env_ref) do
             {:ok, new_session} ->
-              event_loop(project, issue, new_session, config, turn + 1)
+              event_loop(project, issue, new_session, config, turn + 1, user_id, config_model)
 
             {:error, reason} ->
               {:error, reason, session}
@@ -227,5 +228,30 @@ defmodule Synkade.Execution.AgentRunner do
       %{"type" => "dispatch"} -> Enum.drop(messages, -1)
       _ -> messages
     end
+  end
+
+  defp record_event_tokens(events, user_id, config_model) do
+    events
+    |> Enum.filter(fn e -> e.input_tokens > 0 or e.output_tokens > 0 end)
+    |> Enum.group_by(fn e -> e.model || config_model || "unknown" end)
+    |> Enum.each(fn {model, model_events} ->
+      input = Enum.sum(Enum.map(model_events, & &1.input_tokens))
+      output = Enum.sum(Enum.map(model_events, & &1.output_tokens))
+      TokenUsage.record_usage(user_id, model, input, output)
+    end)
+  end
+
+  defp broadcast_error(issue_id, message) do
+    event = %Synkade.Agent.Event{
+      type: "error",
+      message: message,
+      timestamp: DateTime.utc_now()
+    }
+
+    Phoenix.PubSub.broadcast(
+      Synkade.PubSub,
+      "agent_events:#{issue_id}",
+      {:agent_event, event}
+    )
   end
 end

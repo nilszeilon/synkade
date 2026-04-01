@@ -213,6 +213,7 @@ defmodule Synkade.Agent.OpenCode do
       type: data["type"] || "unknown",
       session_id: data["sessionID"],
       message: extract_message(data),
+      model: data["model"] || get_in(data, ["part", "model"]),
       input_tokens: tokens["input"] || 0,
       output_tokens: tokens["output"] || 0,
       total_tokens: tokens["total"] || 0,

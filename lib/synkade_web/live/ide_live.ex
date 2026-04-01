@@ -38,7 +38,6 @@ defmodule SynkadeWeb.IdeLive do
           |> assign(:active_tab, :issues)
           |> assign(:current_project, project.name)
           |> assign(:issue, nil)
-          |> assign(:ancestors, [])
           |> assign(:project, project)
           |> assign(:projects, orc_state.projects)
           |> assign(:running, orc_state.running)
@@ -91,7 +90,6 @@ defmodule SynkadeWeb.IdeLive do
         end
 
         orc_state = Jobs.get_state(scope)
-        ancestors = Issues.ancestor_chain(issue)
         project = Settings.get_project!(issue.project_id)
         workspace_path = resolve_workspace_path(scope, project, issue)
 
@@ -124,7 +122,6 @@ defmodule SynkadeWeb.IdeLive do
           |> assign(:active_tab, :issues)
           |> assign(:current_project, project.name)
           |> assign(:issue, issue)
-          |> assign(:ancestors, ancestors)
           |> assign(:project, project)
           |> assign(:projects, orc_state.projects)
           |> assign(:running, orc_state.running)
@@ -279,12 +276,9 @@ defmodule SynkadeWeb.IdeLive do
         {:noreply, push_navigate(socket, to: "/issues")}
 
       updated ->
-        ancestors = Issues.ancestor_chain(updated)
-
         {:noreply,
          socket
          |> assign(:issue, updated)
-         |> assign(:ancestors, ancestors)
          |> SynkadeWeb.Sidebar.assign_sidebar(socket.assigns.current_scope)}
     end
   end
@@ -625,10 +619,7 @@ defmodule SynkadeWeb.IdeLive do
                   </div>
 
                   <%!-- Issue context --%>
-                  <div :if={@issue && (body_without_title(@issue.body) || @ancestors != [])} class="space-y-2 mb-2">
-                    <div :for={ancestor <- Enum.reverse(@ancestors)} class="text-xs text-base-content/40">
-                      {Issue.title(ancestor)}
-                    </div>
+                  <div :if={@issue && body_without_title(@issue.body)} class="space-y-2 mb-2">
                     <div :if={body_without_title(@issue.body)} class="flex justify-end">
                       <div class="max-w-[85%] rounded-2xl rounded-br-sm bg-primary/10 px-4 py-2.5 text-sm prose-chat">
                         {md(body_without_title(@issue.body))}
