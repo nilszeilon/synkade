@@ -215,6 +215,43 @@ defmodule Synkade.SettingsTest do
     end
   end
 
+  # --- resolve_agent ---
+
+  describe "resolve_agent/2" do
+    test "returns first agent when no IDs provided", %{scope: scope} do
+      {:ok, agent} = Settings.create_agent(scope, %{kind: "claude"})
+      assert Settings.resolve_agent([agent]) == agent
+    end
+
+    test "prefers assigned agent", %{scope: scope} do
+      {:ok, a1} = Settings.create_agent(scope, %{kind: "claude"})
+      {:ok, a2} = Settings.create_agent(scope, %{kind: "opencode"})
+
+      assert Settings.resolve_agent([a1, a2], assigned_agent_id: a2.id) == a2
+    end
+
+    test "skips cooled-down agents when skip_unavailable: true", %{scope: scope} do
+      {:ok, a1} = Settings.create_agent(scope, %{kind: "claude"})
+      {:ok, a2} = Settings.create_agent(scope, %{kind: "opencode"})
+
+      Synkade.AgentCooldowns.set_cooldown(a1.id, 60)
+
+      # Without skip_unavailable, returns a1 (first in list)
+      assert Settings.resolve_agent([a1, a2]) == a1
+
+      # With skip_unavailable, skips cooled-down a1
+      assert Settings.resolve_agent([a1, a2], skip_unavailable: true) == a2
+    end
+
+    test "returns nil when all agents are cooled down", %{scope: scope} do
+      {:ok, a1} = Settings.create_agent(scope, %{kind: "claude"})
+
+      Synkade.AgentCooldowns.set_cooldown(a1.id, 60)
+
+      assert Settings.resolve_agent([a1], skip_unavailable: true) == nil
+    end
+  end
+
   # --- Agent API Tokens ---
 
   describe "generate_agent_token/1" do

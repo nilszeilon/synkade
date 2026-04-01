@@ -103,7 +103,10 @@ defmodule Synkade.Workers.AgentWorker do
     tracker_issue = db_issue_to_tracker_issue(issue, db_project.name)
     attempt = job.attempt
 
-    case AgentRunner.run(project, tracker_issue, attempt) do
+    case AgentRunner.run(project, tracker_issue, attempt,
+           user_id: db_project.user_id,
+           agent_id: agent && agent.id
+         ) do
       {:ok, {:pr_created, pr_url}, _session} ->
         handle_pr_created(issue, pr_url)
         :ok
@@ -114,6 +117,12 @@ defmodule Synkade.Workers.AgentWorker do
 
       {:ok, _reason, _session} ->
         :ok
+
+      {:error, {:usage_cap, reason}, _session} ->
+        handle_rate_limit(issue, setting, db_project, agent, job, reason, :usage_cap)
+
+      {:error, {:rate_limited, reason}, _session} ->
+        handle_rate_limit(issue, setting, db_project, agent, job, reason, :rate_limited)
 
       {:error, reason, _session} ->
         {:error, reason}
@@ -154,15 +163,61 @@ defmodule Synkade.Workers.AgentWorker do
     Ecto.NoResultsError -> {:error, "project not found"}
   end
 
-  defp resolve_agent(issue, db_project) do
+  # Default cooldowns when no retry hint is available from the agent.
+  # Usage cap: plan/billing limit exhausted — long cooldown (6 hours)
+  # Rate limited: temporary throttle — short cooldown (5 minutes)
+  @default_usage_cap_cooldown 6 * 3600
+  @default_rate_limit_cooldown 5 * 60
+
+  defp handle_rate_limit(issue, setting, db_project, failed_agent, job, info, kind) do
+    # Use retry hint from agent output if available, otherwise use defaults
+    cooldown =
+      case info[:retry_after_seconds] do
+        seconds when is_integer(seconds) and seconds > 0 ->
+          seconds
+
+        _ ->
+          case kind do
+            :usage_cap -> @default_usage_cap_cooldown
+            :rate_limited -> @default_rate_limit_cooldown
+          end
+      end
+
+    reason = info[:reason] || inspect(info)
+
+    Logger.warning(
+      "AgentWorker: agent #{failed_agent.name} #{kind} (#{reason}), cooldown #{cooldown}s, attempting fallback"
+    )
+
+    Synkade.AgentCooldowns.set_cooldown(failed_agent.id, cooldown)
+
+    # Try to find a fallback agent (skipping unavailable ones)
+    case resolve_agent(issue, db_project, skip_unavailable: true) do
+      {:ok, nil} ->
+        Logger.info("AgentWorker: no fallback agents available, snoozing")
+        {:snooze, 300}
+
+      {:ok, fallback_agent} ->
+        Logger.info("AgentWorker: falling back to agent #{fallback_agent.name}")
+        execute_agent(issue, setting, db_project, fallback_agent, job)
+
+      error ->
+        error
+    end
+  end
+
+  defp resolve_agent(issue, db_project, opts \\ []) do
     agents = Settings.list_agents_for_user(db_project.user_id)
     settings = Settings.get_settings_for_user(db_project.user_id)
 
     agent =
-      Settings.resolve_agent(agents,
-        assigned_agent_id: issue.assigned_agent_id,
-        project_agent_id: db_project.default_agent_id,
-        user_default_id: settings && settings.default_agent_id
+      Settings.resolve_agent(
+        agents,
+        [
+          assigned_agent_id: issue.assigned_agent_id,
+          project_agent_id: db_project.default_agent_id,
+          user_default_id: settings && settings.default_agent_id
+        ] ++ opts
       )
 
     {:ok, agent}
