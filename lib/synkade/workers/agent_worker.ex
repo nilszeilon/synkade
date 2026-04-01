@@ -103,7 +103,7 @@ defmodule Synkade.Workers.AgentWorker do
     tracker_issue = db_issue_to_tracker_issue(issue, db_project.name)
     attempt = job.attempt
 
-    case AgentRunner.run(project, tracker_issue, attempt) do
+    case AgentRunner.run(project, tracker_issue, attempt, db_project.user_id) do
       {:ok, {:pr_created, pr_url}, _session} ->
         handle_pr_created(issue, pr_url)
         :ok
