@@ -21,7 +21,7 @@ defmodule SynkadeWeb.SettingsLive do
     setting = Settings.get_settings(scope)
     changeset = Settings.change_settings(scope, setting)
     orc_state = Jobs.get_state(scope)
-    current_theme = (setting && setting.theme) || "ops"
+    current_theme = (setting && setting.theme) || "paper"
 
     {:ok,
      socket
@@ -32,7 +32,7 @@ defmodule SynkadeWeb.SettingsLive do
      |> assign(:projects, orc_state.projects)
      |> assign(:running, orc_state.running)
      |> SynkadeWeb.Sidebar.assign_sidebar(scope)
-     |> assign(:active_tab, "github")
+     |> assign(:active_tab, "agents")
      |> assign(:current_theme, current_theme)
      |> assign(:connection_status, nil)
      |> assign(:connection_testing, false)
@@ -391,6 +391,14 @@ defmodule SynkadeWeb.SettingsLive do
         <div role="tablist" class="tabs tabs-boxed mb-6">
           <button
             role="tab"
+            class={"tab #{if @active_tab == "agents", do: "tab-active"}"}
+            phx-click="switch_tab"
+            phx-value-tab="agents"
+          >
+            Agents
+          </button>
+          <button
+            role="tab"
             class={"tab #{if @active_tab == "appearance", do: "tab-active"}"}
             phx-click="switch_tab"
             phx-value-tab="appearance"
@@ -404,14 +412,6 @@ defmodule SynkadeWeb.SettingsLive do
             phx-value-tab="github"
           >
             GitHub
-          </button>
-          <button
-            role="tab"
-            class={"tab #{if @active_tab == "agents", do: "tab-active"}"}
-            phx-click="switch_tab"
-            phx-value-tab="agents"
-          >
-            Agents
           </button>
           <button
             role="tab"

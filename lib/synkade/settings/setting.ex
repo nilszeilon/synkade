@@ -20,7 +20,7 @@ defmodule Synkade.Settings.Setting do
     field :execution_sprites_org, :string
 
     # Appearance
-    field :theme, :string, default: "ops"
+    field :theme, :string, default: "paper"
 
     # Default agent
     belongs_to :default_agent, Synkade.Settings.Agent, type: :binary_id
