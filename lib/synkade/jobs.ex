@@ -224,7 +224,9 @@ defmodule Synkade.Jobs do
         stalled: false,
         agent_name: nil,
         agent_kind: nil,
-        model: nil
+        model: nil,
+        attempt: job.attempt,
+        max_attempts: job.max_attempts
       }
 
       {key, entry}

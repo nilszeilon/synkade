@@ -382,6 +382,17 @@ defmodule SynkadeWeb.DashboardLive do
   end
 
   @impl true
+  def handle_info({:projects_updated}, socket) do
+    state = Jobs.get_state(socket.assigns.current_scope)
+
+    {:noreply,
+     socket
+     |> assign(:projects, state.projects)
+     |> assign(:running, state.running)
+     |> SynkadeWeb.Sidebar.assign_sidebar(socket.assigns.current_scope)}
+  end
+
+  @impl true
   def handle_info(msg, socket) do
     case handle_model_picker_info(msg, socket) do
       {:halt, socket} -> {:noreply, socket}

@@ -252,6 +252,8 @@ defmodule Synkade.Issues do
   end
 
   def dispatch_issue(%Issue{} = issue, dispatch_message, assigned_agent_id \\ nil, opts \\ []) do
+    # Re-read from DB to get fresh metadata (avoids stale messages from LiveView struct)
+    issue = get_issue!(issue.id)
     model = Keyword.get(opts, :model)
 
     {agent_name, agent_kind} =
@@ -316,6 +318,8 @@ defmodule Synkade.Issues do
 
   @doc "Appends an agent output entry to the issue message history."
   def append_agent_output(%Issue{} = issue, agent_output, agent_name \\ nil, agent_kind \\ nil) do
+    # Re-read from DB to get fresh metadata
+    issue = get_issue!(issue.id)
     messages = issue.metadata["messages"] || []
 
     new_entry = %{
@@ -328,6 +332,22 @@ defmodule Synkade.Issues do
 
     update_issue(issue, %{
       agent_output: agent_output,
+      metadata: Map.put(issue.metadata || %{}, "messages", messages ++ [new_entry])
+    })
+  end
+
+  @doc "Appends a system error message to the issue message history."
+  def append_error_message(%Issue{} = issue, error_text) do
+    issue = get_issue!(issue.id)
+    messages = (issue.metadata || %{})["messages"] || []
+
+    new_entry = %{
+      "type" => "system",
+      "text" => error_text,
+      "at" => DateTime.utc_now() |> DateTime.to_iso8601()
+    }
+
+    update_issue(issue, %{
       metadata: Map.put(issue.metadata || %{}, "messages", messages ++ [new_entry])
     })
   end

@@ -116,9 +116,11 @@ defmodule Synkade.Workers.AgentWorker do
         :ok
 
       {:error, reason, _session} ->
+        handle_error(issue, reason, job)
         {:error, reason}
 
       {:error, reason} ->
+        handle_error(issue, reason, job)
         {:error, reason}
     end
   end
@@ -128,6 +130,23 @@ defmodule Synkade.Workers.AgentWorker do
   rescue
     e -> Logger.warning("AgentWorker: failed to handle PR: #{inspect(e)}")
   end
+
+  defp handle_error(issue, reason, job) do
+    error_text = format_error(reason)
+    Issues.append_error_message(issue, "Agent failed: #{error_text} (attempt #{job.attempt}/#{job.max_attempts})")
+
+    if job.attempt >= job.max_attempts do
+      Issues.append_error_message(issue, "All retries exhausted. Returning issue to backlog.")
+      Issues.transition_state(issue, "backlog")
+    end
+  rescue
+    e -> Logger.warning("AgentWorker: failed to handle error: #{inspect(e)}")
+  end
+
+  defp format_error({:agent_exit, code}), do: "exited with code #{code}"
+  defp format_error(:turn_timeout), do: "timed out"
+  defp format_error(reason) when is_binary(reason), do: reason
+  defp format_error(reason), do: inspect(reason)
 
   defp handle_completed(issue, agent_output, agent) do
     agent_name = agent && agent.name
