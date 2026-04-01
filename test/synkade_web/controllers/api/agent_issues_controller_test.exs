@@ -112,21 +112,6 @@ defmodule SynkadeWeb.Api.AgentIssuesControllerTest do
       assert issue["body"] == "# Legacy title\n\nLegacy description"
     end
 
-    test "creates a child issue", %{conn: conn, token: token, project: project, issue: parent} do
-      conn =
-        conn
-        |> auth_conn(token)
-        |> put_req_header("content-type", "application/json")
-        |> post(~p"/api/v1/agent/issues", %{
-          project_id: project.id,
-          body: "# Child issue",
-          parent_id: parent.id
-        })
-
-      assert %{"data" => child} = json_response(conn, 201)
-      assert child["parent_id"] == parent.id
-    end
-
     test "creates issue with only project_id", %{conn: conn, token: token, project: project} do
       conn =
         conn
@@ -167,19 +152,11 @@ defmodule SynkadeWeb.Api.AgentIssuesControllerTest do
   # --- Show ---
 
   describe "GET /api/v1/agent/issues/:id" do
-    test "returns issue with children", %{
+    test "returns issue detail", %{
       conn: conn,
       token: token,
-      project: project,
       issue: issue
     } do
-      {:ok, _child} =
-        Issues.create_issue(%{
-          body: "# Child",
-          project_id: project.id,
-          parent_id: issue.id
-        })
-
       conn =
         conn
         |> auth_conn(token)
@@ -187,7 +164,6 @@ defmodule SynkadeWeb.Api.AgentIssuesControllerTest do
 
       assert %{"data" => data} = json_response(conn, 200)
       assert data["id"] == issue.id
-      assert length(data["children"]) == 1
     end
 
     test "returns 404 for nonexistent issue", %{conn: conn, token: token} do
@@ -505,55 +481,4 @@ defmodule SynkadeWeb.Api.AgentIssuesControllerTest do
     end
   end
 
-  # --- Create Children ---
-
-  describe "POST /api/v1/agent/issues/:id/children" do
-    test "creates multiple children with body", %{conn: conn, token: token, issue: parent} do
-      conn =
-        conn
-        |> auth_conn(token)
-        |> put_req_header("content-type", "application/json")
-        |> post(~p"/api/v1/agent/issues/#{parent.id}/children", %{
-          children: [
-            %{body: "# Child A\n\nFirst"},
-            %{body: "# Child B\n\nSecond"}
-          ]
-        })
-
-      assert %{"data" => children} = json_response(conn, 201)
-      assert length(children) == 2
-    end
-
-    test "creates children with backwards-compat title+description", %{
-      conn: conn,
-      token: token,
-      issue: parent
-    } do
-      conn =
-        conn
-        |> auth_conn(token)
-        |> put_req_header("content-type", "application/json")
-        |> post(~p"/api/v1/agent/issues/#{parent.id}/children", %{
-          children: [
-            %{title: "Legacy A", description: "First"},
-            %{title: "Legacy B", description: "Second"}
-          ]
-        })
-
-      assert %{"data" => children} = json_response(conn, 201)
-      assert length(children) == 2
-    end
-
-    test "returns 404 for nonexistent parent", %{conn: conn, token: token} do
-      conn =
-        conn
-        |> auth_conn(token)
-        |> put_req_header("content-type", "application/json")
-        |> post(~p"/api/v1/agent/issues/#{Ecto.UUID.generate()}/children", %{
-          children: [%{body: "# x"}]
-        })
-
-      assert json_response(conn, 404)["error"] == "not found"
-    end
-  end
 end

@@ -12,7 +12,6 @@ defmodule SynkadeWeb.Components.IssueView do
   alias Synkade.Settings.Agent
 
   attr :issue, :map, required: true
-  attr :ancestors, :list, required: true
   attr :dispatch_form, :any, required: true
   attr :agents, :list, required: true
   attr :session_events, :list, default: []
@@ -82,25 +81,6 @@ defmodule SynkadeWeb.Components.IssueView do
         >
           {format_relative_time(@running_entry.last_agent_timestamp)}
         </span>
-      </div>
-      
-    <!-- Ancestor thread -->
-      <div :for={ancestor <- @ancestors} class="border-l-2 border-base-300 pl-4 mb-4">
-        <p class="text-sm font-semibold text-base-content/70">{Issue.title(ancestor)}</p>
-        <p :if={ancestor.body} class="text-sm text-base-content/60 whitespace-pre-wrap mt-1">
-          {ancestor.body}
-        </p>
-        <div :if={ancestor.agent_output} class="mt-2">
-          <div class="collapse collapse-arrow bg-base-200 rounded">
-            <input type="checkbox" />
-            <div class="collapse-title text-xs py-2 min-h-0 text-base-content/50">
-              Agent output
-            </div>
-            <div class="collapse-content">
-              <pre class="text-xs whitespace-pre-wrap overflow-auto max-h-64">{ancestor.agent_output}</pre>
-            </div>
-          </div>
-        </div>
       </div>
       
     <!-- Current issue body -->
@@ -209,23 +189,6 @@ defmodule SynkadeWeb.Components.IssueView do
         </p>
       </div>
       
-    <!-- Children list -->
-      <div :if={@issue.children != [] and is_list(@issue.children)} class="mb-4">
-        <p class="text-sm text-base-content/50 mb-2">Children ({length(@issue.children)})</p>
-        <div :for={child <- @issue.children} class="flex items-center gap-2 py-1.5">
-          <span
-            class="text-sm cursor-pointer hover:underline"
-            phx-click="select_issue"
-            phx-value-id={child.id}
-          >
-            {Issue.title(child)}
-          </span>
-          <span class={"badge badge-xs #{state_badge_class(child.state)} ml-auto"}>
-            {child.state}
-          </span>
-        </div>
-      </div>
-      
     <!-- GitHub links -->
       <div :if={@issue.github_issue_url || @issue.github_pr_url} class="mb-4 flex gap-3">
         <a
@@ -296,17 +259,10 @@ defmodule SynkadeWeb.Components.IssueView do
             Done
           </button>
           <button
-            phx-click="new_issue"
-            phx-value-parent_id={@issue.id}
-            class="btn btn-sm btn-ghost"
-          >
-            Add Child
-          </button>
-          <button
             phx-click="delete_issue"
             phx-value-id={@issue.id}
             class="btn btn-sm btn-error btn-ghost ml-auto"
-            data-confirm="Delete this issue and orphan its children?"
+            data-confirm="Delete this issue?"
           >
             Delete
           </button>
@@ -321,8 +277,6 @@ defmodule SynkadeWeb.Components.IssueView do
   attr :agents, :list, default: []
   attr :selected_agent_id, :string, default: nil
   attr :form_project_id, :any, default: nil
-  attr :form_parent_id, :any, default: nil
-  attr :create_ancestors, :list, default: []
   attr :back_path, :string, required: true
 
   def issue_create_view(assigns) do
@@ -339,14 +293,6 @@ defmodule SynkadeWeb.Components.IssueView do
         <h1 class="text-2xl font-bold">New Issue</h1>
       </div>
       
-    <!-- Ancestor thread (when creating a child) -->
-      <div :for={ancestor <- @create_ancestors} class="border-l-2 border-base-300 pl-4 mb-4">
-        <p class="text-sm font-semibold text-base-content/70">{Issue.title(ancestor)}</p>
-        <p :if={ancestor.body} class="text-sm text-base-content/60 whitespace-pre-wrap mt-1">
-          {body_without_title(ancestor.body)}
-        </p>
-      </div>
-
       <div class="border-l-2 border-primary pl-4 mb-4">
         <.form for={@form} phx-change="validate_issue" phx-submit="save_issue">
           <div class="flex flex-col gap-3">

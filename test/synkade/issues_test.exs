@@ -22,7 +22,6 @@ defmodule Synkade.IssuesTest do
       assert issue.body == "# Fix bug"
       assert Issue.title(issue) == "Fix bug"
       assert issue.state == "backlog"
-      assert issue.depth == 0
     end
 
     test "creates issue without body", %{project: project} do
@@ -31,16 +30,6 @@ defmodule Synkade.IssuesTest do
 
       assert issue.body == nil
       assert Issue.title(issue) == "Unnamed"
-    end
-
-    test "auto-computes depth from parent", %{project: project} do
-      {:ok, parent} = Issues.create_issue(%{body: "# Parent", project_id: project.id})
-
-      {:ok, child} =
-        Issues.create_issue(%{body: "# Child", project_id: project.id, parent_id: parent.id})
-
-      assert child.depth == 1
-      assert child.parent_id == parent.id
     end
 
     test "broadcasts issues_updated", %{project: project, scope: scope} do
@@ -69,33 +58,9 @@ defmodule Synkade.IssuesTest do
       assert Issue.title(hd(worked_on)) == "Worked On"
     end
 
-    test "filters by parent_id", %{project: project} do
-      {:ok, parent} = Issues.create_issue(%{body: "# Parent", project_id: project.id})
-
-      {:ok, _} =
-        Issues.create_issue(%{body: "# Child", project_id: project.id, parent_id: parent.id})
-
-      {:ok, _} = Issues.create_issue(%{body: "# Root", project_id: project.id})
-
-      children = Issues.list_issues(project.id, parent_id: parent.id)
-      assert length(children) == 1
-      assert Issue.title(hd(children)) == "Child"
-    end
   end
 
   describe "get_issue!/1" do
-    test "returns issue with children preloaded", %{project: project} do
-      {:ok, parent} = Issues.create_issue(%{body: "# Parent", project_id: project.id})
-
-      {:ok, child} =
-        Issues.create_issue(%{body: "# Child", project_id: project.id, parent_id: parent.id})
-
-      fetched = Issues.get_issue!(parent.id)
-      assert fetched.id == parent.id
-      assert length(fetched.children) == 1
-      assert hd(fetched.children).id == child.id
-    end
-
     test "raises for nonexistent ID" do
       assert_raise Ecto.NoResultsError, fn ->
         Issues.get_issue!(Ecto.UUID.generate())
@@ -180,33 +145,6 @@ defmodule Synkade.IssuesTest do
       assert {:ok, %{state: "done"}} = Issues.complete_issue(issue)
     end
 
-  end
-
-  describe "ancestor_chain/1" do
-    test "returns empty for root issue", %{project: project} do
-      {:ok, root} = Issues.create_issue(%{body: "# Root", project_id: project.id})
-      root = Issues.get_issue!(root.id)
-      assert Issues.ancestor_chain(root) == []
-    end
-
-    test "returns chain for nested issue", %{project: project} do
-      {:ok, root} = Issues.create_issue(%{body: "# Root", project_id: project.id})
-
-      {:ok, child} =
-        Issues.create_issue(%{body: "# Child", project_id: project.id, parent_id: root.id})
-
-      {:ok, grandchild} =
-        Issues.create_issue(%{
-          body: "# Grandchild",
-          project_id: project.id,
-          parent_id: child.id
-        })
-
-      grandchild = Issues.get_issue!(grandchild.id)
-      chain = Issues.ancestor_chain(grandchild)
-      assert length(chain) == 2
-      assert Enum.map(chain, &Issue.title/1) == ["Root", "Child"]
-    end
   end
 
   describe "list_worked_on_issues/1" do
@@ -356,25 +294,4 @@ defmodule Synkade.IssuesTest do
     end
   end
 
-  describe "create_children_from_agent/2" do
-    test "creates children with correct depth and project", %{project: project} do
-      {:ok, parent} = Issues.create_issue(%{body: "# Parent", project_id: project.id})
-
-      children_attrs = [
-        %{body: "# Sub-task 1\n\nDo thing 1"},
-        %{body: "# Sub-task 2\n\nFix thing 2"}
-      ]
-
-      results = Issues.create_children_from_agent(parent, children_attrs)
-      assert length(results) == 2
-      assert Enum.all?(results, &match?({:ok, _}, &1))
-
-      children = Issues.list_issues(project.id, parent_id: parent.id)
-      assert length(children) == 2
-      assert Enum.all?(children, &(&1.depth == 1))
-      assert Enum.all?(children, &(&1.project_id == project.id))
-      assert Enum.all?(children, &(&1.parent_id == parent.id))
-      assert Enum.all?(children, &(&1.state == "backlog"))
-    end
-  end
 end

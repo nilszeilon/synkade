@@ -7,7 +7,6 @@ defmodule Synkade.Execution.AgentRunner do
   alias Synkade.Execution.BackendClient
   alias Synkade.Tracker.Client, as: TrackerClient
   alias Synkade.Workflow.Config
-  alias Synkade.Issues.ChildParser
   alias Synkade.TokenUsage
 
   @doc "Run a worker for an issue. Called from Oban AgentWorker."
@@ -43,30 +42,17 @@ defmodule Synkade.Execution.AgentRunner do
     project_map = %{name: project.name, config: project.config, db_id: project.db_id}
     issue_map = Map.from_struct(issue)
 
-    {ancestors, dispatch_message, issue_map} =
+    dispatch_message =
       try do
         case Synkade.Issues.get_issue(issue.id) do
-          nil ->
-            {[], nil, issue_map}
-
-          db_issue ->
-            ancestor_maps =
-              Synkade.Issues.ancestor_chain(db_issue)
-              |> Enum.map(fn a ->
-                %{
-                  title: Synkade.Issues.Issue.title(a),
-                  body: a.body,
-                  agent_output: a.agent_output
-                }
-              end)
-
-            {ancestor_maps, db_issue.dispatch_message, issue_map}
+          nil -> nil
+          db_issue -> db_issue.dispatch_message
         end
       catch
-        _, _ -> {[], nil, issue_map}
+        _, _ -> nil
       end
 
-    Renderer.render(project_map, issue_map, attempt, ancestors, dispatch_message)
+    Renderer.render(project_map, issue_map, attempt, dispatch_message)
   end
 
   defp start_agent(config, prompt, env_ref) do
@@ -119,10 +105,9 @@ defmodule Synkade.Execution.AgentRunner do
 
           :none ->
             agent_output = collect_agent_output(session)
-            children = ChildParser.parse(agent_output)
 
-            if agent_output != "" or children != [] do
-              {:ok, {:completed_with_output, agent_output, children}, session}
+            if agent_output != "" do
+              {:ok, {:completed_with_output, agent_output}, session}
             else
               check_and_continue(project, issue, session, config, turn, user_id, config_model)
             end
