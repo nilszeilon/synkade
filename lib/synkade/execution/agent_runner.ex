@@ -9,8 +9,12 @@ defmodule Synkade.Execution.AgentRunner do
   alias Synkade.Workflow.Config
   alias Synkade.TokenUsage
 
-  @doc "Run a worker for an issue. Called from Oban AgentWorker."
-  def run(project, issue, attempt, user_id \\ nil) do
+  @doc """
+  Run a worker for an issue. Called from Oban AgentWorker.
+
+  `opts` may include `:user_id` and `:agent_id` for token usage tracking.
+  """
+  def run(project, issue, attempt, opts \\ []) do
     config = project.config
     project_name = project.name
 
@@ -18,13 +22,18 @@ defmodule Synkade.Execution.AgentRunner do
       "AgentRunner starting for #{project_name}:#{issue.identifier} (attempt #{inspect(attempt)})"
     )
 
+    context = %{
+      user_id: Keyword.get(opts, :user_id),
+      agent_id: Keyword.get(opts, :agent_id)
+    }
+
     config_model = Config.get(config, "agent", "model")
 
     with {:ok, env_ref} <- BackendClient.setup_env(config, project_name, issue.identifier),
          :ok <- BackendClient.run_before_hook(config, env_ref),
          {:ok, prompt} <- render_prompt(project, issue, attempt),
          {:ok, session} <- start_agent(config, prompt, env_ref) do
-      result = event_loop(project, issue, session, config, 1, user_id, config_model)
+      result = event_loop(project, issue, session, config, 1, context, config_model)
       BackendClient.run_after_hook(config, env_ref)
       result
     else
@@ -66,14 +75,14 @@ defmodule Synkade.Execution.AgentRunner do
     BackendClient.start_agent(config, prompt, env_ref)
   end
 
-  defp event_loop(project, issue, session, config, turn, user_id, config_model) do
+  defp event_loop(project, issue, session, config, turn, context, config_model) do
     turn_timeout = Config.get(config, "agent", "turn_timeout_ms") || 3_600_000
 
     case BackendClient.await_event(config, session, turn_timeout) do
       {:partial, chunk} ->
         pending = Map.get(session, :pending_line, "")
         session = Map.put(session, :pending_line, pending <> chunk)
-        event_loop(project, issue, session, config, turn, user_id, config_model)
+        event_loop(project, issue, session, config, turn, context, config_model)
 
       {:data, data} ->
         pending = Map.get(session, :pending_line, "")
@@ -91,8 +100,8 @@ defmodule Synkade.Execution.AgentRunner do
         end
 
         # Record token usage
-        if user_id do
-          record_event_tokens(events, user_id, config_model)
+        if context[:user_id] do
+          record_event_tokens(events, context[:user_id], config_model, context[:agent_id])
         end
 
         # Update heartbeat on DB
@@ -101,7 +110,7 @@ defmodule Synkade.Execution.AgentRunner do
           Synkade.Issues.update_issue_heartbeat(issue.id, last.message)
         end
 
-        event_loop(project, issue, session, config, turn, user_id, config_model)
+        event_loop(project, issue, session, config, turn, context, config_model)
 
       {:exit, 0} ->
         Logger.info("Agent exited normally for #{project.name}:#{issue.identifier}")
@@ -116,15 +125,32 @@ defmodule Synkade.Execution.AgentRunner do
             if agent_output != "" do
               {:ok, {:completed_with_output, agent_output}, session}
             else
-              check_and_continue(project, issue, session, config, turn, user_id, config_model)
+              check_and_continue(project, issue, session, config, turn, context, config_model)
             end
         end
 
       {:exit, code} ->
         Logger.warning("Agent exited with code #{code} for #{project.name}:#{issue.identifier}")
 
-        broadcast_error(issue.id, "Agent exited with code #{code}")
-        {:error, {:agent_exit, code}, session}
+        case detect_rate_limit(session) do
+          {:usage_cap, info} ->
+            Logger.warning(
+              "Usage cap hit for #{project.name}:#{issue.identifier}: #{info.reason}"
+            )
+
+            {:error, {:usage_cap, info}, session}
+
+          {:rate_limited, info} ->
+            Logger.warning(
+              "Rate limit detected for #{project.name}:#{issue.identifier}: #{info.reason}"
+            )
+
+            {:error, {:rate_limited, info}, session}
+
+          :not_rate_limited ->
+            broadcast_error(issue.id, "Agent exited with code #{code}")
+            {:error, {:agent_exit, code}, session}
+        end
 
       :timeout ->
         Logger.warning("Agent turn timed out for #{project.name}:#{issue.identifier}")
@@ -135,7 +161,7 @@ defmodule Synkade.Execution.AgentRunner do
     end
   end
 
-  defp check_and_continue(project, issue, session, config, turn, user_id, config_model) do
+  defp check_and_continue(project, issue, session, config, turn, context, config_model) do
     case TrackerClient.fetch_issue_states_by_ids(project.config, project.name, [issue.id]) do
       {:ok, states} ->
         current_state = Map.get(states, issue.id)
@@ -147,9 +173,14 @@ defmodule Synkade.Execution.AgentRunner do
 
           session_id = session.session_id
 
-          case BackendClient.continue_agent(config, session_id, continuation_prompt, session.env_ref) do
+          case BackendClient.continue_agent(
+                 config,
+                 session_id,
+                 continuation_prompt,
+                 session.env_ref
+               ) do
             {:ok, new_session} ->
-              event_loop(project, issue, new_session, config, turn + 1, user_id, config_model)
+              event_loop(project, issue, new_session, config, turn + 1, context, config_model)
 
             {:error, reason} ->
               {:error, reason, session}
@@ -230,14 +261,16 @@ defmodule Synkade.Execution.AgentRunner do
     end
   end
 
-  defp record_event_tokens(events, user_id, config_model) do
+  # Record token usage, batched by model, with per-agent tracking.
+  # Uses event.model when available (from main), falls back to config_model.
+  defp record_event_tokens(events, user_id, config_model, agent_id) do
     events
     |> Enum.filter(fn e -> e.input_tokens > 0 or e.output_tokens > 0 end)
     |> Enum.group_by(fn e -> e.model || config_model || "unknown" end)
     |> Enum.each(fn {model, model_events} ->
       input = Enum.sum(Enum.map(model_events, & &1.input_tokens))
       output = Enum.sum(Enum.map(model_events, & &1.output_tokens))
-      TokenUsage.record_usage(user_id, model, input, output)
+      TokenUsage.record_usage(user_id, model, input, output, agent_id)
     end)
   end
 
@@ -253,5 +286,125 @@ defmodule Synkade.Execution.AgentRunner do
       "agent_events:#{issue_id}",
       {:agent_event, event}
     )
+  end
+
+  # Usage cap patterns — the plan/billing limit is exhausted, won't recover for hours/days.
+  # These should trigger immediate fallback with a long cooldown.
+  @usage_cap_patterns [
+    "usage limit exceeded",
+    "usagelimitexceeded",
+    "insufficient_quota",
+    "billing_hard_limit_reached",
+    "credit balance is too low",
+    "quota exceeded",
+    "exceeded your current quota",
+    "check your plan and billing"
+  ]
+
+  # Temporary rate limit patterns — too many requests per minute, recovers quickly.
+  # These get a short cooldown.
+  @temp_rate_limit_patterns [
+    "rate_limit",
+    "rate limit",
+    "rate_limit_exceeded",
+    "overloaded",
+    "429",
+    "too many requests"
+  ]
+
+  @doc """
+  Detect whether a failed session was due to a rate limit or usage cap.
+
+  Returns:
+    - `{:usage_cap, info}` — plan/billing limit exhausted (long cooldown, fallback immediately)
+    - `{:rate_limited, info}` — temporary rate limit (short cooldown)
+    - `:not_rate_limited` — not a rate limit issue
+
+  `info` is a map with `:reason` and optional `:retry_after_seconds`.
+  """
+  def detect_rate_limit(session) do
+    messages =
+      session.events
+      |> Enum.flat_map(fn event ->
+        [event.message || "", inspect(event.raw || "")]
+      end)
+      |> Enum.join(" ")
+      |> String.downcase()
+
+    retry_seconds = extract_retry_hint(session)
+
+    # Check usage caps first — they're more specific and take priority
+    case Enum.find(@usage_cap_patterns, &String.contains?(messages, &1)) do
+      nil ->
+        case Enum.find(@temp_rate_limit_patterns, &String.contains?(messages, &1)) do
+          nil ->
+            :not_rate_limited
+
+          pattern ->
+            {:rate_limited,
+             %{reason: "matched pattern: #{pattern}", retry_after_seconds: retry_seconds}}
+        end
+
+      pattern ->
+        {:usage_cap,
+         %{reason: "matched pattern: #{pattern}", retry_after_seconds: retry_seconds}}
+    end
+  end
+
+  # Extract retry/cooldown hints from event data.
+  # Claude Code: system/api_retry events have retry_delay_ms in raw JSON.
+  # Codex: rate_limits.primary.resets_in_seconds in token_count events (may be null in exec mode).
+  # Codex errors: "Try again in Ns" or "Try again at <time>" in error messages.
+  defp extract_retry_hint(session) do
+    # Try Claude Code retry_delay_ms from api_retry events (take the max seen)
+    claude_delay =
+      session.events
+      |> Enum.filter(fn e -> is_map(e.raw) end)
+      |> Enum.map(fn e -> e.raw["retry_delay_ms"] end)
+      |> Enum.reject(&is_nil/1)
+      |> case do
+        [] -> nil
+        delays -> delays |> Enum.max() |> div(1000)
+      end
+
+    # Try Codex resets_in_seconds from rate_limits in token_count or event_msg events
+    codex_reset =
+      session.events
+      |> Enum.filter(fn e -> is_map(e.raw) end)
+      |> Enum.flat_map(fn e ->
+        [
+          get_in(e.raw, ["rate_limits", "primary", "resets_in_seconds"]),
+          get_in(e.raw, ["payload", "rate_limits", "primary", "resets_in_seconds"])
+        ]
+      end)
+      |> Enum.reject(&is_nil/1)
+      |> List.first()
+
+    # Try parsing "Try again in Ns" from error messages
+    parsed_from_text = parse_retry_from_text(session)
+
+    # Return the most specific hint available
+    codex_reset || claude_delay || parsed_from_text
+  end
+
+  @retry_in_regex ~r/try again in (\d+)\s*s/i
+  @retry_in_min_regex ~r/try again in (\d+)\s*m/i
+
+  defp parse_retry_from_text(session) do
+    text =
+      session.events
+      |> Enum.map(fn e -> e.message || "" end)
+      |> Enum.join(" ")
+
+    cond do
+      match = Regex.run(@retry_in_regex, text) ->
+        String.to_integer(Enum.at(match, 1))
+
+      match = Regex.run(@retry_in_min_regex, text) ->
+        String.to_integer(Enum.at(match, 1)) * 60
+
+      true ->
+        nil
+    end
   end
 end

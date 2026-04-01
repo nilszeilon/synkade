@@ -17,11 +17,13 @@ defmodule Synkade.Settings.Agent do
     field :oauth_token, Synkade.Encrypted.Binary
     field :api_token_hash, :string
     field :api_token, Synkade.Encrypted.Binary
+    field :usage_limit, :integer
+    field :usage_limit_period, :string, default: "day"
 
     timestamps()
   end
 
-  @fields ~w(name kind auth_mode api_key oauth_token user_id)a
+  @fields ~w(name kind auth_mode api_key oauth_token user_id usage_limit usage_limit_period)a
 
   def changeset(agent, attrs) do
     agent
@@ -31,6 +33,8 @@ defmodule Synkade.Settings.Agent do
     |> unique_constraint([:user_id, :name])
     |> validate_inclusion(:kind, @kinds)
     |> validate_inclusion(:auth_mode, ["api_key", "oauth"])
+    |> validate_inclusion(:usage_limit_period, ["day", "week"])
+    |> validate_number(:usage_limit, greater_than: 0)
   end
 
   defp maybe_set_name(changeset) do

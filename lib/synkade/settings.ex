@@ -202,9 +202,21 @@ defmodule Synkade.Settings do
 
   `agents` is a list of agent structs.
   All ID args are optional (nil means skip that tier).
+
+  Options:
+    - `:skip_unavailable` — when true, filters out cooled-down and over-limit agents
   """
   def resolve_agent(agents, opts \\ []) do
-    agents_by_id = Map.new(agents, fn a -> {a.id, a} end)
+    skip_unavailable = Keyword.get(opts, :skip_unavailable, false)
+
+    available =
+      if skip_unavailable do
+        Enum.reject(agents, &agent_unavailable?/1)
+      else
+        agents
+      end
+
+    agents_by_id = Map.new(available, fn a -> {a.id, a} end)
 
     assigned_id = Keyword.get(opts, :assigned_agent_id)
     project_agent_id = Keyword.get(opts, :project_agent_id)
@@ -213,7 +225,13 @@ defmodule Synkade.Settings do
     agents_by_id[assigned_id] ||
       agents_by_id[project_agent_id] ||
       agents_by_id[user_default_id] ||
-      List.first(agents)
+      List.first(available)
+  end
+
+  @doc "Check if an agent is currently unavailable (cooled down or over usage limit)."
+  def agent_unavailable?(agent) do
+    Synkade.AgentCooldowns.cooled_down?(agent.id) ||
+      Synkade.TokenUsage.agent_over_limit?(agent)
   end
 
   # --- Agents ---
