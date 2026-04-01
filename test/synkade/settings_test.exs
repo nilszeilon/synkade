@@ -74,20 +74,19 @@ defmodule Synkade.SettingsTest do
     end
 
     test "returns agents sorted by name", %{scope: scope} do
-      # Use pull kinds so we can set custom names
-      {:ok, _} = Settings.create_agent(scope, %{name: "beta", kind: "hermes"})
-      {:ok, _} = Settings.create_agent(scope, %{name: "alpha", kind: "openclaw"})
+      {:ok, _} = Settings.create_agent(scope, %{kind: "opencode"})
+      {:ok, _} = Settings.create_agent(scope, %{kind: "claude"})
       agents = Settings.list_agents(scope)
-      assert [%Agent{name: "alpha"}, %Agent{name: "beta"}] = agents
+      assert [%Agent{name: "claude"}, %Agent{name: "opencode"}] = agents
     end
   end
 
   describe "get_agent!/1" do
     test "returns agent by ID", %{scope: scope} do
-      {:ok, agent} = Settings.create_agent(scope, %{name: "test-agent", kind: "hermes"})
+      {:ok, agent} = Settings.create_agent(scope, %{kind: "hermes"})
       fetched = Settings.get_agent!(agent.id)
       assert fetched.id == agent.id
-      assert fetched.name == "test-agent"
+      assert fetched.name == "hermes"
     end
 
     test "raises for missing ID" do
@@ -98,12 +97,12 @@ defmodule Synkade.SettingsTest do
   end
 
   describe "get_agent_by_name/2" do
-    test "returns agent by name", %{scope: scope} do
-      {:ok, _} = Settings.create_agent(scope, %{name: "named-agent", kind: "hermes"})
-      assert %Agent{name: "named-agent"} = Settings.get_agent_by_name(scope, "named-agent")
+    test "returns agent by kind name", %{scope: scope} do
+      {:ok, _} = Settings.create_agent(scope, %{kind: "hermes"})
+      assert %Agent{name: "hermes"} = Settings.get_agent_by_name(scope, "hermes")
     end
 
-    test "returns ephemeral agent by kind name", %{scope: scope} do
+    test "returns claude agent by name", %{scope: scope} do
       {:ok, _} = Settings.create_agent(scope, %{kind: "claude"})
       assert %Agent{name: "claude"} = Settings.get_agent_by_name(scope, "claude")
     end
@@ -129,14 +128,11 @@ defmodule Synkade.SettingsTest do
       assert String.starts_with?(agent.api_token, "synkade_")
     end
 
-    test "creates pull agent with custom name and token", %{scope: scope} do
+    test "creates hermes agent with auto-name and token", %{scope: scope} do
       assert {:ok, %Agent{} = agent} =
-               Settings.create_agent(scope, %{
-                 name: "my-hermes",
-                 kind: "hermes"
-               })
+               Settings.create_agent(scope, %{kind: "hermes"})
 
-      assert agent.name == "my-hermes"
+      assert agent.name == "hermes"
       assert agent.kind == "hermes"
       assert agent.api_token != nil
     end
@@ -147,9 +143,9 @@ defmodule Synkade.SettingsTest do
       assert found.id == agent.id
     end
 
-    test "returns error for duplicate name", %{scope: scope} do
-      {:ok, _} = Settings.create_agent(scope, %{name: "duplicate", kind: "hermes"})
-      assert {:error, changeset} = Settings.create_agent(scope, %{name: "duplicate", kind: "openclaw"})
+    test "returns error for duplicate kind", %{scope: scope} do
+      {:ok, _} = Settings.create_agent(scope, %{kind: "hermes"})
+      assert {:error, changeset} = Settings.create_agent(scope, %{kind: "hermes"})
       errors = errors_on(changeset)
       assert errors[:name] || errors[:user_id]
     end
@@ -161,10 +157,10 @@ defmodule Synkade.SettingsTest do
     end
   end
 
-  describe "upsert_ephemeral_agent/2" do
+  describe "upsert_agent/2" do
     test "creates when none exists", %{scope: scope} do
       assert {:ok, %Agent{} = agent} =
-               Settings.upsert_ephemeral_agent(scope, %{"kind" => "claude", "api_key" => "sk-test"})
+               Settings.upsert_agent(scope, %{"kind" => "claude", "api_key" => "sk-test"})
 
       assert agent.name == "claude"
       assert agent.api_key == "sk-test"
@@ -172,17 +168,17 @@ defmodule Synkade.SettingsTest do
 
     test "updates when one already exists", %{scope: scope} do
       {:ok, first} = Settings.create_agent(scope, %{kind: "claude", api_key: "sk-old"})
-      {:ok, updated} = Settings.upsert_ephemeral_agent(scope, %{"kind" => "claude", "api_key" => "sk-new"})
+      {:ok, updated} = Settings.upsert_agent(scope, %{"kind" => "claude", "api_key" => "sk-new"})
       assert updated.id == first.id
       assert updated.api_key == "sk-new"
     end
   end
 
   describe "update_agent/3" do
-    test "updates pull agent fields", %{scope: scope} do
-      {:ok, agent} = Settings.create_agent(scope, %{name: "original", kind: "hermes"})
-      {:ok, updated} = Settings.update_agent(scope, agent, %{name: "renamed"})
-      assert updated.name == "renamed"
+    test "updates agent fields", %{scope: scope} do
+      {:ok, agent} = Settings.create_agent(scope, %{kind: "hermes"})
+      {:ok, updated} = Settings.update_agent(scope, agent, %{api_key: "sk-new"})
+      assert updated.api_key == "sk-new"
     end
 
     test "ephemeral agent name stays as kind on update", %{scope: scope} do

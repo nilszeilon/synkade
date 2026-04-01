@@ -30,13 +30,13 @@ defmodule SynkadeWeb.Components.AgentBrand do
       color: "text-success"
     },
     "hermes" => %{
-      label: "Hermes CLI Agent",
-      desc: "Hermes CLI Agent",
+      label: "Hermes",
+      desc: "Nous Research CLI agent",
       color: "text-secondary"
     },
     "openclaw" => %{
-      label: "openclaw",
-      desc: "openclaw",
+      label: "OpenClaw",
+      desc: "Multi-provider CLI agent",
       color: "text-error"
     }
   }

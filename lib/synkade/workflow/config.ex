@@ -59,7 +59,9 @@ defmodule Synkade.Workflow.Config do
   @agent_command_defaults %{
     "claude" => "claude",
     "codex" => "codex app-server",
-    "opencode" => "opencode"
+    "opencode" => "opencode",
+    "hermes" => "hermes",
+    "openclaw" => "openclaw"
   }
 
   @spec get(map(), String.t(), String.t()) :: term()
@@ -256,8 +258,8 @@ defmodule Synkade.Workflow.Config do
   defp validate_agent(errors, config) do
     kind = agent_kind(config)
 
-    if kind not in ["claude", "codex", "opencode"] do
-      ["agent.kind must be 'claude', 'codex', or 'opencode', got: #{kind}" | errors]
+    if kind not in ~w(claude codex opencode hermes openclaw) do
+      ["agent.kind must be one of: claude, codex, opencode, hermes, openclaw — got: #{kind}" | errors]
     else
       errors
     end

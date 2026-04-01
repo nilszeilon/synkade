@@ -149,30 +149,6 @@ defmodule Synkade.Skills do
         -d '{"project_id":"PROJECT_ID","body":"# Issue Title\\n\\nDescription"}'
       ```
 
-      ## Pull-Based Protocol
-
-      For persistent agents: discover and claim work between tasks.
-
-      ```bash
-      # Who am I?
-      curl -s -H "Authorization: Bearer $SYNKADE_API_TOKEN" "$SYNKADE_API_URL/me"
-
-      # Find work assigned to me
-      curl -s -H "Authorization: Bearer $SYNKADE_API_TOKEN" \\
-        "$SYNKADE_API_URL/issues?state=worked_on&assigned_to=me"
-
-      # Claim an issue (409 if already claimed)
-      curl -s -X POST -H "Authorization: Bearer $SYNKADE_API_TOKEN" \\
-        "$SYNKADE_API_URL/issues/<issue_id>/checkout"
-
-      # Mark complete
-      curl -s -X PATCH "$SYNKADE_API_URL/issues/<issue_id>" \\
-        -H "Authorization: Bearer $SYNKADE_API_TOKEN" \\
-        -H "Content-Type: application/json" \\
-        -d '{"state":"done","agent_output":"Summary of work"}'
-      ```
-
-      Workflow: poll → checkout → heartbeat → complete.
       """
     }
   end

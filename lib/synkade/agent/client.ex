@@ -5,7 +5,9 @@ defmodule Synkade.Agent.Client do
 
   @adapters %{
     "claude" => Synkade.Agent.ClaudeCode,
-    "opencode" => Synkade.Agent.OpenCode
+    "opencode" => Synkade.Agent.OpenCode,
+    "hermes" => Synkade.Agent.Hermes,
+    "openclaw" => Synkade.Agent.OpenClaw
   }
 
   def start_session(config, prompt, workspace_path) do

@@ -137,7 +137,7 @@ defmodule SynkadeWeb.OnboardingLive do
   def handle_event("save_agent", %{"agent" => params}, socket) do
     scope = socket.assigns.current_scope
 
-    case Settings.upsert_ephemeral_agent(scope, params) do
+    case Settings.upsert_agent(scope, params) do
       {:ok, agent} ->
         next_step = socket.assigns.step + 1
 

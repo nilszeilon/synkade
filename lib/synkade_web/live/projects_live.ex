@@ -5,7 +5,7 @@ defmodule SynkadeWeb.ProjectsLive do
 
   alias Synkade.Jobs
   alias Synkade.Settings
-  alias Synkade.Settings.{Agent, Project}
+  alias Synkade.Settings.Project
 
   import SynkadeWeb.Components.AgentBrand
 
@@ -752,7 +752,7 @@ defmodule SynkadeWeb.ProjectsLive do
         </option>
         <%= for agent <- @agents do %>
           <option value={agent.id} selected={@form[:default_agent_id].value == agent.id}>
-            <%= if Agent.ephemeral_kind?(agent.kind), do: brand_label(agent.kind), else: agent.name %>
+            {brand_label(agent.kind)}
           </option>
         <% end %>
       </select>
