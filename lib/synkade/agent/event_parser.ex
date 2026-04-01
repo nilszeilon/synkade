@@ -30,13 +30,21 @@ defmodule Synkade.Agent.EventParser do
     {name, input} = parser.extract_name_and_input(raw)
     {detail, input_preview, file_name} = extract_detail(name, input)
 
-    # Fallback: if no detail and event has a message, use it
+    # Fallback: use OpenCode's state.title, then event message
     {detail, file_name} =
-      if is_nil(detail) and is_nil(file_name) and is_binary(event.message) and
-           event.message != "" do
-        {String.slice(event.message, 0..100), nil}
-      else
-        {detail, file_name}
+      cond do
+        not is_nil(detail) or not is_nil(file_name) ->
+          {detail, file_name}
+
+        # OpenCode puts a human-friendly title in part.state.title
+        is_binary(title = get_in(raw, ["part", "state", "title"])) and title != "" ->
+          {String.slice(title, 0..100), nil}
+
+        is_binary(event.message) and event.message != "" ->
+          {String.slice(event.message, 0..100), nil}
+
+        true ->
+          {detail, file_name}
       end
 
     output = if status == :done, do: parser.extract_output(event), else: nil
@@ -158,6 +166,158 @@ defmodule Synkade.Agent.EventParser do
   end
 
   def extract_detail(_name, _input), do: {nil, nil, nil}
+
+  # --- Event Grouping ---
+
+  @doc """
+  Groups flat session events into renderable groups:
+  - `:step` — consecutive thinking + tool events (collapsible "Step N")
+  - `:text` — agent text/assistant messages
+  - `:result` — final result text
+  - `:error` — error messages
+  - `:system` — system/stderr messages
+
+  When `agent_running?` is false, all `:running` tools are forced to `:done`.
+  """
+  @spec group_events([Event.t()], String.t() | nil, boolean()) :: [map()]
+  def group_events(events, agent_kind, agent_running?) do
+    {groups, current_step, _num} =
+      Enum.reduce(events, {[], nil, 0}, fn event, {acc, step, num} ->
+        case event.type do
+          type when type in ~w(thinking reasoning) ->
+            msg = event.message || ""
+
+            if msg == "" do
+              {acc, step, num}
+            else
+              {step, num} = ensure_step(step, num)
+              {acc, %{step | thinking: step.thinking ++ [msg]}, num}
+            end
+
+          "tool_use" ->
+            tool = build_tool_info(event, :running, agent_kind)
+            {step, num} = ensure_step(step, num)
+
+            tools =
+              if tool.status == :done do
+                update_or_append_tool(step.tools, tool)
+              else
+                step.tools ++ [tool]
+              end
+
+            {acc, %{step | tools: tools}, num}
+
+          "tool_result" ->
+            {step, num} = ensure_step(step, num)
+            {acc, %{step | tools: do_mark_tool_done(step.tools, event, agent_kind)}, num}
+
+          "step_finish" ->
+            msg = event.message || ""
+
+            if msg in ["tool-calls", ""] do
+              {acc, step, num}
+            else
+              {acc, _} = close_step(acc, step)
+              {[%{type: :result, text: msg} | acc], nil, num}
+            end
+
+          type when type in ~w(assistant text) ->
+            msg = event.message || ""
+
+            if msg == "" || noise_text?(msg) do
+              {acc, step, num}
+            else
+              {acc, _} = close_step(acc, step)
+              {[%{type: :text, text: msg, first_in_turn: !has_preceding_text?(acc)} | acc], nil, num}
+            end
+
+          "result" ->
+            msg = event.message || ""
+
+            if msg == "" || noise_result?(msg) do
+              {acc, step, num}
+            else
+              {acc, _} = close_step(acc, step)
+              {[%{type: :result, text: msg} | acc], nil, num}
+            end
+
+          "error" ->
+            {acc, _} = close_step(acc, step)
+            {[%{type: :error, text: event.message || "Unknown error"} | acc], nil, num}
+
+          type when type in ~w(system stderr) ->
+            msg = event.message || ""
+            if msg != "", do: {[%{type: :system, text: msg} | acc], step, num}, else: {acc, step, num}
+
+          _ ->
+            {acc, step, num}
+        end
+      end)
+
+    {groups, _} = close_step(groups, current_step)
+
+    groups = Enum.reverse(groups)
+
+    if agent_running? do
+      groups
+    else
+      Enum.map(groups, fn
+        %{type: :step, tools: tools} = step ->
+          %{step | tools: Enum.map(tools, &force_tool_done/1)}
+
+        other ->
+          other
+      end)
+    end
+  end
+
+  defp ensure_step(nil, num), do: {%{type: :step, number: num + 1, thinking: [], tools: []}, num + 1}
+  defp ensure_step(step, num), do: {step, num}
+
+  defp close_step(acc, nil), do: {acc, nil}
+  defp close_step(acc, step), do: {[step | acc], nil}
+
+  defp force_tool_done(%{status: :running} = tool), do: %{tool | status: :done}
+  defp force_tool_done(tool), do: tool
+
+  defp update_or_append_tool(tools, done_tool) do
+    idx = Enum.find_index(tools, &(&1.name == done_tool.name and &1.status == :running))
+
+    if idx do
+      List.replace_at(tools, idx, done_tool)
+    else
+      tools ++ [done_tool]
+    end
+  end
+
+  defp do_mark_tool_done(tools, result_event, agent_kind) do
+    case Enum.reverse(tools) do
+      [last | rest] ->
+        Enum.reverse([mark_done(last, result_event, agent_kind) | rest])
+
+      [] ->
+        [build_tool_info(result_event, :done, agent_kind)]
+    end
+  end
+
+  defp has_preceding_text?(groups) do
+    Enum.any?(groups, fn
+      %{type: :text} -> true
+      _ -> false
+    end)
+  end
+
+  # Filter out prompt echoes and noise
+  defp noise_text?(msg) do
+    trimmed = String.trim(msg)
+    # Agent echoes back the system prompt as first text event
+    String.starts_with?(trimmed, "\"You are working on issue") ||
+      String.starts_with?(trimmed, "You are working on issue")
+  end
+
+  defp noise_result?(msg) do
+    String.trim(msg) in ~w(stop end-turn end_turn)
+  end
 
   # --- Agent dispatch ---
 

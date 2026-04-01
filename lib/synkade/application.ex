@@ -17,6 +17,7 @@ defmodule Synkade.Application do
       {Phoenix.PubSub, name: Synkade.PubSub},
       Synkade.AgentCooldowns,
       Synkade.Agent.ModelCache,
+      Synkade.Execution.SessionEventCache,
       {Oban, Application.fetch_env!(:synkade, Oban)},
       # Start to serve requests, typically the last entry
       SynkadeWeb.Endpoint

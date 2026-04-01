@@ -81,7 +81,10 @@ defmodule Synkade.Agent.ClaudeCode do
   def parse_event(line) do
     case Jason.decode(line) do
       {:ok, data} ->
-        {:ok, build_event(data)}
+        case Synkade.Agent.ContentExpander.expand(data, &extract_session_id/1) do
+          [] -> {:ok, build_event(data)}
+          events -> {:ok, events}
+        end
 
       {:error, _} ->
         :skip
@@ -215,7 +218,7 @@ defmodule Synkade.Agent.ClaudeCode do
     data["session_id"] || get_in(data, ["metadata", "session_id"])
   end
 
-  defp extract_message(%{"type" => "assistant", "message" => msg}), do: msg
+  defp extract_message(%{"type" => "assistant", "message" => msg}) when is_binary(msg), do: msg
   defp extract_message(%{"type" => "result", "result" => result}), do: result
   defp extract_message(%{"message" => msg}) when is_binary(msg), do: msg
   defp extract_message(_), do: nil

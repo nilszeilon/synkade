@@ -60,7 +60,7 @@ defmodule Synkade.Agent.OpenCode do
   def build_args(config, prompt, extra_args) do
     model = Config.get(config, "agent", "model")
 
-    args = ["run", "--format", "json"]
+    args = ["run", "--format", "json", "--thinking"]
 
     args = if model, do: args ++ ["--model", model], else: args
 
@@ -209,8 +209,15 @@ defmodule Synkade.Agent.OpenCode do
     # OpenCode tokens live inside part.tokens on step_finish events
     tokens = get_in(data, ["part", "tokens"]) || %{}
 
+    # Normalize reasoning to thinking for unified UI
+    type =
+      case data["type"] do
+        "reasoning" -> "thinking"
+        other -> other || "unknown"
+      end
+
     %Event{
-      type: data["type"] || "unknown",
+      type: type,
       session_id: data["sessionID"],
       message: extract_message(data),
       model: data["model"] || get_in(data, ["part", "model"]),
@@ -222,10 +229,13 @@ defmodule Synkade.Agent.OpenCode do
     }
   end
 
-  # OpenCode "text" events carry content in part.text
-  defp extract_message(%{"type" => "text", "part" => %{"text" => text}}), do: text
-  # OpenCode "error" events
+  # OpenCode step_finish carries reason in part.reason
+  defp extract_message(%{"type" => "step_finish", "part" => %{"reason" => reason}}), do: reason
+  # OpenCode events: text nested in part.text or at top level
+  defp extract_message(%{"part" => %{"text" => text}}) when is_binary(text), do: text
+  defp extract_message(%{"type" => "error", "error" => %{"data" => %{"message" => msg}}}), do: msg
   defp extract_message(%{"type" => "error", "error" => %{"message" => msg}}), do: msg
+  defp extract_message(%{"text" => text}) when is_binary(text), do: text
   defp extract_message(%{"message" => msg}) when is_binary(msg), do: msg
   defp extract_message(_), do: nil
 end

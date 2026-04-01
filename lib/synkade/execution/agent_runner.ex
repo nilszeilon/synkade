@@ -29,6 +29,9 @@ defmodule Synkade.Execution.AgentRunner do
 
     config_model = Config.get(config, "agent", "model")
 
+    # Clear cached events from any previous run
+    Synkade.Execution.SessionEventCache.clear(issue.id)
+
     with {:ok, env_ref} <- BackendClient.setup_env(config, project_name, issue.identifier),
          :ok <- BackendClient.run_before_hook(config, env_ref),
          {:ok, prompt} <- render_prompt(project, issue, attempt),
@@ -90,7 +93,21 @@ defmodule Synkade.Execution.AgentRunner do
         session = Map.put(session, :pending_line, "")
         {session, events} = process_data(config, data, session)
 
-        # Broadcast events via PubSub directly
+        # Broadcast events via PubSub and cache for late joiners
+        if events != [] do
+          Synkade.Execution.SessionEventCache.append(issue.id, events)
+        end
+
+        # Persist session_id to issue metadata once discovered (for session recovery)
+        session =
+          if session.session_id && !Map.get(session, :session_id_persisted) do
+            agent_kind = Config.get(config, "agent", "kind")
+            persist_session_info(issue.id, session.session_id, agent_kind)
+            Map.put(session, :session_id_persisted, true)
+          else
+            session
+          end
+
         for event <- events do
           Phoenix.PubSub.broadcast(
             Synkade.PubSub,
@@ -199,6 +216,15 @@ defmodule Synkade.Execution.AgentRunner do
 
     Enum.reduce(lines, {session, []}, fn line, {sess, events} ->
       case BackendClient.parse_event(config, line) do
+        {:ok, parsed_events} when is_list(parsed_events) ->
+          sess =
+            Enum.reduce(parsed_events, sess, fn event, s ->
+              s = if event.session_id, do: %{s | session_id: event.session_id}, else: s
+              %{s | events: s.events ++ [event]}
+            end)
+
+          {sess, events ++ parsed_events}
+
         {:ok, event} ->
           sess = if event.session_id, do: %{sess | session_id: event.session_id}, else: sess
           sess = %{sess | events: sess.events ++ [event]}
@@ -250,6 +276,26 @@ defmodule Synkade.Execution.AgentRunner do
   end
 
   defp normalize_state(state), do: state |> String.trim() |> String.downcase()
+
+  # Store session_id and agent_kind in issue metadata so SessionReader can recover events
+  defp persist_session_info(issue_id, session_id, agent_kind) do
+    case Synkade.Issues.get_issue(issue_id) do
+      nil ->
+        :ok
+
+      issue ->
+        metadata =
+          (issue.metadata || %{})
+          |> Map.put("last_session_id", session_id)
+          |> Map.put("last_agent_kind", agent_kind)
+
+        Synkade.Issues.update_issue(issue, %{metadata: metadata})
+    end
+  rescue
+    e ->
+      Logger.warning("AgentRunner: failed to persist session info: #{inspect(e)}")
+      :ok
+  end
 
   # Drop the last dispatch message (the current one) from conversation history
   defp drop_trailing_dispatch([]), do: []

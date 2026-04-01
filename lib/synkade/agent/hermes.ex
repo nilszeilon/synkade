@@ -88,7 +88,10 @@ defmodule Synkade.Agent.Hermes do
   def parse_event(line) do
     case Jason.decode(line) do
       {:ok, data} ->
-        {:ok, build_event(data)}
+        case Synkade.Agent.ContentExpander.expand(data, &extract_session_id/1) do
+          [] -> {:ok, build_event(data)}
+          events -> {:ok, events}
+        end
 
       {:error, _} ->
         :skip
@@ -166,7 +169,7 @@ defmodule Synkade.Agent.Hermes do
   defp build_event(data) do
     %Event{
       type: data["type"] || "unknown",
-      session_id: data["session_id"] || get_in(data, ["metadata", "session_id"]),
+      session_id: extract_session_id(data),
       message: extract_message(data),
       model: data["model"] || get_in(data, ["usage", "model"]),
       input_tokens: get_in(data, ["usage", "input_tokens"]) || 0,
@@ -179,7 +182,11 @@ defmodule Synkade.Agent.Hermes do
     }
   end
 
-  defp extract_message(%{"type" => "assistant", "message" => msg}), do: msg
+  defp extract_session_id(data) do
+    data["session_id"] || get_in(data, ["metadata", "session_id"])
+  end
+
+  defp extract_message(%{"type" => "assistant", "message" => msg}) when is_binary(msg), do: msg
   defp extract_message(%{"type" => "result", "result" => result}), do: result
   defp extract_message(%{"message" => msg}) when is_binary(msg), do: msg
   defp extract_message(_), do: nil
