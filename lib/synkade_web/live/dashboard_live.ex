@@ -5,7 +5,7 @@ defmodule SynkadeWeb.DashboardLive do
   import SynkadeWeb.Components.TokenChart
   import SynkadeWeb.IssueLiveHelpers
   import SynkadeWeb.ModelPickerHelpers,
-    only: [handle_model_picker_event: 3, handle_model_picker_info: 2, model_picker_assigns: 0]
+    only: [handle_model_picker_event: 3, handle_model_picker_info: 2, model_picker_assigns: 0, model_picker_assigns: 1]
 
   alias Synkade.{Issues, Jobs, Settings}
   alias Synkade.Tracker.Client, as: TrackerClient
@@ -146,6 +146,16 @@ defmodule SynkadeWeb.DashboardLive do
           |> assign(:selected_issue, nil)
           |> assign(:view_mode, if(project_name, do: :board, else: :overview))
       end
+
+    # Look up DB project so model picker can load/persist default_model
+    db_project =
+      if project_name,
+        do: Settings.get_project_by_name(socket.assigns.current_scope, project_name)
+
+    socket =
+      socket
+      |> assign(:project, db_project)
+      |> assign(model_picker_assigns(db_project))
 
     if connected?(socket) && project_name && socket.assigns.view_mode not in [:detail, :create] do
       send(self(), :load_board)
@@ -508,10 +518,12 @@ defmodule SynkadeWeb.DashboardLive do
         {:ok, _} ->
           send(self(), :load_board)
 
+          project = socket.assigns[:project]
+
           socket =
             socket
             |> assign(:modal, nil)
-            |> assign(:selected_model, nil)
+            |> assign(:selected_model, project && project.default_model)
             |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
             |> put_flash(
               :info,

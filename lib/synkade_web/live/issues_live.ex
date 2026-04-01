@@ -305,10 +305,13 @@ defmodule SynkadeWeb.IssuesLive do
 
       case Issues.dispatch_issue(issue, instruction, agent_id, model: model) do
         {:ok, _} ->
+          issue = socket.assigns.selected_issue.issue
+          db_project = Enum.find(socket.assigns.db_projects, &(&1.id == issue.project_id))
+
           socket =
             socket
             |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
-            |> assign(:selected_model, nil)
+            |> assign(:selected_model, db_project && db_project.default_model)
             |> load_issues()
             |> put_flash(
               :info,
