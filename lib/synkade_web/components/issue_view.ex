@@ -71,6 +71,12 @@ defmodule SynkadeWeb.Components.IssueView do
           </p>
         </div>
         <span
+          :if={@running_entry[:attempt] && @running_entry[:attempt] > 1}
+          class="badge badge-xs badge-warning flex-shrink-0"
+        >
+          attempt {@running_entry[:attempt]}/{@running_entry[:max_attempts] || 5}
+        </span>
+        <span
           :if={@running_entry.last_agent_timestamp}
           class="text-sm text-base-content/40 flex-shrink-0"
         >
