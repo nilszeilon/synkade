@@ -108,8 +108,8 @@ defmodule Synkade.Workers.AgentWorker do
         handle_pr_created(issue, pr_url)
         :ok
 
-      {:ok, {:completed_with_output, agent_output, children}, _session} ->
-        handle_completed(issue, agent_output, children, agent)
+      {:ok, {:completed_with_output, agent_output}, _session} ->
+        handle_completed(issue, agent_output, agent)
         :ok
 
       {:ok, _reason, _session} ->
@@ -148,11 +148,10 @@ defmodule Synkade.Workers.AgentWorker do
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
 
-  defp handle_completed(issue, agent_output, children, agent) do
+  defp handle_completed(issue, agent_output, agent) do
     agent_name = agent && agent.name
     agent_kind = agent && agent.kind
     Issues.append_agent_output(issue, agent_output, agent_name, agent_kind)
-    if issue && children != [], do: Issues.create_children_from_agent(issue, children)
   rescue
     e -> Logger.warning("AgentWorker: failed to handle completion: #{inspect(e)}")
   end

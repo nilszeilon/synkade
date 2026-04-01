@@ -24,8 +24,6 @@ defmodule SynkadeWeb.IssueLiveHelpers do
         |> assign(:view_mode, fallback_view_mode)
 
       issue ->
-        ancestors = Issues.ancestor_chain(issue)
-
         # Unsubscribe from previous session
         socket = unsubscribe_session(socket)
 
@@ -59,7 +57,7 @@ defmodule SynkadeWeb.IssueLiveHelpers do
         :ok
 
         socket
-        |> assign(:selected_issue, %{issue: issue, ancestors: ancestors})
+        |> assign(:selected_issue, %{issue: issue})
         |> assign(:view_mode, :detail)
         |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
     end
@@ -70,24 +68,11 @@ defmodule SynkadeWeb.IssueLiveHelpers do
   `resolve_project_id` is a function that returns the project_id given the socket.
   """
   def init_create_view(socket, params, resolve_project_id) do
-    parent_id = params["parent_id"]
     project_id = resolve_project_id.(socket)
 
-    initial_attrs = %{parent_id: parent_id}
+    initial_attrs = %{}
     initial_attrs = if params["body"], do: Map.put(initial_attrs, :body, params["body"]), else: initial_attrs
     changeset = Issues.change_issue(%Issues.Issue{}, initial_attrs)
-
-    create_ancestors =
-      case parent_id do
-        nil ->
-          []
-
-        id ->
-          case Issues.get_issue(id) do
-            nil -> []
-            parent -> Issues.ancestor_chain(parent) ++ [parent]
-          end
-      end
 
     socket = unsubscribe_session(socket)
 
@@ -107,9 +92,7 @@ defmodule SynkadeWeb.IssueLiveHelpers do
     |> assign(:view_mode, :create)
     |> assign(:selected_issue, nil)
     |> assign(:form, to_form(changeset))
-    |> assign(:form_parent_id, parent_id)
     |> assign(:form_project_id, project_id)
-    |> assign(:create_ancestors, create_ancestors)
     |> assign(:selected_agent_id, default_agent_id)
   end
 
@@ -197,15 +180,10 @@ defmodule SynkadeWeb.IssueLiveHelpers do
             |> assign(:view_mode, fallback_view_mode)
 
           updated ->
-            ancestors = Issues.ancestor_chain(updated)
-            assign(socket, :selected_issue, %{issue: updated, ancestors: ancestors})
+            assign(socket, :selected_issue, %{issue: updated})
         end
     end
   end
-
-  @doc "Add parent_id to issue params if present."
-  def maybe_put_parent(params, nil), do: params
-  def maybe_put_parent(params, parent_id), do: Map.put(params, "parent_id", parent_id)
 
   @doc """
   Resolve the agent kind that would handle a given issue.
