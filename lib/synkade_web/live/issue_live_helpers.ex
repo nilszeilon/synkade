@@ -206,6 +206,21 @@ defmodule SynkadeWeb.IssueLiveHelpers do
 
   def resolved_agent_kind(_, _, _, _), do: nil
 
+  # --- Text helpers ---
+
+  @doc "Strip leading `# Title` from issue body, returning nil if nothing remains."
+  def body_without_title(nil), do: nil
+  def body_without_title(""), do: nil
+
+  def body_without_title(body) do
+    result =
+      String.replace(body, ~r/^#\s+.+\n*/, "", global: false)
+      |> String.trim_leading("\n")
+      |> String.trim()
+
+    if result == "", do: nil, else: result
+  end
+
   # --- Formatting helpers ---
 
   @doc "CSS class for issue state badges."

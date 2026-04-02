@@ -7,7 +7,7 @@ defmodule SynkadeWeb.Components.IssueView do
   import SynkadeWeb.CoreComponents
   import SynkadeWeb.Components.AgentBrand
   import SynkadeWeb.Components.SearchPicker
-  import SynkadeWeb.IssueLiveHelpers, only: [state_badge_class: 1, format_relative_time: 1]
+  import SynkadeWeb.IssueLiveHelpers, only: [state_badge_class: 1, format_relative_time: 1, body_without_title: 1]
   alias Synkade.Issues.Issue
   alias Synkade.Settings.Agent
 
@@ -460,18 +460,6 @@ defmodule SynkadeWeb.Components.IssueView do
       </span>
     </div>
     """
-  end
-
-  defp body_without_title(nil), do: nil
-  defp body_without_title(""), do: nil
-
-  defp body_without_title(body) do
-    result =
-      String.replace(body, ~r/^#\s+.+\n*/, "", global: false)
-      |> String.trim_leading("\n")
-      |> String.trim()
-
-    if result == "", do: nil, else: result
   end
 
   defp agent_display_name(msg) do
