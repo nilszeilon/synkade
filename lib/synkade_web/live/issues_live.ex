@@ -357,17 +357,9 @@ defmodule SynkadeWeb.IssuesLive do
 
   @impl true
   def handle_event("complete_issue", %{"id" => issue_id}, socket) do
-    issue = Issues.get_issue!(issue_id)
-
-    case Issues.complete_issue(issue) do
-      {:ok, _} ->
-        {:noreply,
-         socket
-         |> load_issues()
-         |> put_flash(:info, "Issue marked done")}
-
-      {:error, :invalid_transition} ->
-        {:noreply, put_flash(socket, :error, "Cannot complete from current state")}
+    case handle_complete_issue(issue_id, socket) do
+      {:ok, socket} -> {:noreply, load_issues(socket)}
+      {:error, socket} -> {:noreply, socket}
     end
   end
 

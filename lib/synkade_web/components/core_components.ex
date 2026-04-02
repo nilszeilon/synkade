@@ -495,4 +495,21 @@ defmodule SynkadeWeb.CoreComponents do
   def translate_errors(errors, field) when is_list(errors) do
     for {^field, {msg, opts}} <- errors, do: translate_error({msg, opts})
   end
+
+  @doc """
+  Renders inline field errors for a form field.
+  """
+  attr :field, :any, required: true
+
+  def field_error(assigns) do
+    ~H"""
+    <%= if @field.errors != [] do %>
+      <div class="label">
+        <%= for {msg, _opts} <- @field.errors do %>
+          <span class="label-text-alt text-error">{msg}</span>
+        <% end %>
+      </div>
+    <% end %>
+    """
+  end
 end

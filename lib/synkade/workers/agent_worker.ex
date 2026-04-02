@@ -54,17 +54,27 @@ defmodule Synkade.Workers.AgentWorker do
   end
 
   defp execute_agent(issue, setting, db_project, agent, job) do
-    # Ensure issue is in worked_on state
-    issue =
-      if issue.state != "worked_on" do
-        case Issues.transition_state(issue, "worked_on") do
-          {:ok, updated} -> updated
-          _ -> issue
-        end
-      else
-        issue
-      end
+    issue = ensure_worked_on(issue)
+    {_config, project} = build_agent_config(issue, setting, db_project, agent)
+    tracker_issue = db_issue_to_tracker_issue(issue, db_project.name)
 
+    AgentRunner.run(project, tracker_issue, job.attempt,
+      user_id: db_project.user_id,
+      agent_id: agent && agent.id
+    )
+    |> handle_agent_result(issue, setting, db_project, agent, job)
+  end
+
+  defp ensure_worked_on(%{state: "worked_on"} = issue), do: issue
+
+  defp ensure_worked_on(issue) do
+    case Issues.transition_state(issue, "worked_on") do
+      {:ok, updated} -> updated
+      _ -> issue
+    end
+  end
+
+  defp build_agent_config(issue, setting, db_project, agent) do
     config = ConfigAdapter.resolve_project_config(setting, db_project, agent)
 
     # Model resolution order (highest priority first):
@@ -72,13 +82,10 @@ defmodule Synkade.Workers.AgentWorker do
     #   2. Project default (project.default_model) — resolved by ConfigAdapter
     #   3. Global default (setting.default_model) — resolved by ConfigAdapter
     #   4. nil — agent CLI uses its own built-in default
-    issue_model = get_in(issue.metadata, ["model"])
-
     config =
-      if issue_model do
-        put_in(config, ["agent", "model"], issue_model)
-      else
-        config
+      case get_in(issue.metadata, ["model"]) do
+        nil -> config
+        model -> put_in(config, ["agent", "model"], model)
       end
 
     # Add user's skills to config
@@ -94,44 +101,38 @@ defmodule Synkade.Workers.AgentWorker do
         _, _ -> config
       end
 
-    project = %{
-      name: db_project.name,
-      db_id: db_project.id,
-      config: config
-    }
+    project = %{name: db_project.name, db_id: db_project.id, config: config}
+    {config, project}
+  end
 
-    tracker_issue = db_issue_to_tracker_issue(issue, db_project.name)
-    attempt = job.attempt
+  defp handle_agent_result({:ok, {:pr_created, pr_url}, _session}, issue, _setting, _db_project, _agent, _job) do
+    handle_pr_created(issue, pr_url)
+    :ok
+  end
 
-    case AgentRunner.run(project, tracker_issue, attempt,
-           user_id: db_project.user_id,
-           agent_id: agent && agent.id
-         ) do
-      {:ok, {:pr_created, pr_url}, _session} ->
-        handle_pr_created(issue, pr_url)
-        :ok
+  defp handle_agent_result({:ok, {:completed_with_output, output}, _session}, issue, _setting, _db_project, agent, _job) do
+    handle_completed(issue, output, agent)
+    :ok
+  end
 
-      {:ok, {:completed_with_output, agent_output}, _session} ->
-        handle_completed(issue, agent_output, agent)
-        :ok
+  defp handle_agent_result({:ok, _reason, _session}, _issue, _setting, _db_project, _agent, _job), do: :ok
 
-      {:ok, _reason, _session} ->
-        :ok
+  defp handle_agent_result({:error, {:usage_cap, reason}, _session}, issue, setting, db_project, agent, job) do
+    handle_rate_limit(issue, setting, db_project, agent, job, reason, :usage_cap)
+  end
 
-      {:error, {:usage_cap, reason}, _session} ->
-        handle_rate_limit(issue, setting, db_project, agent, job, reason, :usage_cap)
+  defp handle_agent_result({:error, {:rate_limited, reason}, _session}, issue, setting, db_project, agent, job) do
+    handle_rate_limit(issue, setting, db_project, agent, job, reason, :rate_limited)
+  end
 
-      {:error, {:rate_limited, reason}, _session} ->
-        handle_rate_limit(issue, setting, db_project, agent, job, reason, :rate_limited)
+  defp handle_agent_result({:error, reason, _session}, issue, _setting, _db_project, _agent, job) do
+    handle_error(issue, reason, job)
+    {:error, reason}
+  end
 
-      {:error, reason, _session} ->
-        handle_error(issue, reason, job)
-        {:error, reason}
-
-      {:error, reason} ->
-        handle_error(issue, reason, job)
-        {:error, reason}
-    end
+  defp handle_agent_result({:error, reason}, issue, _setting, _db_project, _agent, job) do
+    handle_error(issue, reason, job)
+    {:error, reason}
   end
 
   defp handle_pr_created(issue, pr_url) do

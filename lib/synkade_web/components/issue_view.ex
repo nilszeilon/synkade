@@ -429,28 +429,10 @@ defmodule SynkadeWeb.Components.IssueView do
   attr :event, :map, required: true
 
   def session_event(assigns) do
-    badge_class =
-      case assigns.event.type do
-        "assistant" -> "badge-primary"
-        "tool_use" -> "badge-info"
-        "tool_result" -> "badge-info"
-        "result" -> "badge-success"
-        "error" -> "badge-error"
-        "stderr" -> "badge-warning"
-        _ -> "badge-ghost"
-      end
-
-    message =
-      case assigns.event.message do
-        nil -> ""
-        msg when byte_size(msg) > 200 -> String.slice(msg, 0..197) <> "..."
-        msg -> msg
-      end
-
     assigns =
       assigns
-      |> assign(:badge_class, badge_class)
-      |> assign(:display_message, message)
+      |> assign(:badge_class, event_badge_class(assigns.event.type))
+      |> assign(:display_message, truncate_message(assigns.event.message))
 
     ~H"""
     <div class="flex items-start gap-1.5 leading-tight">
@@ -461,6 +443,18 @@ defmodule SynkadeWeb.Components.IssueView do
     </div>
     """
   end
+
+  defp event_badge_class("assistant"), do: "badge-primary"
+  defp event_badge_class("tool_use"), do: "badge-info"
+  defp event_badge_class("tool_result"), do: "badge-info"
+  defp event_badge_class("result"), do: "badge-success"
+  defp event_badge_class("error"), do: "badge-error"
+  defp event_badge_class("stderr"), do: "badge-warning"
+  defp event_badge_class(_), do: "badge-ghost"
+
+  defp truncate_message(nil), do: ""
+  defp truncate_message(msg) when byte_size(msg) > 200, do: String.slice(msg, 0..197) <> "..."
+  defp truncate_message(msg), do: msg
 
   defp agent_display_name(msg) do
     kind = msg["agent_kind"]

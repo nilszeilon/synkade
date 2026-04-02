@@ -546,15 +546,4 @@ defmodule SynkadeWeb.OnboardingLive do
     """
   end
 
-  defp field_error(assigns) do
-    ~H"""
-    <%= if @field.errors != [] do %>
-      <div class="label">
-        <%= for {msg, _opts} <- @field.errors do %>
-          <span class="label-text-alt text-error">{msg}</span>
-        <% end %>
-      </div>
-    <% end %>
-    """
-  end
 end
