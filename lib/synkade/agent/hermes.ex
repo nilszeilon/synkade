@@ -2,7 +2,7 @@ defmodule Synkade.Agent.Hermes do
   @moduledoc false
   @behaviour Synkade.Agent.Behaviour
 
-  alias Synkade.Agent.Event
+  alias Synkade.Agent.{Event, PortHelper}
   alias Synkade.Workflow.Config
 
   require Logger
@@ -22,8 +22,6 @@ defmodule Synkade.Agent.Hermes do
        {"DeepSeek V3", "deepseek/deepseek-chat"}
      ]}
   end
-
-  @port_line_bytes 1_048_576
 
   @impl true
   def start_session(config, prompt, workspace_path) do
@@ -57,31 +55,14 @@ defmodule Synkade.Agent.Hermes do
 
   @impl true
   def build_env(config) do
-    env =
+    agent_env =
       case Config.get(config, "agent", "api_key") do
         nil -> []
         "" -> []
         key -> [{~c"OPENROUTER_API_KEY", String.to_charlist(key)}]
       end
 
-    env =
-      case resolve_github_token(config) do
-        nil -> env
-        token -> [{~c"GITHUB_TOKEN", String.to_charlist(token)} | env]
-      end
-
-    env =
-      case Config.get(config, "agent", "synkade_api_url") do
-        nil -> env
-        "" -> env
-        url -> [{~c"SYNKADE_API_URL", String.to_charlist(url)} | env]
-      end
-
-    case Config.get(config, "agent", "synkade_api_token") do
-      nil -> env
-      "" -> env
-      token -> [{~c"SYNKADE_API_TOKEN", String.to_charlist(token)} | env]
-    end
+    PortHelper.common_env(config, agent_env)
   end
 
   @impl true
@@ -102,68 +83,12 @@ defmodule Synkade.Agent.Hermes do
 
   defp run_agent(config, args, workspace_path) do
     env = build_env(config)
-    command = Config.agent_command(config)
-
-    # Build shell-escaped command. Hermes --quiet gives clean JSON output,
-    # so no PTY wrapper needed (like OpenCode).
-    bash_command =
-      "exec " <> Enum.map_join([command | args], " ", &shell_escape/1) <> " </dev/null"
-
-    bash_path = System.find_executable("bash") || "/bin/bash"
-
     Logger.info("Hermes: starting agent in #{workspace_path}")
-
-    port =
-      Port.open(
-        {:spawn_executable, String.to_charlist(bash_path)},
-        [
-          :binary,
-          :exit_status,
-          :stderr_to_stdout,
-          {:args, [~c"-lc", String.to_charlist(bash_command)]},
-          {:cd, String.to_charlist(workspace_path)},
-          {:env, env},
-          {:line, @port_line_bytes}
-        ]
-      )
-
-    session = %{
-      session_id: nil,
-      port: port,
-      os_pid: port_os_pid(port),
-      events: []
-    }
-
-    {:ok, session}
+    PortHelper.open_bash_port(config, args, workspace_path, env)
   rescue
     e ->
       Logger.error("Hermes: failed to start agent: #{Exception.message(e)}")
       {:error, Exception.message(e)}
-  end
-
-  defp shell_escape(arg) do
-    "'" <> String.replace(arg, "'", "'\\''") <> "'"
-  end
-
-  defp resolve_github_token(config) do
-    case Config.get(config, "tracker", "api_key") do
-      nil ->
-        case System.get_env("GITHUB_TOKEN") do
-          nil -> nil
-          "" -> nil
-          token -> token
-        end
-
-      token ->
-        token
-    end
-  end
-
-  defp port_os_pid(port) do
-    case Port.info(port, :os_pid) do
-      {:os_pid, pid} -> pid
-      nil -> nil
-    end
   end
 
   defp build_event(data) do

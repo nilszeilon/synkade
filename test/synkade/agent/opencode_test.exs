@@ -9,7 +9,7 @@ defmodule Synkade.Agent.OpenCodeTest do
       config = %{}
       args = OpenCode.build_args(config, "Fix the bug", [])
 
-      assert args == ["run", "--format", "json", "Fix the bug"]
+      assert args == ["run", "--format", "json", "--thinking", "Fix the bug"]
     end
 
     test "includes model when specified" do
@@ -20,6 +20,7 @@ defmodule Synkade.Agent.OpenCodeTest do
                "run",
                "--format",
                "json",
+               "--thinking",
                "--model",
                "openrouter/anthropic/claude-sonnet-4-5-20250929",
                "prompt"
