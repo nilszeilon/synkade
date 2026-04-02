@@ -2,7 +2,7 @@ defmodule Synkade.Agent.ClaudeCode do
   @moduledoc false
   @behaviour Synkade.Agent.Behaviour
 
-  alias Synkade.Agent.Event
+  alias Synkade.Agent.{Event, PortHelper}
   alias Synkade.Workflow.Config
 
   require Logger
@@ -95,13 +95,12 @@ defmodule Synkade.Agent.ClaudeCode do
 
   # --- Private ---
 
+  # ClaudeCode uses `script` for PTY wrapping (unlike the other adapters)
   defp run_agent(config, args, workspace_path) do
     command = Config.agent_command(config)
-    # Build the bash command string with single-quote escaping for each arg.
-    # Then launch via spawn_executable on `script` so each OS-level argument
-    # is passed directly — no nested shell interpretation.
+
     bash_command =
-      Enum.map_join([command | args], " ", &shell_escape/1)
+      Enum.map_join([command | args], " ", &PortHelper.shell_escape/1)
 
     script_path = System.find_executable("script") || "/usr/bin/script"
 
@@ -124,7 +123,7 @@ defmodule Synkade.Agent.ClaudeCode do
     session = %{
       session_id: nil,
       port: port,
-      os_pid: port_os_pid(port),
+      os_pid: PortHelper.port_os_pid(port),
       events: []
     }
 
@@ -133,70 +132,23 @@ defmodule Synkade.Agent.ClaudeCode do
     e -> {:error, Exception.message(e)}
   end
 
-  defp shell_escape(arg) do
-    "'" <> String.replace(arg, "'", "'\\''") <> "'"
-  end
-
   @impl true
   def build_env(config) do
     agent_env =
       case Config.get(config, "agent", "auth_mode") do
         "oauth" ->
-          case Config.get(config, "agent", "oauth_token") do
-            nil -> []
-            "" -> []
-            token -> [{~c"CLAUDE_CODE_OAUTH_TOKEN", String.to_charlist(token)}]
-          end
+          charlist_env(~c"CLAUDE_CODE_OAUTH_TOKEN", Config.get(config, "agent", "oauth_token"))
 
         _ ->
-          case Config.get(config, "agent", "api_key") do
-            nil -> []
-            "" -> []
-            key -> [{~c"ANTHROPIC_API_KEY", String.to_charlist(key)}]
-          end
+          charlist_env(~c"ANTHROPIC_API_KEY", Config.get(config, "agent", "api_key"))
       end
 
-    agent_env =
-      case resolve_github_token(config) do
-        nil -> agent_env
-        token -> [{~c"GITHUB_TOKEN", String.to_charlist(token)} | agent_env]
-      end
-
-    # Inject Synkade API credentials for runtime issue management
-    agent_env =
-      case Config.get(config, "agent", "synkade_api_url") do
-        nil -> agent_env
-        "" -> agent_env
-        url -> [{~c"SYNKADE_API_URL", String.to_charlist(url)} | agent_env]
-      end
-
-    case Config.get(config, "agent", "synkade_api_token") do
-      nil -> agent_env
-      "" -> agent_env
-      token -> [{~c"SYNKADE_API_TOKEN", String.to_charlist(token)} | agent_env]
-    end
+    PortHelper.common_env(config, agent_env)
   end
 
-  defp resolve_github_token(config) do
-    case Config.get(config, "tracker", "api_key") do
-      nil ->
-        case System.get_env("GITHUB_TOKEN") do
-          nil -> nil
-          "" -> nil
-          token -> token
-        end
-
-      token ->
-        token
-    end
-  end
-
-  defp port_os_pid(port) do
-    case Port.info(port, :os_pid) do
-      {:os_pid, pid} -> pid
-      nil -> nil
-    end
-  end
+  defp charlist_env(_key, nil), do: []
+  defp charlist_env(_key, ""), do: []
+  defp charlist_env(key, value), do: [{key, String.to_charlist(value)}]
 
   defp build_event(data) do
     %Event{
