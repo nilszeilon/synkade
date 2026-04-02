@@ -30,22 +30,7 @@ defmodule Synkade.Agent.EventParser do
     {name, input} = parser.extract_name_and_input(raw)
     {detail, input_preview, file_name} = extract_detail(name, input)
 
-    # Fallback: use OpenCode's state.title, then event message
-    {detail, file_name} =
-      cond do
-        not is_nil(detail) or not is_nil(file_name) ->
-          {detail, file_name}
-
-        # OpenCode puts a human-friendly title in part.state.title
-        is_binary(title = get_in(raw, ["part", "state", "title"])) and title != "" ->
-          {String.slice(title, 0..100), nil}
-
-        is_binary(event.message) and event.message != "" ->
-          {String.slice(event.message, 0..100), nil}
-
-        true ->
-          {detail, file_name}
-      end
+    {detail, file_name} = resolve_fallback_title(detail, file_name, raw, event)
 
     output = if status == :done, do: parser.extract_output(event), else: nil
 
@@ -71,6 +56,20 @@ defmodule Synkade.Agent.EventParser do
       })
     else
       base
+    end
+  end
+
+  defp resolve_fallback_title(detail, file_name, _raw, _event)
+       when not is_nil(detail) or not is_nil(file_name),
+       do: {detail, file_name}
+
+  defp resolve_fallback_title(_detail, _file_name, raw, event) do
+    title = get_in(raw, ["part", "state", "title"])
+
+    cond do
+      is_binary(title) and title != "" -> {String.slice(title, 0..100), nil}
+      is_binary(event.message) and event.message != "" -> {String.slice(event.message, 0..100), nil}
+      true -> {nil, nil}
     end
   end
 
