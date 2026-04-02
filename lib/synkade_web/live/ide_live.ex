@@ -1,20 +1,21 @@
 defmodule SynkadeWeb.IdeLive do
   use SynkadeWeb, :live_view
 
-  # session_event no longer used — IDE has its own grouped rendering
-  import SynkadeWeb.Components.AgentBrand
-  import SynkadeWeb.Components.IssueView, only: [model_trigger: 1]
-  import SynkadeWeb.IssueLiveHelpers, only: [state_badge_class: 1, resolved_agent_kind: 4]
-  import SynkadeWeb.Components.SearchPicker
+  import SynkadeWeb.Components.Ide.ChatView
+  import SynkadeWeb.Components.Ide.DiffView
+  import SynkadeWeb.Components.Ide.ChatInput
+  import SynkadeWeb.Components.Ide.ChatMessages
+  import SynkadeWeb.Components.Ide.ChangesPanel
+  import SynkadeWeb.Components.Ide.TopBar
+  import SynkadeWeb.IssueLiveHelpers,
+    only: [find_running_entry: 2]
+  import SynkadeWeb.IdeWorkspaceHelpers
+  import SynkadeWeb.IdeDispatchHelpers
   import SynkadeWeb.ModelPickerHelpers,
     only: [handle_model_picker_event: 3, handle_model_picker_info: 2, model_picker_assigns: 1]
 
   alias Synkade.{Issues, Jobs, Settings}
-  alias Synkade.Agent.EventParser
   alias Synkade.Issues.Issue
-  alias Synkade.Settings.ConfigAdapter
-  alias Synkade.Workspace.{Git, Safety}
-  alias Synkade.Workflow.Config
 
   @impl true
   def mount(%{"project_name" => project_name}, _session, socket) do
@@ -25,53 +26,26 @@ defmodule SynkadeWeb.IdeLive do
         {:ok, push_navigate(socket, to: "/")}
 
       project ->
-        if connected?(socket) do
-          Phoenix.PubSub.subscribe(Synkade.PubSub, Issues.pubsub_topic(scope.user.id))
-          Phoenix.PubSub.subscribe(Synkade.PubSub, Jobs.pubsub_topic(scope))
-        end
-
+        subscribe_topics(socket, scope)
         orc_state = Jobs.get_state(scope)
 
         socket =
           socket
+          |> assign_common(scope, project, orc_state)
           |> assign(:page_title, "New chat — #{project.name}")
-          |> assign(:active_tab, :issues)
-          |> assign(:current_project, project.name)
           |> assign(:issue, nil)
-          |> assign(:project, project)
-          |> assign(:projects, orc_state.projects)
-          |> assign(:running, orc_state.running)
-          |> SynkadeWeb.Sidebar.assign_sidebar(scope)
           |> assign(:running_entry, nil)
           |> assign(:workspace_path, nil)
           |> assign(:base_branch, "HEAD")
           |> assign(:current_branch, nil)
           |> assign(:commits_ahead, 0)
           |> assign(:changed_files, [])
-          |> assign(:selected_file, nil)
-          |> assign(:file_diff, [])
-          |> assign(:left_tab, :chat)
-          |> assign(:agents, Settings.list_agents(scope))
-          |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
-          |> assign(:attachments, [])
           |> assign(:session_events, [])
           |> assign(:session_id, nil)
           |> assign(:session_subscribed, nil)
-          |> assign(:selected_dispatch_agent_id, nil)
           |> assign(:turn_start_sha, nil)
           |> assign(:turn_started_at, nil)
-          |> assign(:last_turn_files, [])
-          |> assign(:last_turn_duration, 0)
-          |> assign(:turn_filter, false)
           |> assign(:agent_kind, nil)
-          |> assign(:pr_info, nil)
-          |> assign(:pr_checks, :unknown)
-          |> assign(model_picker_assigns(project))
-          |> allow_upload(:images,
-            accept: ~w(.png .jpg .jpeg .gif .webp),
-            max_entries: 5,
-            max_file_size: 10_000_000
-          )
 
         {:ok, socket}
     end
@@ -85,97 +59,38 @@ defmodule SynkadeWeb.IdeLive do
         {:ok, push_navigate(socket, to: "/issues")}
 
       issue ->
-        if connected?(socket) do
-          Phoenix.PubSub.subscribe(Synkade.PubSub, Issues.pubsub_topic(scope.user.id))
-          Phoenix.PubSub.subscribe(Synkade.PubSub, Jobs.pubsub_topic(scope))
-        end
-
+        subscribe_topics(socket, scope)
         orc_state = Jobs.get_state(scope)
         project = Settings.get_project!(issue.project_id)
         workspace_path = resolve_workspace_path(scope, project, issue)
-
-        # Subscribe to agent events if worked_on
         running_entry = find_running_entry(orc_state.running, issue.id)
 
         {session_events, session_id, session_subscribed} =
-          if issue.state == "worked_on" && running_entry do
-            if connected?(socket) do
-              Phoenix.PubSub.subscribe(Synkade.PubSub, "agent_events:#{issue.id}")
-            end
+          load_session_events(socket, issue, running_entry, workspace_path)
 
-            # Restore events from cache (covers navigate-away-and-back)
-            cached = Synkade.Execution.SessionEventCache.get(issue.id)
-            sid = running_entry.session_id || extract_session_id(cached)
-            {cached, sid, issue.id}
-          else
-            # Agent not running — show events from cache or fall back to agent session files
-            agent_kind = issue.metadata["last_agent_kind"]
-            last_sid = issue.metadata["last_session_id"]
-
-            cached =
-              Synkade.Execution.SessionEventCache.get_or_load(issue.id, agent_kind,
-                session_id: last_sid,
-                workspace_path: workspace_path
-              )
-
-            if cached != [] do
-              {cached, last_sid || extract_session_id(cached), nil}
-            else
-              {[], nil, nil}
-            end
-          end
-
-        # Detect base branch and current branch for PR-style diff
         {base_branch, current_branch} = detect_branches(workspace_path)
-
-        # Load initial changed files against base branch
         changed_files = load_changed_files(workspace_path, base_branch)
 
-        # Start diff polling if agent is running
         if session_subscribed, do: schedule_diff_refresh()
 
         socket =
           socket
+          |> assign_common(scope, project, orc_state)
           |> assign(:page_title, Issue.title(issue))
-          |> assign(:active_tab, :issues)
-          |> assign(:current_project, project.name)
           |> assign(:issue, issue)
-          |> assign(:project, project)
-          |> assign(:projects, orc_state.projects)
-          |> assign(:running, orc_state.running)
-          |> SynkadeWeb.Sidebar.assign_sidebar(scope)
           |> assign(:running_entry, running_entry)
           |> assign(:workspace_path, workspace_path)
           |> assign(:base_branch, base_branch)
           |> assign(:current_branch, current_branch)
           |> assign(:commits_ahead, load_commits_ahead(workspace_path, base_branch))
           |> assign(:changed_files, changed_files)
-          |> assign(:selected_file, nil)
-          |> assign(:file_diff, [])
-          |> assign(:left_tab, :chat)
-          |> assign(:agents, Settings.list_agents(scope))
-          |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
-          |> assign(:attachments, [])
           |> assign(:session_events, session_events)
           |> assign(:session_id, session_id)
           |> assign(:session_subscribed, session_subscribed)
-          |> assign(:selected_dispatch_agent_id, nil)
           |> assign(:turn_start_sha, if(session_subscribed, do: current_head_sha(workspace_path), else: nil))
           |> assign(:turn_started_at, if(session_subscribed, do: System.monotonic_time(:millisecond), else: nil))
-          |> assign(:last_turn_files, [])
-          |> assign(:last_turn_duration, 0)
-          |> assign(:turn_filter, false)
           |> assign(:agent_kind, (running_entry && running_entry.agent_kind) || issue.metadata["last_agent_kind"])
-          |> assign(:pr_info, nil)
-          |> assign(:pr_checks, :unknown)
-          |> assign(model_picker_assigns(project))
-          |> allow_upload(:images,
-            accept: ~w(.png .jpg .jpeg .gif .webp),
-            max_entries: 5,
-            max_file_size: 10_000_000
-          )
 
-        # Load PR info async to avoid blocking mount
         if current_branch, do: send(self(), :load_pr_info)
 
         {:ok, socket}
@@ -223,65 +138,21 @@ defmodule SynkadeWeb.IdeLive do
     state = Jobs.get_state(socket.assigns.current_scope)
     running_entry = find_running_entry(state.running, socket.assigns.issue.id)
 
-    # If agent just started, subscribe to events and snapshot HEAD
     socket =
-      if running_entry && is_nil(socket.assigns.session_subscribed) do
-        Phoenix.PubSub.subscribe(Synkade.PubSub, "agent_events:#{socket.assigns.issue.id}")
-        schedule_diff_refresh()
-
-        socket
-        |> assign(:session_subscribed, socket.assigns.issue.id)
-        |> assign(:session_id, running_entry.session_id)
-        |> assign(:agent_kind, running_entry.agent_kind)
-        |> assign(:turn_start_sha, current_head_sha(socket.assigns.workspace_path))
-        |> assign(:turn_started_at, System.monotonic_time(:millisecond))
-        |> assign(:last_turn_files, [])
-        |> assign(:turn_filter, false)
-      else
-        socket
-      end
-
-    # If agent stopped, unsubscribe, compute turn diff, and do final diff refresh
-    socket =
-      if is_nil(running_entry) && socket.assigns.session_subscribed do
-        Phoenix.PubSub.unsubscribe(
-          Synkade.PubSub,
-          "agent_events:#{socket.assigns.session_subscribed}"
-        )
-
-        ws = socket.assigns.workspace_path
-        changed_files = load_changed_files(ws, socket.assigns.base_branch)
-
-        # Compute turn-specific diff (files changed during this agent run)
-        turn_files = compute_turn_files(ws, socket.assigns.turn_start_sha)
-
-        turn_duration =
-          if socket.assigns.turn_started_at do
-            div(System.monotonic_time(:millisecond) - socket.assigns.turn_started_at, 1000)
-          else
-            0
-          end
-
-        send(self(), :load_pr_info)
-
-        socket
-        |> assign(:session_subscribed, nil)
-        |> assign(:changed_files, changed_files)
-        |> assign(:last_turn_files, turn_files)
-        |> assign(:last_turn_duration, turn_duration)
-        |> assign(:commits_ahead, load_commits_ahead(ws, socket.assigns.base_branch))
-        |> maybe_refresh_selected_diff()
-      else
-        socket
-      end
+      if running_entry && is_nil(socket.assigns.session_subscribed),
+        do: handle_agent_started(socket, running_entry),
+        else: socket
 
     socket =
-      socket
-      |> assign(:running, state.running)
-      |> assign(:projects, state.projects)
-      |> assign(:running_entry, running_entry)
+      if is_nil(running_entry) && socket.assigns.session_subscribed,
+        do: handle_agent_stopped(socket),
+        else: socket
 
-    {:noreply, socket}
+    socket
+    |> assign(:running, state.running)
+    |> assign(:projects, state.projects)
+    |> assign(:running_entry, running_entry)
+    |> then(&{:noreply, &1})
   end
 
   @impl true
@@ -324,7 +195,7 @@ defmodule SynkadeWeb.IdeLive do
     branch = socket.assigns.current_branch
 
     if branch do
-      case load_tracker_config(socket) do
+      case load_tracker_config(socket.assigns.current_scope, socket.assigns.project) do
         {:ok, config} ->
           {pr_info, pr_checks} =
             case Synkade.Tracker.GitHub.fetch_pr_for_branch(config, branch) do
@@ -567,33 +438,7 @@ defmodule SynkadeWeb.IdeLive do
     >
       <div class="flex flex-col h-screen">
         <%!-- Top bar --%>
-        <div class="flex items-center gap-3 px-4 py-2 border-b border-base-300 flex-shrink-0">
-          <.link navigate="/issues" class="btn btn-ghost btn-xs gap-1">
-            <.icon name="hero-arrow-left" class="size-3" />
-          </.link>
-          <%= if @issue do %>
-            <span class={"badge badge-xs #{state_badge_class(@issue.state)}"}>{@issue.state}</span>
-            <h1 class="text-sm font-semibold truncate flex-1">{Issue.title(@issue)}</h1>
-          <% else %>
-            <span class="badge badge-xs badge-ghost">draft</span>
-            <h1 class="text-sm font-semibold truncate flex-1">New chat — {@project.name}</h1>
-          <% end %>
-          <span :if={@current_branch} class="text-xs font-mono text-base-content/40 flex-shrink-0">
-            {@base_branch} ← {@current_branch}
-          </span>
-          <div :if={@running_entry} class="flex items-center gap-1.5">
-            <span class="loading loading-spinner loading-xs text-info"></span>
-            <span class="text-xs text-base-content/50">Agent running</span>
-          </div>
-          <button
-            :if={@issue && @issue.state != "done"}
-            phx-click="complete_issue"
-            class="btn btn-ghost btn-xs text-base-content/40 hover:text-base-content"
-            title="Archive issue"
-          >
-            <.icon name="hero-archive-box-arrow-down" class="size-4" />
-          </button>
-        </div>
+        <.top_bar issue={@issue} project={@project} current_branch={@current_branch} base_branch={@base_branch} running_entry={@running_entry} />
 
         <%!-- Main content: Left (tabs) | Right (changes list) --%>
         <div id="ide-split" class="flex flex-1 min-h-0" phx-hook="ResizableSplit">
@@ -637,97 +482,17 @@ defmodule SynkadeWeb.IdeLive do
                 "absolute inset-0 flex flex-col transition-opacity",
                 if(@left_tab == :chat, do: "opacity-100 z-10", else: "opacity-0 z-0 pointer-events-none")
               ]}>
-                <div
-                  id="chat-scroll"
-                  class="flex-1 overflow-y-auto px-4 py-4 space-y-4"
-                  phx-hook="AutoScroll"
-                >
-                  <%!-- Draft mode hint --%>
-                  <div :if={is_nil(@issue) && @messages == []} class="flex flex-col items-center justify-center h-full text-base-content/30">
-                    <.icon name="hero-chat-bubble-left-right" class="size-8 mb-2" />
-                    <span class="text-sm">Send a message to start working on {@project.name}</span>
-                  </div>
-
-                  <%!-- Issue context --%>
-                  <div :if={@issue && body_without_title(@issue.body)} class="space-y-2 mb-2">
-                    <div :if={body_without_title(@issue.body)} class="flex justify-end">
-                      <div class="max-w-[85%] rounded-2xl rounded-br-sm bg-primary/10 px-4 py-2.5 text-sm prose-chat">
-                        {md(body_without_title(@issue.body))}
-                      </div>
-                    </div>
-                  </div>
-
-                  <%!-- Message history --%>
-                  <div :for={msg <- @messages} class="space-y-1">
-                    <%= cond do %>
-                      <% msg["type"] == "dispatch" -> %>
-                        <%!-- User message: right-aligned bubble --%>
-                        <div class="flex justify-end">
-                          <div class="max-w-[85%] rounded-2xl rounded-br-sm bg-primary/10 px-4 py-2.5 text-sm prose-chat">
-                            {md(msg["text"])}
-                          </div>
-                        </div>
-                      <% msg["type"] == "system" -> %>
-                        <%!-- System message: centered, subtle --%>
-                        <div class="flex justify-center">
-                          <span class="text-xs text-base-content/40 italic">{msg["text"]}</span>
-                        </div>
-                      <% true -> %>
-                        <%!-- Agent response: left-aligned --%>
-                        <div class="max-w-[90%]">
-                          <div class="flex items-center gap-1.5 mb-1">
-                            <span :if={msg["agent_kind"]} class={brand_color(msg["agent_kind"])}>
-                              <.agent_icon kind={msg["agent_kind"]} class="size-3.5" />
-                            </span>
-                            <span class="text-xs text-base-content/40 font-medium">
-                              {msg["agent_name"] || "agent"}
-                            </span>
-                          </div>
-                          <div class="text-sm prose-chat">{md(msg["text"])}</div>
-                        </div>
-                    <% end %>
-                  </div>
-
-                  <%!-- Live agent session (also shown for cached events from completed runs) --%>
-                  <div
-                    :if={@issue && (@session_events != [] || @running_entry)}
-                    class="space-y-3"
-                  >
-                    <.chat_event_group
-                      :for={group <- EventParser.group_events(@session_events, @agent_kind, @running_entry != nil)}
-                      group={group}
-                      running_entry={@running_entry}
-                      session_id={@session_id}
-                    />
-                    <div
-                      :if={@session_events == []}
-                      class="flex items-center gap-2 text-base-content/30 text-sm"
-                    >
-                      <span class="loading loading-dots loading-xs"></span>
-                      Thinking...
-                    </div>
-                  </div>
-
-                  <%!-- Turn summary: files changed in the last agent run --%>
-                  <div
-                    :if={@last_turn_files != [] && is_nil(@running_entry)}
-                    phx-click="toggle_turn_filter"
-                    class="flex items-center gap-2 flex-wrap text-xs text-base-content/50 bg-base-200/50 rounded-lg px-3 py-2 cursor-pointer hover:bg-base-200/80 transition-colors"
-                  >
-                    <span class="text-base-content/30">{format_duration(@last_turn_duration)}</span>
-                    <span
-                      :for={f <- @last_turn_files}
-                      class="inline-flex items-center gap-1 bg-base-300/70 rounded px-1.5 py-0.5 font-mono"
-                    >
-                      <svg class="size-3 opacity-40" viewBox="0 0 16 16" fill="currentColor">
-                        <path d="M3.75 1.5a.25.25 0 00-.25.25v11.5c0 .138.112.25.25.25h8.5a.25.25 0 00.25-.25V4.664a.25.25 0 00-.073-.177l-2.914-2.914a.25.25 0 00-.177-.073H3.75z" />
-                      </svg>
-                      {Path.basename(f.file)}
-                      <span :if={f.additions > 0} class="text-success">+{f.additions}</span>
-                      <span :if={f.deletions > 0} class="text-error">-{f.deletions}</span>
-                    </span>
-                  </div>
-                </div>
+                <.chat_messages
+                  issue={@issue}
+                  messages={@messages}
+                  session_events={@session_events}
+                  session_id={@session_id}
+                  running_entry={@running_entry}
+                  agent_kind={@agent_kind}
+                  project={@project}
+                  last_turn_files={@last_turn_files}
+                  last_turn_duration={@last_turn_duration}
+                />
               </div>
 
               <%!-- Diff tab --%>
@@ -738,848 +503,146 @@ defmodule SynkadeWeb.IdeLive do
                   if(@left_tab == :diff, do: "z-10", else: "z-0 pointer-events-none hidden")
                 ]}
               >
-                <div
-                  id={"diff-viewer-#{@selected_file}"}
-                  class="font-mono text-xs"
-                  phx-hook="DiffComment"
-                >
-                  <div
-                    :for={{line, idx} <- Enum.with_index(@file_diff)}
-                    id={"diff-line-#{idx}"}
-                    class={["flex group", diff_line_class(line.type)]}
-                  >
-                    <%= if line.type == :header do %>
-                      <div class="px-3 py-1 text-base-content/40 bg-info/10 w-full">
-                        {line.text}
-                      </div>
-                    <% else %>
-                      <button
-                        class="w-8 text-right pr-1 text-base-content/20 hover:text-primary cursor-pointer select-none flex-shrink-0 diff-line-btn"
-                        data-file={@selected_file}
-                        data-line={line.new_line || line.old_line}
-                      >
-                        {line.new_line || line.old_line}
-                      </button>
-                      <span class="w-5 text-center text-base-content/30 flex-shrink-0">
-                        {diff_line_prefix(line.type)}
-                      </span>
-                      <pre class="flex-1 whitespace-pre-wrap break-all px-1">{line.text}</pre>
-                    <% end %>
-                  </div>
-
-                  <div :if={@file_diff == []} class="px-3 py-4 text-base-content/30 text-center">
-                    No diff available
-                  </div>
-                </div>
+                <.diff_viewer file={@selected_file} diff_lines={@file_diff} />
               </div>
             </div>
 
             <%!-- Input (always visible) --%>
-            <div class="p-3 flex-shrink-0">
-              <.form for={@dispatch_form} phx-submit="dispatch_issue" phx-change="validate_upload" multipart>
-                <div
-                  id="ide-input-box"
-                  class="rounded-xl border border-base-300 bg-base-300 relative overflow-hidden"
-                  phx-hook="DropZone"
-                  phx-drop-target={@uploads.images.ref}
-                >
-                  <%!-- Drop overlay --%>
-                  <div
-                    data-drop-overlay
-                    class="hidden absolute inset-0 z-30 bg-primary/10 border-2 border-dashed border-primary/40 rounded-xl flex flex-col items-center justify-center backdrop-blur-sm"
-                  >
-                    <.icon name="hero-arrow-up-tray" class="size-8 text-primary/60 mb-1" />
-                    <span class="text-sm font-medium text-base-content/70">Drop files here</span>
-                    <span class="text-xs text-base-content/40">Any file type</span>
-                  </div>
-
-                  <%!-- Attachment cards --%>
-                  <div
-                    :if={@attachments != [] or @uploads.images.entries != []}
-                    class="flex flex-wrap gap-2 px-3 pt-3"
-                  >
-                    <div
-                      :for={att <- @attachments}
-                      class="flex items-center gap-2 bg-base-300/60 rounded-lg px-2.5 py-1.5 text-xs"
-                    >
-                      <.icon name="hero-chat-bubble-left" class="size-3.5 text-base-content/40" />
-                      <span class="font-mono font-semibold">{Path.basename(att.file)}:{att.line}</span>
-                      <span class="text-base-content/50 truncate max-w-32">{att.text}</span>
-                      <button
-                        type="button"
-                        phx-click="remove_attachment"
-                        phx-value-id={att.id}
-                        class="text-base-content/30 hover:text-error"
-                      >
-                        <.icon name="hero-x-mark" class="size-3.5" />
-                      </button>
-                    </div>
-
-                    <div
-                      :for={entry <- @uploads.images.entries}
-                      class="flex items-center gap-2 bg-base-300/60 rounded-lg px-2.5 py-1.5 text-xs"
-                    >
-                      <.live_img_preview entry={entry} class="size-8 rounded object-cover" />
-                      <span class="font-mono truncate max-w-24">{entry.client_name}</span>
-                      <button
-                        type="button"
-                        phx-click="cancel_upload"
-                        phx-value-ref={entry.ref}
-                        class="text-base-content/30 hover:text-error"
-                      >
-                        <.icon name="hero-x-mark" class="size-3.5" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <%!-- Textarea --%>
-                  <textarea
-                    id="ide-message-input"
-                    name="dispatch[message]"
-                    placeholder="Message..."
-                    class="w-full bg-transparent border-0 focus:ring-0 focus:outline-none resize-none px-3 pt-3 pb-2 text-sm min-h-[60px] max-h-[200px]"
-                    rows="2"
-                    phx-debounce="300"
-                    phx-hook="SubmitOnEnter"
-                  ><%= @dispatch_form[:message].value %></textarea>
-
-                  <%!-- Agent selector + hidden field --%>
-                  <input type="hidden" name="dispatch[agent_id]" value={@selected_dispatch_agent_id || ""} />
-
-                  <%!-- Bottom toolbar --%>
-                  <div class="flex items-center justify-between px-3 pb-2.5">
-                    <div class="flex items-center gap-1.5">
-                      <button
-                        :for={agent <- @agents}
-                        type="button"
-                        phx-click="select_dispatch_agent"
-                        phx-value-id={agent.id}
-                        class={[
-                          "flex items-center gap-1 px-2 py-1 rounded-md border text-xs transition-all cursor-pointer",
-                          if(@selected_dispatch_agent_id == agent.id,
-                            do: "border-primary bg-primary/10",
-                            else: "border-transparent hover:border-base-content/20"
-                          )
-                        ]}
-                        title={agent.name}
-                      >
-                        <span class={brand_color(agent.kind)}>
-                          <.agent_icon kind={agent.kind} class="size-3.5" />
-                        </span>
-                        <span class="text-base-content/60">{agent.name}</span>
-                      </button>
-                      <span class="text-base-content/10 mx-0.5">|</span>
-                      <.model_trigger
-                        agent_kind={ide_resolved_agent_kind(assigns)}
-                        selected_model={@selected_model}
-                        truncate
-                      />
-                    </div>
-                    <div class="flex items-center gap-1.5">
-                      <label class="btn btn-ghost btn-sm btn-square cursor-pointer" title="Attach files">
-                        <.icon name="hero-plus" class="size-4" />
-                        <.live_file_input upload={@uploads.images} class="hidden" />
-                      </label>
-                      <button
-                        type="submit"
-                        class="btn btn-ghost btn-sm btn-square"
-                        title="Send"
-                      >
-                        <.icon name="hero-arrow-up-circle-solid" class="size-6" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </.form>
-              <.search_picker
-                name="model_picker"
-                state={@model_picker}
-                placeholder="Search models..."
-                empty_message="No models available"
-              />
-            </div>
+            <.chat_input
+              dispatch_form={@dispatch_form}
+              uploads={@uploads}
+              attachments={@attachments}
+              agents={@agents}
+              selected_dispatch_agent_id={@selected_dispatch_agent_id}
+              selected_model={@selected_model}
+              model_picker={@model_picker}
+              agent_kind={ide_resolved_agent_kind(assigns)}
+            />
           </div>
 
           <%!-- Drag handle --%>
           <div id="ide-drag" class="w-1 flex-shrink-0 bg-base-300 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors"></div>
 
           <%!-- Right panel: Changes list --%>
-          <div id="ide-right" class="flex flex-col min-w-0 bg-base-100" style="width: var(--split-right-w, 320px); flex-shrink: 0">
-            <%!-- Top bar: PR actions --%>
-            <div :if={@issue} class="flex items-center justify-end gap-2 px-3 py-2 border-b border-base-300">
-              <%= if @pr_info do %>
-                <%!-- PR exists: show checks status + merge button --%>
-                <a href={@pr_info.url} target="_blank" class="flex items-center gap-1.5 text-xs mr-auto min-w-0">
-                  <span class={[
-                    "size-2 rounded-full flex-shrink-0",
-                    case @pr_checks do
-                      :success -> "bg-success"
-                      :failure -> "bg-error"
-                      :pending -> "bg-warning"
-                      _ -> "bg-base-content/20"
-                    end
-                  ]}></span>
-                  <span class="truncate text-base-content/60">#{@pr_info.number}</span>
-                </a>
-                <button
-                  :if={@pr_checks == :failure}
-                  phx-click="fix_checks"
-                  class="btn btn-xs btn-error btn-outline rounded-full gap-1"
-                  disabled={@running_entry != nil}
-                >
-                  Fix CI
-                </button>
-                <button
-                  phx-click="merge_pr"
-                  class="btn btn-sm btn-outline rounded-full gap-1.5"
-                  disabled={@running_entry != nil || @pr_checks == :failure}
-                >
-                  <svg class="size-3.5" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8-9a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM4.25 4a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z"></path>
-                  </svg>
-                  Merge PR
-                </button>
-              <% else %>
-                <%!-- No PR: show create button --%>
-                <button
-                  phx-click="create_pr"
-                  class="btn btn-sm btn-outline rounded-full gap-1.5"
-                  disabled={@running_entry != nil}
-                >
-                  <svg class="size-3.5" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"></path>
-                  </svg>
-                  Create PR
-                </button>
-              <% end %>
-            </div>
-            <%!-- Tab bar --%>
-            <div class="flex items-center gap-2 px-4 border-b border-base-300">
-              <button
-                :if={@turn_filter}
-                phx-click="toggle_turn_filter"
-                class="py-2 text-sm font-medium border-b-2 border-transparent text-base-content/50 hover:text-base-content/80"
-              >
-                All files
-              </button>
-              <span class="py-2 text-sm font-medium border-b-2 border-primary text-base-content">
-                Changes <span class="text-base-content/40">{length(displayed_files(assigns))}</span>
-              </span>
-              <button
-                :if={@turn_filter && @last_turn_files != []}
-                phx-click="toggle_turn_filter"
-                class="ml-auto flex items-center gap-1 text-xs bg-base-300/70 rounded-full px-2 py-0.5 text-base-content/50 hover:text-base-content/70"
-              >
-                <.icon name="hero-x-mark" class="size-3" /> Latest turn
-              </button>
-            </div>
-            <%!-- Branch status --%>
-            <div :if={@current_branch} class="flex items-center gap-2 px-4 py-1.5 text-xs text-base-content/40 border-b border-base-300">
-              <span class="font-mono truncate">{@current_branch}</span>
-              <span :if={@commits_ahead > 0} class="flex-shrink-0">
-                &middot; {if @commits_ahead == 1, do: "1 commit", else: "#{@commits_ahead} commits"} ahead
-              </span>
-            </div>
-            <%!-- File list --%>
-            <div class="flex-1 overflow-y-auto">
-              <div :if={displayed_files(assigns) == []} class="text-sm text-base-content/30 py-8 text-center">
-                No changes detected
-              </div>
-              <div
-                :for={entry <- displayed_files(assigns)}
-                phx-click="select_file"
-                phx-value-file={entry.file}
-                class={[
-                  "flex items-center gap-2 px-4 py-1.5 cursor-pointer transition-colors",
-                  if(@selected_file == entry.file,
-                    do: "bg-base-200",
-                    else: "hover:bg-base-200/50"
-                  )
-                ]}
-              >
-                <span class="flex-1 min-w-0 text-sm font-mono truncate">
-                  <span class="text-base-content/40">{file_dir(entry.file)}</span><span class="font-semibold">{Path.basename(entry.file)}</span>
-                </span>
-                <span class={["text-xs font-mono flex-shrink-0", file_status_color(entry.status)]}>
-                  {entry.status}
-                </span>
-                <span :if={entry.additions > 0} class="text-xs font-mono text-success flex-shrink-0">
-                  +{entry.additions}
-                </span>
-                <span :if={entry.deletions > 0} class="text-xs font-mono text-error flex-shrink-0">
-                  -{entry.deletions}
-                </span>
-              </div>
-            </div>
-          </div>
+          <.changes_panel
+            issue={@issue}
+            pr_info={@pr_info}
+            pr_checks={@pr_checks}
+            running_entry={@running_entry}
+            current_branch={@current_branch}
+            commits_ahead={@commits_ahead}
+            changed_files={@changed_files}
+            selected_file={@selected_file}
+            turn_filter={@turn_filter}
+            last_turn_files={@last_turn_files}
+          />
         </div>
       </div>
     </Layouts.app>
     """
   end
 
-  defp md(text) when is_binary(text) do
-    case MDEx.to_html(text, sanitize: MDEx.Document.default_sanitize_options()) do
-      {:ok, html} -> Phoenix.HTML.raw(html)
-      _ -> text
+  # --- Mount Helpers ---
+
+  defp subscribe_topics(socket, scope) do
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(Synkade.PubSub, Issues.pubsub_topic(scope.user.id))
+      Phoenix.PubSub.subscribe(Synkade.PubSub, Jobs.pubsub_topic(scope))
     end
   end
 
-  defp md(_), do: ""
-
-  # --- Chat Components ---
-
-  defp chat_event_group(assigns) do
-    ~H"""
-    <%= case @group.type do %>
-      <% :step -> %>
-        <.step_group step={@group} />
-      <% :text -> %>
-        <div class="max-w-[90%]">
-          <div :if={@group.first_in_turn} class="flex items-center gap-1.5 mb-1">
-            <span :if={@running_entry && @running_entry[:agent_kind]} class={brand_color(@running_entry[:agent_kind])}>
-              <.agent_icon kind={@running_entry[:agent_kind]} class="size-3.5" />
-            </span>
-            <span class="text-xs text-base-content/40 font-medium">
-              {if @running_entry, do: @running_entry[:agent_name] || "agent", else: "agent"}
-            </span>
-            <code :if={@session_id} class="text-[10px] text-base-content/20 font-mono ml-auto">
-              {String.slice(@session_id, 0..7)}
-            </code>
-          </div>
-          <.text_block text={@group.text} />
-        </div>
-      <% :result -> %>
-        <div class="max-w-[90%]">
-          <.text_block text={@group.text} />
-        </div>
-      <% :error -> %>
-        <div class="text-sm text-error font-mono bg-error/5 rounded-lg px-3 py-2">{@group.text}</div>
-      <% :system -> %>
-        <div class="text-xs text-base-content/30 font-mono bg-base-200/30 rounded px-2 py-1">
-          <span class="text-base-content/20">[system]</span> {@group.text}
-        </div>
-      <% _ -> %>
-        <div class="text-xs text-base-content/30">{@group.type}</div>
-    <% end %>
-    """
+  defp assign_common(socket, scope, project, orc_state) do
+    socket
+    |> assign(:active_tab, :issues)
+    |> assign(:current_project, project.name)
+    |> assign(:project, project)
+    |> assign(:projects, orc_state.projects)
+    |> assign(:running, orc_state.running)
+    |> SynkadeWeb.Sidebar.assign_sidebar(scope)
+    |> assign(:selected_file, nil)
+    |> assign(:file_diff, [])
+    |> assign(:left_tab, :chat)
+    |> assign(:agents, Settings.list_agents(scope))
+    |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
+    |> assign(:attachments, [])
+    |> assign(:selected_dispatch_agent_id, nil)
+    |> assign(:last_turn_files, [])
+    |> assign(:last_turn_duration, 0)
+    |> assign(:turn_filter, false)
+    |> assign(:pr_info, nil)
+    |> assign(:pr_checks, :unknown)
+    |> assign(model_picker_assigns(project))
+    |> allow_upload(:images,
+      accept: ~w(.png .jpg .jpeg .gif .webp),
+      max_entries: 5,
+      max_file_size: 10_000_000
+    )
   end
 
-  defp step_group(assigns) do
-    running = Enum.filter(assigns.step.tools, &(&1.status == :running))
-
-    tool_summary =
-      if assigns.step.tools != [] do
-        assigns.step.tools
-        |> Enum.map(& &1.name)
-        |> Enum.frequencies()
-        |> Enum.sort_by(fn {_, count} -> -count end)
-        |> Enum.map(fn
-          {name, 1} -> EventParser.display_name(%{name: name, detail: nil})
-          {name, n} -> "#{EventParser.display_name(%{name: name, detail: nil})} \u00d7#{n}"
-        end)
-        |> Enum.join(", ")
+  defp load_session_events(socket, issue, running_entry, workspace_path) do
+    if issue.state == "worked_on" && running_entry do
+      if connected?(socket) do
+        Phoenix.PubSub.subscribe(Synkade.PubSub, "agent_events:#{issue.id}")
       end
 
-    tool_count = length(assigns.step.tools)
-
-    assigns =
-      assigns
-      |> assign(:running, running)
-      |> assign(:tool_summary, tool_summary)
-      |> assign(:tool_count, tool_count)
-
-    ~H"""
-    <details class="group">
-      <summary class="cursor-pointer select-none flex items-center gap-2 py-0.5 text-sm list-none [&::-webkit-details-marker]:hidden">
-        <span class="text-[10px] text-base-content/30 group-open:rotate-90 transition-transform inline-block">&#9654;</span>
-        <span class="text-base-content/40 text-xs font-medium">Step {@step.number}</span>
-        <span :if={@tool_count > 0} class="text-base-content/50 flex-shrink-0">{"\u{1F527}"}</span>
-        <span :if={@tool_count > 0} class="text-xs text-base-content/40 truncate">
-          {if @tool_count == 1, do: "1 tool", else: "#{@tool_count} tools"}
-          <span :if={@tool_summary} class="text-base-content/30">&middot; {@tool_summary}</span>
-        </span>
-        <span
-          :if={@running != []}
-          id={"step-timer-#{System.unique_integer([:positive])}"}
-          phx-hook="ToolTimer"
-          class="ml-auto flex items-center gap-1.5 text-xs text-base-content/30"
-        >
-          <span class="loading loading-dots loading-xs"></span>
-          <span data-timer>0.0s</span>
-        </span>
-      </summary>
-      <div class="ml-4 mt-1 space-y-1 border-l border-base-300 pl-3">
-        <details :for={thought <- @step.thinking} class="group/think text-sm">
-          <summary class="cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden flex items-center gap-2 py-0.5 text-base-content/40 hover:text-base-content/60">
-            <span class="text-[10px] group-open/think:rotate-90 transition-transform inline-block">&#9654;</span>
-            <span class="text-base-content/30">Thinking</span>
-            <span class="text-xs text-base-content/20">{String.length(thought)} chars</span>
-          </summary>
-          <div class="ml-5 mt-1 pl-3 border-l border-base-300/50 text-base-content/50 text-xs font-mono whitespace-pre-wrap max-h-40 overflow-y-auto">
-            {thought}
-          </div>
-        </details>
-        <.tool_card :for={tool <- @step.tools} tool={tool} />
-      </div>
-    </details>
-    """
-  end
-
-  defp tool_card(assigns) do
-    has_content =
-      assigns.tool.status == :running ||
-        (assigns.tool.input_preview && !assigns.tool[:edit_old]) ||
-        assigns.tool[:edit_old] ||
-        (assigns.tool.status == :done && assigns.tool.output)
-
-    assigns = assign(assigns, :has_content, has_content)
-
-    ~H"""
-    <details :if={@has_content} class="group/card text-sm">
-      <summary class="cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden flex items-center gap-2 py-0.5 hover:bg-base-200/50 rounded -mx-1 px-1">
-        <span class="text-[10px] text-base-content/25 group-open/card:rotate-90 transition-transform inline-block flex-shrink-0">&#9654;</span>
-        <span class="text-base-content/50 flex-shrink-0">{EventParser.icon(@tool.name)}</span>
-        <span class="font-medium text-base-content/80">{EventParser.display_name(@tool)}</span>
-        <.tool_card_badges tool={@tool} />
-        <span
-          :if={@tool.status == :running}
-          id={"tool-timer-#{System.unique_integer([:positive])}"}
-          phx-hook="ToolTimer"
-          class="ml-auto flex items-center gap-1.5 text-xs text-base-content/30"
-        >
-          <span class="loading loading-dots loading-xs"></span>
-          <span data-timer>0.0s</span>
-        </span>
-      </summary>
-      <div class="ml-5 mt-0.5 pl-3 border-l border-base-300 space-y-1">
-        <%!-- Bash command preview --%>
-        <pre :if={@tool.input_preview && !@tool[:edit_old]} class="font-mono text-xs text-base-content/40 whitespace-pre-wrap break-all max-h-32 overflow-y-auto">{@tool.input_preview}</pre>
-        <%!-- Edit diff view --%>
-        <div :if={@tool[:edit_old]} class="font-mono text-[11px] whitespace-pre-wrap break-all max-h-64 overflow-y-auto">
-          <div :for={line <- String.split(@tool.edit_old, "\n")} class="text-error/60">- {line}</div>
-          <div :for={line <- String.split(@tool.edit_new, "\n")} class="text-success/60">+ {line}</div>
-        </div>
-        <%!-- Output --%>
-        <pre :if={@tool.status == :done && @tool.output && !@tool[:edit_old]} class="font-mono text-[11px] text-base-content/30 whitespace-pre-wrap break-all max-h-48 overflow-y-auto">{truncate_output(@tool.output, 2000)}</pre>
-      </div>
-    </details>
-    <%!-- Non-expandable card (no content to show) --%>
-    <div :if={!@has_content} class="text-sm flex items-center gap-2 py-0.5">
-      <span class="text-base-content/50 flex-shrink-0">{EventParser.icon(@tool.name)}</span>
-      <span class="font-medium text-base-content/80">{EventParser.display_name(@tool)}</span>
-      <.tool_card_badges tool={@tool} />
-    </div>
-    """
-  end
-
-  defp tool_card_badges(assigns) do
-    ~H"""
-    <%!-- File badge --%>
-    <span
-      :if={@tool.file_name}
-      class="inline-flex items-center gap-1 bg-base-300/70 rounded px-1.5 py-0.5 text-xs font-mono text-base-content/60"
-    >
-      <svg class="size-3 opacity-50" viewBox="0 0 16 16" fill="currentColor">
-        <path d="M3.75 1.5a.25.25 0 00-.25.25v11.5c0 .138.112.25.25.25h8.5a.25.25 0 00.25-.25V4.664a.25.25 0 00-.073-.177l-2.914-2.914a.25.25 0 00-.177-.073H3.75z" />
-      </svg>
-      {@tool.file_name}
-    </span>
-    <%!-- Edit line counts --%>
-    <span :if={@tool[:edit_additions]} class="text-xs text-success font-mono">+{@tool.edit_additions}</span>
-    <span :if={@tool[:edit_deletions]} class="text-xs text-error font-mono">-{@tool.edit_deletions}</span>
-    <%!-- Non-file detail --%>
-    <span :if={!@tool.file_name && @tool.detail} class="font-mono text-xs text-base-content/40 truncate">
-      {@tool.detail}
-    </span>
-    """
-  end
-
-  @text_truncate_lines 3
-
-  defp text_block(assigns) do
-    lines = String.split(assigns.text, "\n")
-    needs_truncation = length(lines) > @text_truncate_lines
-
-    assigns =
-      assigns
-      |> assign(:needs_truncation, needs_truncation)
-      |> assign(:preview, lines |> Enum.take(@text_truncate_lines) |> Enum.join("\n"))
-
-    ~H"""
-    <%= if @needs_truncation do %>
-      <details class="group text-sm prose-chat">
-        <summary class="list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none">
-          <div class="group-open:hidden">{md(@preview)}<span class="text-base-content/30 text-xs ml-1 hover:text-base-content/50">show more</span></div>
-          <div class="hidden group-open:block">{md(@text)}<span class="text-base-content/30 text-xs ml-1 hover:text-base-content/50">show less</span></div>
-        </summary>
-      </details>
-    <% else %>
-      <div class="text-sm prose-chat">{md(@text)}</div>
-    <% end %>
-    """
-  end
-
-  defp extract_session_id(events) do
-    Enum.find_value(events, fn e -> e.session_id end)
-  end
-
-
-  defp truncate_output(nil, _), do: ""
-
-  defp truncate_output(text, max) when is_binary(text) do
-    if String.length(text) > max do
-      String.slice(text, 0, max) <> "\n... (truncated)"
+      cached = Synkade.Execution.SessionEventCache.get(issue.id)
+      sid = running_entry.session_id || extract_session_id(cached)
+      {cached, sid, issue.id}
     else
-      text
-    end
-  end
+      agent_kind = issue.metadata["last_agent_kind"]
+      last_sid = issue.metadata["last_session_id"]
 
-  defp truncate_output(other, _), do: inspect(other)
-
-  # Drop trailing agent messages so they don't duplicate session events
-  defp drop_trailing_agent_messages(messages) do
-    messages
-    |> Enum.reverse()
-    |> Enum.drop_while(&(&1["type"] == "agent"))
-    |> Enum.reverse()
-  end
-
-  # --- Dispatch Helpers ---
-
-  defp handle_draft_dispatch(socket, full_message) do
-    project = socket.assigns.project
-
-    # Derive title: first line or first 60 chars
-    title =
-      full_message
-      |> String.split("\n", parts: 2)
-      |> hd()
-      |> String.slice(0..59)
-
-    body = "# #{title}"
-
-    case Issues.create_issue(%{project_id: project.id, body: body}) do
-      {:ok, issue} ->
-        {agent_name, instruction, agent_id} =
-          resolve_dispatch_with_picker(socket, full_message)
-
-        case Issues.dispatch_issue(issue, instruction, agent_id, model: socket.assigns.selected_model) do
-          {:ok, _} ->
-            {:noreply,
-             socket
-             |> put_flash(:info, "Created and dispatched" <> if(agent_name, do: " to #{agent_name}", else: ""))
-             |> push_navigate(to: "/issues/#{issue.id}")}
-
-          {:error, _} ->
-            # Issue created but dispatch failed — still navigate to it
-            {:noreply,
-             socket
-             |> put_flash(:info, "Issue created")
-             |> push_navigate(to: "/issues/#{issue.id}")}
-        end
-
-      {:error, _} ->
-        {:noreply, put_flash(socket, :error, "Failed to create issue")}
-    end
-  end
-
-  defp handle_existing_dispatch(socket, full_message) do
-    issue = socket.assigns.issue
-
-    # Reactivate archived issues: done → backlog so dispatch can transition to worked_on
-    issue =
-      if issue.state == "done" do
-        case Issues.transition_state(issue, "backlog") do
-          {:ok, reactivated} -> reactivated
-          _ -> issue
-        end
-      else
-        issue
-      end
-
-    {agent_name, instruction, agent_id} =
-      resolve_dispatch_with_picker(socket, full_message)
-
-    case Issues.dispatch_issue(issue, instruction, agent_id, model: socket.assigns.selected_model) do
-      {:ok, _} ->
-        socket =
-          socket
-          |> assign(:dispatch_form, to_form(%{"message" => ""}, as: :dispatch))
-          |> assign(:attachments, [])
-          |> push_event("clear_input", %{})
-          |> put_flash(
-            :info,
-            "Dispatched" <> if(agent_name, do: " to #{agent_name}", else: "")
-          )
-
-        {:noreply, socket}
-
-      {:error, :invalid_transition} ->
-        {:noreply, put_flash(socket, :error, "Cannot dispatch from current state")}
-
-      {:error, _} ->
-        {:noreply, put_flash(socket, :error, "Failed to dispatch")}
-    end
-  end
-
-  # --- Private Helpers ---
-
-  defp resolve_workspace_path(scope, project, issue) do
-    setting = Settings.get_settings_for_user(scope.user.id)
-
-    if setting do
-      config = ConfigAdapter.to_config(setting)
-      root = Config.workspace_root(config)
-      # Matches identifier from agent_worker.ex line 176
-      identifier = "#{project.name}##{issue.id |> String.slice(0..7)}"
-      key = Safety.sanitize_key("#{project.name}/#{identifier}")
-      Path.join(root, key)
-    else
-      nil
-    end
-  end
-
-  defp detect_branches(nil), do: {"HEAD", nil}
-
-  defp detect_branches(path) do
-    if File.dir?(path) && File.exists?(Path.join(path, ".git")) do
-      {Git.detect_base_branch(path), Git.current_branch(path)}
-    else
-      {"HEAD", nil}
-    end
-  end
-
-  defp load_tracker_config(socket) do
-    scope = socket.assigns.current_scope
-    project = socket.assigns.project
-
-    with setting when not is_nil(setting) <- Settings.get_settings_for_user(scope.user.id),
-         agents = Settings.list_agents(scope),
-         agent when not is_nil(agent) <-
-           Settings.resolve_agent(agents,
-             project_agent_id: project.default_agent_id,
-             user_default_id: setting.default_agent_id
-           ) do
-      {:ok, ConfigAdapter.resolve_project_config(setting, project, agent)}
-    else
-      _ -> :error
-    end
-  end
-
-  defp load_commits_ahead(nil, _base_ref), do: 0
-
-  defp load_commits_ahead(path, base_ref) do
-    if File.dir?(path) && File.exists?(Path.join(path, ".git")) do
-      Git.commits_ahead(path, base_ref)
-    else
-      0
-    end
-  end
-
-  defp load_changed_files(nil, _base_ref), do: []
-
-  defp load_changed_files(path, base_ref) do
-    if File.dir?(path) do
-      case Git.changed_files(path, base_ref) do
-        {:ok, files} -> files
-        {:error, _} -> []
-      end
-    else
-      []
-    end
-  end
-
-  defp load_file_diff(nil, _filename, _base_ref), do: []
-
-  defp load_file_diff(path, filename, base_ref) do
-    case Git.file_diff(path, filename, base_ref) do
-      {:ok, raw} -> Git.parse_diff(raw)
-      {:error, _} -> []
-    end
-  end
-
-  defp maybe_refresh_selected_diff(socket) do
-    if socket.assigns.selected_file do
-      diff_lines =
-        load_file_diff(
-          socket.assigns.workspace_path,
-          socket.assigns.selected_file,
-          socket.assigns.base_branch
+      cached =
+        Synkade.Execution.SessionEventCache.get_or_load(issue.id, agent_kind,
+          session_id: last_sid,
+          workspace_path: workspace_path
         )
 
-      assign(socket, :file_diff, diff_lines)
-    else
-      socket
-    end
-  end
-
-  defp schedule_diff_refresh do
-    Process.send_after(self(), :refresh_diff, 5_000)
-  end
-
-  defp consume_uploaded_images(socket) do
-    consume_uploaded_entries(socket, :images, fn %{path: path}, entry ->
-      # Copy uploaded file to workspace so the agent can access it
-      workspace_path = socket.assigns.workspace_path
-      filename = Path.basename(entry.client_name)
-
-      if workspace_path && File.dir?(workspace_path) do
-        dest_dir = Path.join(workspace_path, ".synkade/uploads")
-        File.mkdir_p!(dest_dir)
-        dest = Path.join(dest_dir, filename)
-        File.cp!(path, dest)
-        {:ok, %{filename: filename, path: ".synkade/uploads/#{filename}"}}
+      if cached != [] do
+        {cached, last_sid || extract_session_id(cached), nil}
       else
-        {:ok, %{filename: filename, path: nil}}
-      end
-    end)
-  end
-
-  defp build_dispatch_message(message, attachments, uploads) do
-    parts = []
-
-    # Add code comment attachments
-    comment_parts =
-      attachments
-      |> Enum.filter(&(&1.type == :comment))
-      |> Enum.map(fn att -> "[#{att.file}:#{att.line}] #{att.text}" end)
-
-    # Add image references
-    image_parts =
-      uploads
-      |> Enum.filter(& &1.path)
-      |> Enum.map(fn upload -> "[image: #{upload.path}]" end)
-
-    all_parts = parts ++ comment_parts ++ image_parts
-    context = Enum.join(all_parts, "\n")
-
-    case {String.trim(context), String.trim(message)} do
-      {"", msg} -> msg
-      {ctx, ""} -> ctx
-      {ctx, msg} -> ctx <> "\n\n" <> msg
-    end
-  end
-
-  defp find_running_entry(running, issue_id) do
-    Enum.find_value(running, fn {_key, entry} ->
-      if entry.issue_id == issue_id, do: entry
-    end)
-  end
-
-  defp body_without_title(nil), do: nil
-  defp body_without_title(""), do: nil
-
-  defp body_without_title(body) do
-    result =
-      String.replace(body, ~r/^#\s+.+\n*/, "", global: false)
-      |> String.trim_leading("\n")
-      |> String.trim()
-
-    if result == "", do: nil, else: result
-  end
-
-  defp diff_line_class(:add), do: "bg-success/10"
-  defp diff_line_class(:remove), do: "bg-error/10"
-  defp diff_line_class(:header), do: ""
-  defp diff_line_class(_), do: ""
-
-  defp diff_line_prefix(:add), do: "+"
-  defp diff_line_prefix(:remove), do: "-"
-  defp diff_line_prefix(_), do: " "
-
-  defp file_status_color("M"), do: "text-warning"
-  defp file_status_color("A"), do: "text-success"
-  defp file_status_color("D"), do: "text-error"
-  defp file_status_color("U"), do: "text-info"
-  defp file_status_color("?"), do: "text-info"
-  defp file_status_color(_), do: "text-base-content/50"
-
-  defp file_dir(path) do
-    dir = Path.dirname(path)
-    if dir == ".", do: "", else: dir <> "/"
-  end
-
-  # Resolve dispatch agent: @agent syntax wins, then picker, then nil
-  defp resolve_dispatch_with_picker(socket, message) do
-    {agent_name, instruction, agent_id} =
-      SynkadeWeb.IssueLiveHelpers.resolve_dispatch(socket.assigns.current_scope, message)
-
-    if agent_id do
-      {agent_name, instruction, agent_id}
-    else
-      picker_id = socket.assigns.selected_dispatch_agent_id
-
-      case picker_id do
-        nil -> {nil, instruction, nil}
-        id ->
-          agent = Enum.find(socket.assigns.agents, &(&1.id == id))
-          {agent && agent.name, instruction, id}
+        {[], nil, nil}
       end
     end
   end
 
-  defp ide_resolved_agent_kind(assigns) do
-    # If user explicitly picked an agent in the dispatch form, use that
-    if assigns.selected_dispatch_agent_id do
-      agent = Enum.find(assigns.agents, &(&1.id == assigns.selected_dispatch_agent_id))
-      agent && agent.kind
-    else
-      cond do
-        assigns.running_entry && assigns.running_entry[:agent_kind] ->
-          assigns.running_entry[:agent_kind]
+  defp handle_agent_started(socket, running_entry) do
+    Phoenix.PubSub.subscribe(Synkade.PubSub, "agent_events:#{socket.assigns.issue.id}")
+    schedule_diff_refresh()
 
-        assigns.issue ->
-          setting = Settings.get_settings_for_user(assigns.current_scope.user.id)
-          resolved_agent_kind(assigns.issue, assigns.agents, setting, [assigns.project])
+    socket
+    |> assign(:session_subscribed, socket.assigns.issue.id)
+    |> assign(:session_id, running_entry.session_id)
+    |> assign(:agent_kind, running_entry.agent_kind)
+    |> assign(:turn_start_sha, current_head_sha(socket.assigns.workspace_path))
+    |> assign(:turn_started_at, System.monotonic_time(:millisecond))
+    |> assign(:last_turn_files, [])
+    |> assign(:turn_filter, false)
+  end
 
-        true ->
-          # New chat — resolve from project/user defaults
-          setting = Settings.get_settings_for_user(assigns.current_scope.user.id)
-          agent = Settings.resolve_agent(assigns.agents,
-            project_agent_id: assigns.project && assigns.project.default_agent_id,
-            user_default_id: setting && setting.default_agent_id
-          )
-          agent && agent.kind
+  defp handle_agent_stopped(socket) do
+    Phoenix.PubSub.unsubscribe(Synkade.PubSub, "agent_events:#{socket.assigns.session_subscribed}")
+
+    ws = socket.assigns.workspace_path
+    changed_files = load_changed_files(ws, socket.assigns.base_branch)
+    turn_files = compute_turn_files(ws, socket.assigns.turn_start_sha)
+
+    turn_duration =
+      if socket.assigns.turn_started_at do
+        div(System.monotonic_time(:millisecond) - socket.assigns.turn_started_at, 1000)
+      else
+        0
       end
-    end
+
+    send(self(), :load_pr_info)
+
+    socket
+    |> assign(:session_subscribed, nil)
+    |> assign(:changed_files, changed_files)
+    |> assign(:last_turn_files, turn_files)
+    |> assign(:last_turn_duration, turn_duration)
+    |> assign(:commits_ahead, load_commits_ahead(ws, socket.assigns.base_branch))
+    |> maybe_refresh_selected_diff()
   end
 
-
-  # --- Turn diff helpers ---
-
-  defp current_head_sha(nil), do: nil
-
-  defp current_head_sha(path) do
-    if File.dir?(path) do
-      case System.cmd("git", ["rev-parse", "HEAD"], cd: path, stderr_to_stdout: true) do
-        {output, 0} -> String.trim(output)
-        _ -> nil
-      end
-    end
-  end
-
-  defp compute_turn_files(_path, nil), do: []
-
-  defp compute_turn_files(path, start_sha) do
-    # Diff from the SHA captured at turn start to current working tree
-    case Git.changed_files(path, start_sha) do
-      {:ok, files} -> files
-      _ -> []
-    end
-  end
-
-  defp displayed_files(%{turn_filter: true, last_turn_files: turn_files}) when turn_files != [] do
-    turn_files
-  end
-
-  defp displayed_files(%{changed_files: files}), do: files
-
-  defp format_duration(seconds) when seconds < 60, do: "#{seconds}s"
-
-  defp format_duration(seconds) do
-    m = div(seconds, 60)
-    s = rem(seconds, 60)
-    "#{m}m #{s}s"
-  end
 end
