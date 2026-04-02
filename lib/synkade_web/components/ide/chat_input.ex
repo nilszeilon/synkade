@@ -16,9 +16,15 @@ defmodule SynkadeWeb.Components.Ide.ChatInput do
   attr :selected_dispatch_agent_id, :string, default: nil
   attr :selected_model, :string, default: nil
   attr :model_picker, :map, required: true
+  attr :agent_picker, :map, required: true
   attr :agent_kind, :string, default: nil
 
   def chat_input(assigns) do
+    selected_agent = Enum.find(assigns.agents, &(&1.id == assigns.selected_dispatch_agent_id))
+    agent_label = if selected_agent, do: selected_agent.name, else: "agent"
+    agent_icon_kind = if selected_agent, do: selected_agent.kind, else: nil
+    assigns = assign(assigns, selected_agent: selected_agent, agent_label: agent_label, agent_icon_kind: agent_icon_kind)
+
     ~H"""
     <div class="p-3 flex-shrink-0">
       <.form for={@dispatch_form} phx-submit="dispatch_issue" phx-change="validate_upload" multipart>
@@ -95,23 +101,15 @@ defmodule SynkadeWeb.Components.Ide.ChatInput do
           <div class="flex items-center justify-between px-3 pb-2.5">
             <div class="flex items-center gap-1.5">
               <button
-                :for={agent <- @agents}
                 type="button"
-                phx-click="select_dispatch_agent"
-                phx-value-id={agent.id}
-                class={[
-                  "flex items-center gap-1 px-2 py-1 rounded-md border text-xs transition-all cursor-pointer",
-                  if(@selected_dispatch_agent_id == agent.id,
-                    do: "border-primary bg-primary/10",
-                    else: "border-transparent hover:border-base-content/20"
-                  )
-                ]}
-                title={agent.name}
+                phx-click="agent_picker_open"
+                class="flex items-center gap-1.5 text-xs text-base-content/60 hover:text-base-content transition-colors"
               >
-                <span class={brand_color(agent.kind)}>
-                  <.agent_icon kind={agent.kind} class="size-3.5" />
+                <span :if={@agent_icon_kind} class={brand_color(@agent_icon_kind)}>
+                  <.agent_icon kind={@agent_icon_kind} class="size-3.5" />
                 </span>
-                <span class="text-base-content/60">{agent.name}</span>
+                {@agent_label}
+                <.icon name="hero-chevron-up-down" class="size-3" />
               </button>
               <span class="text-base-content/10 mx-0.5">|</span>
               <.model_trigger
@@ -136,6 +134,12 @@ defmodule SynkadeWeb.Components.Ide.ChatInput do
           </div>
         </div>
       </.form>
+      <.search_picker
+        name="agent_picker"
+        state={@agent_picker}
+        placeholder="Search agents..."
+        empty_message="No agents configured"
+      />
       <.search_picker
         name="model_picker"
         state={@model_picker}

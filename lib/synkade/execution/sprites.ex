@@ -20,16 +20,25 @@ defmodule Synkade.Execution.Sprites do
     client = build_client(config)
     user_id = config["user_id"]
     sprite_name = sanitize_sprite_name("synkade-u#{user_id}")
+    progress = config["progress_callback"] || fn _ -> :ok end
 
     # Try to get existing sprite, fall back to creating one
     sprite_handle = Sprites.sprite(client, sprite_name)
 
+    progress.("Provisioning cloud environment...")
+
     case get_or_create_sprite(client, sprite_name, sprite_handle, config) do
       {:ok, sprite} ->
-        with {:ok, agent_command} <- ensure_agent_installed(sprite, config),
+        kind = Config.agent_kind(config)
+        progress.("Checking #{kind} agent installation...")
+
+        with {:ok, agent_command} <- ensure_agent_installed(sprite, config, progress),
+             _ <- progress.("Setting up workspace..."),
              :ok <- setup_worktree(sprite, config, project_name, issue_identifier) do
           worktree_path = build_worktree_path(project_name, issue_identifier)
+          progress.("Writing skill files...")
           write_skills_to_sprite(sprite, worktree_path, config)
+          progress.("Environment ready")
 
           {:ok,
            %{
@@ -206,7 +215,7 @@ defmodule Synkade.Execution.Sprites do
 
   # --- Private ---
 
-  defp ensure_agent_installed(sprite, config) do
+  defp ensure_agent_installed(sprite, config, progress) do
     command = Config.agent_command(config)
     kind = Config.agent_kind(config)
 
@@ -225,12 +234,14 @@ defmodule Synkade.Execution.Sprites do
 
           install_script ->
             Logger.info("Installing #{kind} agent on sprite...")
+            progress.("Installing #{kind} agent (this may take a minute)...")
 
             {output, install_exit} =
               Sprites.cmd(sprite, "sh", ["-c", install_script], timeout: 120_000)
 
             if install_exit == 0 do
               Logger.info("Successfully installed #{kind} agent on sprite")
+              progress.("#{kind} agent installed successfully")
 
               # Resolve the full path after install — the installer may have placed
               # the binary in a directory not in the default non-login PATH.

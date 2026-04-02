@@ -32,7 +32,10 @@ defmodule Synkade.Execution.AgentRunner do
     # Clear cached events from any previous run
     Synkade.Execution.SessionEventCache.clear(issue.id)
 
-    with {:ok, env_ref} <- BackendClient.setup_env(config, project_name, issue.identifier),
+    progress = fn message -> broadcast_setup_progress(issue.id, message) end
+    config_with_progress = Map.put(config, "progress_callback", progress)
+
+    with {:ok, env_ref} <- BackendClient.setup_env(config_with_progress, project_name, issue.identifier),
          :ok <- BackendClient.run_before_hook(config, env_ref),
          {:ok, prompt} <- render_prompt(project, issue, attempt),
          {:ok, session} <- start_agent(config, prompt, env_ref) do
@@ -318,6 +321,22 @@ defmodule Synkade.Execution.AgentRunner do
       output = Enum.sum(Enum.map(model_events, & &1.output_tokens))
       TokenUsage.record_usage(user_id, model, input, output, agent_id)
     end)
+  end
+
+  defp broadcast_setup_progress(issue_id, message) do
+    event = %Synkade.Agent.Event{
+      type: "setup",
+      message: message,
+      timestamp: DateTime.utc_now()
+    }
+
+    Synkade.Execution.SessionEventCache.append(issue_id, [event])
+
+    Phoenix.PubSub.broadcast(
+      Synkade.PubSub,
+      "agent_events:#{issue_id}",
+      {:agent_event, event}
+    )
   end
 
   defp broadcast_error(issue_id, message) do
