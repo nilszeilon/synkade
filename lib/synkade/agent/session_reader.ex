@@ -31,11 +31,6 @@ defmodule Synkade.Agent.SessionReader do
     load_opencode_session(session_id)
   end
 
-  def load("openclaw", session_id, _workspace_path) when is_binary(session_id) do
-    # OpenClaw uses the OpenCode session format (SQLite)
-    load_opencode_session(session_id)
-  end
-
   def load(_agent_kind, _session_id, _workspace_path), do: []
 
   # --- Claude Code ---

@@ -381,11 +381,6 @@ defmodule SynkadeWeb.ProjectsLive do
      |> SynkadeWeb.Sidebar.assign_sidebar(socket.assigns.current_scope)}
   end
 
-  @impl true
-  def handle_info(_msg, socket) do
-    {:noreply, socket}
-  end
-
   # --- Render ---
 
   @impl true

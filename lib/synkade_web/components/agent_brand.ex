@@ -34,11 +34,6 @@ defmodule SynkadeWeb.Components.AgentBrand do
       desc: "Nous Research CLI agent",
       color: "text-secondary"
     },
-    "openclaw" => %{
-      label: "OpenClaw",
-      desc: "Multi-provider CLI agent",
-      color: "text-error"
-    }
   }
 
   def brand_label(kind), do: (@brands[kind] || %{label: kind}).label
@@ -73,23 +68,6 @@ defmodule SynkadeWeb.Components.AgentBrand do
       <% "hermes" -> %>
         <%!-- Hermes ASCII block text --%>
         <pre class={[@class, "leading-none font-mono whitespace-pre"]} style="font-size:0.15em"><%= @hermes_ascii %></pre>
-      <% "openclaw" -> %>
-        <%!-- OpenClaw lobster mark --%>
-        <svg class={@class} viewBox="0 0 120 115" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-          <%!-- antennas --%>
-          <path d="M45 15 Q35 5 30 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none" />
-          <path d="M75 15 Q85 5 90 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none" />
-          <%!-- body --%>
-          <path d="M60 10 C30 10 15 35 15 55 C15 75 30 95 45 100 L45 110 L55 110 L55 100 C55 100 60 102 65 100 L65 110 L75 110 L75 100 C90 95 105 75 105 55 C105 35 90 10 60 10Z" />
-          <%!-- claws --%>
-          <path d="M20 45 C5 40 0 50 5 60 C10 70 20 65 25 55 C28 48 25 45 20 45Z" />
-          <path d="M100 45 C115 40 120 50 115 60 C110 70 100 65 95 55 C92 48 95 45 100 45Z" />
-          <%!-- eyes --%>
-          <circle cx="45" cy="35" r="6" class="fill-base-100" />
-          <circle cx="75" cy="35" r="6" class="fill-base-100" />
-          <circle cx="46" cy="34" r="2" fill="currentColor" opacity="0.5" />
-          <circle cx="76" cy="34" r="2" fill="currentColor" opacity="0.5" />
-        </svg>
       <% _ -> %>
         <svg class={@class} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" />

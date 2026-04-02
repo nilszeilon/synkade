@@ -3,7 +3,7 @@ defmodule Synkade.Agent.ContentExpander do
   Expands Claude-format assistant messages with multiple content blocks
   (thinking, text, tool_use) into separate Agent.Event structs.
 
-  Used by all Claude-compatible agents: ClaudeCode, Hermes, OpenClaw.
+  Used by all Claude-compatible agents: ClaudeCode, Hermes.
   """
 
   alias Synkade.Agent.Event
