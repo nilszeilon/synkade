@@ -23,7 +23,7 @@ defmodule Synkade.Settings.AgentTest do
     end
 
     test "accepts valid kinds" do
-      for kind <- ~w(claude codex opencode hermes openclaw) do
+      for kind <- ~w(claude codex opencode hermes) do
         changeset = Agent.changeset(%Agent{}, %{kind: kind})
         assert changeset.valid?, "expected kind=#{kind} to be valid"
       end
@@ -64,7 +64,7 @@ defmodule Synkade.Settings.AgentTest do
       assert "codex" in kinds
       assert "opencode" in kinds
       assert "hermes" in kinds
-      assert "openclaw" in kinds
+      refute "openclaw" in kinds
     end
   end
 

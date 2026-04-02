@@ -43,7 +43,7 @@ defmodule Synkade.Agent.PortHelper do
 
   @doc """
   Open a bash port with exec + </dev/null (no PTY).
-  Used by OpenCode, Hermes, and OpenClaw.
+  Used by OpenCode and Hermes.
   """
   def open_bash_port(config, args, workspace_path, env) do
     command = Config.agent_command(config)

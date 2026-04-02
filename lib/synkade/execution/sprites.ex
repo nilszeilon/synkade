@@ -12,8 +12,7 @@ defmodule Synkade.Execution.Sprites do
   @agent_install_scripts %{
     "opencode" => "curl -fsSL https://opencode.ai/install | bash",
     "hermes" =>
-      "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash",
-    "openclaw" => "npm install -g openclaw@latest"
+      "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash"
   }
 
   @impl true

@@ -5,7 +5,7 @@ defmodule Synkade.Settings.Agent do
   @primary_key {:id, :binary_id, autogenerate: true}
   @timestamps_opts [type: :utc_datetime]
 
-  @kinds ~w(claude codex opencode hermes openclaw)
+  @kinds ~w(claude codex opencode hermes)
 
   schema "agents" do
     belongs_to :user, Synkade.Accounts.User
@@ -48,8 +48,7 @@ defmodule Synkade.Settings.Agent do
     "claude" => Synkade.Agent.ClaudeCode,
     "codex" => Synkade.Agent.Codex,
     "opencode" => Synkade.Agent.OpenCode,
-    "hermes" => Synkade.Agent.Hermes,
-    "openclaw" => Synkade.Agent.OpenClaw
+    "hermes" => Synkade.Agent.Hermes
   }
 
   @doc "Returns the adapter module for an agent kind."

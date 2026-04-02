@@ -5,7 +5,7 @@ defmodule Synkade.Execution.AgentRunnerRateLimitTest do
   alias Synkade.Agent.Event
 
   describe "detect_rate_limit/1 — usage cap (plan/billing exhausted)" do
-    test "detects Codex usageLimitExceeded" do
+    test "detects usage limit exceeded" do
       session =
         session_with_messages(["Usage limit exceeded. Check your plan and billing details."])
 
