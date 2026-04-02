@@ -9,18 +9,22 @@ defmodule Synkade.Agent.Hermes do
 
   @impl true
   def fetch_models(_api_key) do
-    # Hermes supports multiple providers via OpenRouter, Anthropic, OpenAI, etc.
-    # Model selection is typically done via `hermes model` or --model flag.
-    # Return a curated list of commonly used models.
-    {:ok,
-     [
-       {"Anthropic Claude Sonnet", "anthropic/claude-sonnet-4-20250514"},
-       {"Anthropic Claude Haiku", "anthropic/claude-haiku-4-5-20251001"},
-       {"OpenAI GPT-4o", "openai/gpt-4o"},
-       {"OpenAI o3-mini", "openai/o3-mini"},
-       {"Google Gemini 2.5 Pro", "google/gemini-2.5-pro"},
-       {"DeepSeek V3", "deepseek/deepseek-chat"}
-     ]}
+    case Req.get("https://openrouter.ai/api/v1/models", receive_timeout: 10_000) do
+      {:ok, %{status: 200, body: %{"data" => models}}} ->
+        items =
+          models
+          |> Enum.filter(&("tools" in (&1["supported_parameters"] || [])))
+          |> Enum.sort_by(& &1["name"])
+          |> Enum.map(fn m -> {m["name"] || m["id"], m["id"]} end)
+
+        {:ok, items}
+
+      {:ok, %{status: status}} ->
+        {:error, "OpenRouter returned #{status}"}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   @impl true
@@ -65,17 +69,56 @@ defmodule Synkade.Agent.Hermes do
     PortHelper.common_env(config, agent_env)
   end
 
+  # Hermes outputs decorated terminal text, not JSON.
+  # We parse the text lines into structured events.
+
+  # Box drawing lines (banner open/close) — skip these
+  @box_open_pattern ~r/^╭─.*╮$/
+  @box_close_pattern ~r/^╰.*╯$/
+
+  # Tool progress: "  ┊ 🔎 preparing search_files…" or "  ┊ 💻 $  ls -la  2.8s"
+  @tool_pattern ~r/^\s*┊\s+(.+)/
+
+  # Session ID line: "session_id: 20260402_212839_2c5034"
+  @session_id_pattern ~r/^session_id:\s+(\S+)/
+
   @impl true
   def parse_event(line) do
-    case Jason.decode(line) do
-      {:ok, data} ->
-        case Synkade.Agent.ContentExpander.expand(data, &extract_session_id/1) do
-          [] -> {:ok, build_event(data)}
-          events -> {:ok, events}
+    trimmed = String.trim(line)
+
+    cond do
+      trimmed == "" ->
+        :skip
+
+      Regex.match?(@box_open_pattern, trimmed) ->
+        :skip
+
+      Regex.match?(@box_close_pattern, trimmed) ->
+        :skip
+
+      match = Regex.run(@session_id_pattern, trimmed) ->
+        [_, session_id] = match
+        {:ok, %Event{type: "system", session_id: session_id, message: nil, timestamp: DateTime.utc_now()}}
+
+      match = Regex.run(@tool_pattern, trimmed) ->
+        [_, tool_info] = match
+
+        if String.contains?(tool_info, "preparing") do
+          {:ok, %Event{type: "tool_use", message: tool_info, timestamp: DateTime.utc_now()}}
+        else
+          {:ok, %Event{type: "tool_result", message: tool_info, timestamp: DateTime.utc_now()}}
         end
 
-      {:error, _} ->
-        :skip
+      true ->
+        # Try JSON first (in case hermes ever outputs structured data)
+        case Jason.decode(line) do
+          {:ok, data} ->
+            {:ok, build_json_event(data)}
+
+          {:error, _} ->
+            # Regular text content — treat as assistant message
+            {:ok, %Event{type: "assistant", message: trimmed, timestamp: DateTime.utc_now()}}
+        end
     end
   end
 
@@ -91,11 +134,11 @@ defmodule Synkade.Agent.Hermes do
       {:error, Exception.message(e)}
   end
 
-  defp build_event(data) do
+  defp build_json_event(data) do
     %Event{
       type: data["type"] || "unknown",
-      session_id: extract_session_id(data),
-      message: extract_message(data),
+      session_id: data["session_id"] || get_in(data, ["metadata", "session_id"]),
+      message: data["message"] || data["result"],
       model: data["model"] || get_in(data, ["usage", "model"]),
       input_tokens: get_in(data, ["usage", "input_tokens"]) || 0,
       output_tokens: get_in(data, ["usage", "output_tokens"]) || 0,
@@ -106,13 +149,4 @@ defmodule Synkade.Agent.Hermes do
       raw: data
     }
   end
-
-  defp extract_session_id(data) do
-    data["session_id"] || get_in(data, ["metadata", "session_id"])
-  end
-
-  defp extract_message(%{"type" => "assistant", "message" => msg}) when is_binary(msg), do: msg
-  defp extract_message(%{"type" => "result", "result" => result}), do: result
-  defp extract_message(%{"message" => msg}) when is_binary(msg), do: msg
-  defp extract_message(_), do: nil
 end

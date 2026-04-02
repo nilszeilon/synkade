@@ -5,8 +5,9 @@ defmodule Synkade.Agent.HermesTest do
   alias Synkade.Agent.Event
 
   describe "fetch_models/1" do
-    test "returns curated model list" do
-      assert {:ok, models} = Hermes.fetch_models("unused")
+    @tag :external
+    test "fetches models from OpenRouter" do
+      assert {:ok, models} = Hermes.fetch_models(nil)
       assert is_list(models)
       assert length(models) > 0
       assert Enum.all?(models, fn {label, id} -> is_binary(label) and is_binary(id) end)
@@ -99,7 +100,7 @@ defmodule Synkade.Agent.HermesTest do
   end
 
   describe "parse_event/1" do
-    test "parses assistant event" do
+    test "parses JSON assistant event" do
       json =
         Jason.encode!(%{
           "type" => "assistant",
@@ -117,7 +118,7 @@ defmodule Synkade.Agent.HermesTest do
       assert event.total_tokens == 150
     end
 
-    test "parses result event" do
+    test "parses JSON result event" do
       json =
         Jason.encode!(%{
           "type" => "result",
@@ -130,7 +131,7 @@ defmodule Synkade.Agent.HermesTest do
       assert event.message == "Task completed."
     end
 
-    test "extracts session_id from metadata" do
+    test "extracts session_id from metadata in JSON" do
       json =
         Jason.encode!(%{
           "type" => "system",
@@ -141,12 +142,46 @@ defmodule Synkade.Agent.HermesTest do
       assert event.session_id == "sess_456"
     end
 
-    test "skips non-JSON lines" do
-      assert :skip = Hermes.parse_event("not json")
+    test "skips empty lines" do
       assert :skip = Hermes.parse_event("")
+      assert :skip = Hermes.parse_event("   ")
     end
 
-    test "handles missing usage gracefully" do
+    test "skips box drawing decorations" do
+      assert :skip =
+               Hermes.parse_event(
+                 "╭─ ⚕ Hermes ───────────────────────────────────────────────────────────────────╮"
+               )
+
+      assert :skip =
+               Hermes.parse_event(
+                 "╰──────────────────────────────────────────────────────────────────────────────╯"
+               )
+    end
+
+    test "parses tool progress lines" do
+      assert {:ok, %Event{type: "tool_use", message: msg}} =
+               Hermes.parse_event("  ┊ 🔎 preparing search_files…")
+
+      assert msg =~ "preparing"
+
+      assert {:ok, %Event{type: "tool_result", message: msg}} =
+               Hermes.parse_event("  ┊ 💻 $         ls -la  2.8s")
+
+      assert msg =~ "ls -la"
+    end
+
+    test "parses session_id line" do
+      assert {:ok, %Event{type: "system", session_id: "20260402_212839_2c5034"}} =
+               Hermes.parse_event("session_id: 20260402_212839_2c5034")
+    end
+
+    test "parses plain text as assistant message" do
+      assert {:ok, %Event{type: "assistant", message: "Hello world"}} =
+               Hermes.parse_event("Hello world")
+    end
+
+    test "handles missing usage gracefully in JSON" do
       json = Jason.encode!(%{"type" => "system"})
       assert {:ok, event} = Hermes.parse_event(json)
       assert event.input_tokens == 0

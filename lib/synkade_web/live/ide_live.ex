@@ -13,6 +13,8 @@ defmodule SynkadeWeb.IdeLive do
   import SynkadeWeb.IdeDispatchHelpers
   import SynkadeWeb.ModelPickerHelpers,
     only: [handle_model_picker_event: 3, handle_model_picker_info: 2, model_picker_assigns: 1]
+  import SynkadeWeb.AgentPickerHelpers,
+    only: [handle_agent_picker_event: 3, agent_picker_assigns: 0]
 
   alias Synkade.{Issues, Jobs, Settings}
   alias Synkade.Issues.Issue
@@ -259,11 +261,9 @@ defmodule SynkadeWeb.IdeLive do
   end
 
   @impl true
-  def handle_event("select_dispatch_agent", %{"id" => agent_id}, socket) do
-    {:noreply,
-     socket
-     |> assign(:selected_dispatch_agent_id, agent_id)
-     |> assign(:selected_model, nil)}
+  def handle_event("agent_picker_" <> _ = event, params, socket) do
+    {:halt, socket} = handle_agent_picker_event(event, params, socket)
+    {:noreply, socket}
   end
 
   @impl true
@@ -516,6 +516,7 @@ defmodule SynkadeWeb.IdeLive do
               selected_dispatch_agent_id={@selected_dispatch_agent_id}
               selected_model={@selected_model}
               model_picker={@model_picker}
+              agent_picker={@agent_picker}
               agent_kind={ide_resolved_agent_kind(assigns)}
             />
           </div>
@@ -572,6 +573,7 @@ defmodule SynkadeWeb.IdeLive do
     |> assign(:pr_info, nil)
     |> assign(:pr_checks, :unknown)
     |> assign(model_picker_assigns(project))
+    |> assign(agent_picker_assigns())
     |> allow_upload(:images,
       accept: ~w(.png .jpg .jpeg .gif .webp),
       max_entries: 5,

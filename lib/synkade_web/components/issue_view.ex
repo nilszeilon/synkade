@@ -450,6 +450,7 @@ defmodule SynkadeWeb.Components.IssueView do
   defp event_badge_class("result"), do: "badge-success"
   defp event_badge_class("error"), do: "badge-error"
   defp event_badge_class("stderr"), do: "badge-warning"
+  defp event_badge_class("setup"), do: "badge-secondary"
   defp event_badge_class(_), do: "badge-ghost"
 
   defp truncate_message(nil), do: ""
