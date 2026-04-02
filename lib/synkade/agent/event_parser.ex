@@ -30,22 +30,7 @@ defmodule Synkade.Agent.EventParser do
     {name, input} = parser.extract_name_and_input(raw)
     {detail, input_preview, file_name} = extract_detail(name, input)
 
-    # Fallback: use OpenCode's state.title, then event message
-    {detail, file_name} =
-      cond do
-        not is_nil(detail) or not is_nil(file_name) ->
-          {detail, file_name}
-
-        # OpenCode puts a human-friendly title in part.state.title
-        is_binary(title = get_in(raw, ["part", "state", "title"])) and title != "" ->
-          {String.slice(title, 0..100), nil}
-
-        is_binary(event.message) and event.message != "" ->
-          {String.slice(event.message, 0..100), nil}
-
-        true ->
-          {detail, file_name}
-      end
+    {detail, file_name} = resolve_fallback_title(detail, file_name, raw, event)
 
     output = if status == :done, do: parser.extract_output(event), else: nil
 
@@ -74,6 +59,20 @@ defmodule Synkade.Agent.EventParser do
     end
   end
 
+  defp resolve_fallback_title(detail, file_name, _raw, _event)
+       when not is_nil(detail) or not is_nil(file_name),
+       do: {detail, file_name}
+
+  defp resolve_fallback_title(_detail, _file_name, raw, event) do
+    title = get_in(raw, ["part", "state", "title"])
+
+    cond do
+      is_binary(title) and title != "" -> {String.slice(title, 0..100), nil}
+      is_binary(event.message) and event.message != "" -> {String.slice(event.message, 0..100), nil}
+      true -> {nil, nil}
+    end
+  end
+
   @doc "Mark a tool as done with output from a result event."
   @spec mark_done(tool_info(), Event.t(), String.t() | nil) :: tool_info()
   def mark_done(tool, result_event, agent_kind) do
@@ -83,86 +82,83 @@ defmodule Synkade.Agent.EventParser do
 
   @doc "Display name for rendering."
   @spec display_name(tool_info()) :: String.t()
-  def display_name(%{name: name, detail: detail}) do
-    case name do
-      n when n in ~w(Read read) -> "Read#{detail || ""}"
-      n when n in ~w(Write write) -> "Write"
-      n when n in ~w(Edit edit MultiEdit) -> "Edit"
-      n when n in ~w(Bash bash) -> "Bash"
-      n when n in ~w(Glob glob) -> "Glob"
-      n when n in ~w(Grep grep) -> "Grep"
-      n when n in ~w(Agent) -> "Agent"
-      n when n in ~w(WebSearch) -> "Search"
-      n when n in ~w(WebFetch) -> "Fetch"
-      other -> other
-    end
-  end
+  def display_name(%{name: n, detail: detail}) when n in ~w(Read read), do: "Read#{detail || ""}"
+  def display_name(%{name: n}) when n in ~w(Write write), do: "Write"
+  def display_name(%{name: n}) when n in ~w(Edit edit MultiEdit), do: "Edit"
+  def display_name(%{name: n}) when n in ~w(Bash bash), do: "Bash"
+  def display_name(%{name: n}) when n in ~w(Glob glob), do: "Glob"
+  def display_name(%{name: n}) when n in ~w(Grep grep), do: "Grep"
+  def display_name(%{name: "Agent"}), do: "Agent"
+  def display_name(%{name: "WebSearch"}), do: "Search"
+  def display_name(%{name: "WebFetch"}), do: "Fetch"
+  def display_name(%{name: other}), do: other
 
   @doc "Icon character for rendering."
   @spec icon(String.t()) :: String.t()
-  def icon(name) do
-    case name do
-      n when n in ~w(Read read) -> "\u{1F4C4}"
-      n when n in ~w(Write write) -> "\u{1F4DD}"
-      n when n in ~w(Edit edit MultiEdit) -> "\u{270F}\u{FE0F}"
-      n when n in ~w(Bash bash) -> "\u{2318}"
-      n when n in ~w(Glob glob) -> "\u{1F50D}"
-      n when n in ~w(Grep grep) -> "\u{1F50E}"
-      n when n in ~w(Agent) -> "\u{1F916}"
-      n when n in ~w(WebSearch WebFetch) -> "\u{1F310}"
-      n when n in ~w(TodoRead TodoWrite) -> "\u{1F4CB}"
-      _ -> "\u{1F527}"
-    end
-  end
+  def icon(n) when n in ~w(Read read), do: "\u{1F4C4}"
+  def icon(n) when n in ~w(Write write), do: "\u{1F4DD}"
+  def icon(n) when n in ~w(Edit edit MultiEdit), do: "\u{270F}\u{FE0F}"
+  def icon(n) when n in ~w(Bash bash), do: "\u{2318}"
+  def icon(n) when n in ~w(Glob glob), do: "\u{1F50D}"
+  def icon(n) when n in ~w(Grep grep), do: "\u{1F50E}"
+  def icon(n) when n in ~w(Agent), do: "\u{1F916}"
+  def icon(n) when n in ~w(WebSearch WebFetch), do: "\u{1F310}"
+  def icon(n) when n in ~w(TodoRead TodoWrite), do: "\u{1F4CB}"
+  def icon(_), do: "\u{1F527}"
 
   # --- Shared detail extraction (input is already resolved by agent parser) ---
 
   @doc false
-  def extract_detail(name, input) when is_map(input) do
-    case name do
-      n when n in ~w(Read read) ->
-        path = input["file_path"] || input["path"]
-        limit = input["limit"]
-        suffix = if limit, do: " #{limit} lines", else: ""
-        {suffix, nil, path && Path.basename(path)}
+  def extract_detail(n, input) when n in ~w(Read read) and is_map(input) do
+    path = input["file_path"] || input["path"]
+    limit = input["limit"]
+    suffix = if limit, do: " #{limit} lines", else: ""
+    {suffix, nil, path && Path.basename(path)}
+  end
 
-      n when n in ~w(Write write) ->
-        path = input["file_path"] || input["path"]
-        {nil, nil, path && Path.basename(path)}
+  def extract_detail(n, input) when n in ~w(Write write) and is_map(input) do
+    path = input["file_path"] || input["path"]
+    {nil, nil, path && Path.basename(path)}
+  end
 
-      n when n in ~w(Edit edit MultiEdit) ->
-        path = input["file_path"] || input["path"]
-        old = input["old_string"] || input["old"]
-        preview = if old, do: String.slice(to_string(old), 0..120), else: nil
-        {nil, preview, path && Path.basename(path)}
+  def extract_detail(n, input) when n in ~w(Edit edit MultiEdit) and is_map(input) do
+    path = input["file_path"] || input["path"]
+    old = input["old_string"] || input["old"]
+    preview = if old, do: String.slice(to_string(old), 0..120), else: nil
+    {nil, preview, path && Path.basename(path)}
+  end
 
-      n when n in ~w(Bash bash) ->
-        cmd = input["command"] || input["cmd"]
-        {nil, cmd, nil}
+  def extract_detail(n, input) when n in ~w(Bash bash) and is_map(input) do
+    cmd = input["command"] || input["cmd"]
+    {nil, cmd, nil}
+  end
 
-      n when n in ~w(Glob glob) ->
-        {input["pattern"], nil, nil}
+  def extract_detail(n, input) when n in ~w(Glob glob) and is_map(input) do
+    {input["pattern"], nil, nil}
+  end
 
-      n when n in ~w(Grep grep) ->
-        pattern = input["pattern"]
-        path = input["path"]
-        detail = [pattern, path] |> Enum.filter(& &1) |> Enum.join(" in ")
-        {detail, nil, nil}
+  def extract_detail(n, input) when n in ~w(Grep grep) and is_map(input) do
+    pattern = input["pattern"]
+    path = input["path"]
+    detail = [pattern, path] |> Enum.filter(& &1) |> Enum.join(" in ")
+    {detail, nil, nil}
+  end
 
-      n when n in ~w(Agent) ->
-        {input["description"] || input["prompt"], nil, nil}
+  def extract_detail(n, input) when n in ~w(Agent) and is_map(input) do
+    {input["description"] || input["prompt"], nil, nil}
+  end
 
-      n when n in ~w(WebSearch WebFetch) ->
-        {input["query"] || input["url"], nil, nil}
+  def extract_detail(n, input) when n in ~w(WebSearch WebFetch) and is_map(input) do
+    {input["query"] || input["url"], nil, nil}
+  end
 
-      _ ->
-        first_val =
-          input
-          |> Map.values()
-          |> Enum.find(&is_binary/1)
+  def extract_detail(_name, input) when is_map(input) do
+    first_val =
+      input
+      |> Map.values()
+      |> Enum.find(&is_binary/1)
 
-        {first_val && String.slice(first_val, 0..100), nil, nil}
-    end
+    {first_val && String.slice(first_val, 0..100), nil, nil}
   end
 
   def extract_detail(_name, _input), do: {nil, nil, nil}

@@ -54,84 +54,81 @@ defmodule Synkade.Workers.AgentWorker do
   end
 
   defp execute_agent(issue, setting, db_project, agent, job) do
-    # Ensure issue is in worked_on state
-    issue =
-      if issue.state != "worked_on" do
-        case Issues.transition_state(issue, "worked_on") do
-          {:ok, updated} -> updated
-          _ -> issue
-        end
-      else
-        issue
-      end
+    issue = ensure_worked_on(issue)
+    config = build_agent_config(setting, db_project, agent, issue)
 
+    project = %{name: db_project.name, db_id: db_project.id, config: config}
+    tracker_issue = db_issue_to_tracker_issue(issue, db_project.name)
+
+    AgentRunner.run(project, tracker_issue, job.attempt,
+      user_id: db_project.user_id,
+      agent_id: agent && agent.id
+    )
+    |> handle_agent_result(issue, setting, db_project, agent, job)
+  end
+
+  defp ensure_worked_on(%{state: "worked_on"} = issue), do: issue
+
+  defp ensure_worked_on(issue) do
+    case Issues.transition_state(issue, "worked_on") do
+      {:ok, updated} -> updated
+      _ -> issue
+    end
+  end
+
+  # Model resolution order (highest priority first):
+  #   1. Per-issue override (issue.metadata["model"]) — set via model picker at dispatch time
+  #   2. Project default (project.default_model) — resolved by ConfigAdapter
+  #   3. Global default (setting.default_model) — resolved by ConfigAdapter
+  #   4. nil — agent CLI uses its own built-in default
+  defp build_agent_config(setting, db_project, agent, issue) do
     config = ConfigAdapter.resolve_project_config(setting, db_project, agent)
 
-    # Model resolution order (highest priority first):
-    #   1. Per-issue override (issue.metadata["model"]) — set via model picker at dispatch time
-    #   2. Project default (project.default_model) — resolved by ConfigAdapter
-    #   3. Global default (setting.default_model) — resolved by ConfigAdapter
-    #   4. nil — agent CLI uses its own built-in default
-    issue_model = get_in(issue.metadata, ["model"])
-
     config =
-      if issue_model do
-        put_in(config, ["agent", "model"], issue_model)
-      else
-        config
+      case get_in(issue.metadata, ["model"]) do
+        nil -> config
+        model -> put_in(config, ["agent", "model"], model)
       end
 
-    # Add user's skills to config
     skills = Synkade.Skills.list_skills_for_user(db_project.user_id)
     config = Map.put(config, "skills", Synkade.Skills.skills_to_maps(skills))
 
-    # Inject Synkade API URL
-    config =
-      try do
-        api_url = SynkadeWeb.Endpoint.url() <> "/api/v1/agent"
-        put_in(config, ["agent", "synkade_api_url"], api_url)
-      catch
-        _, _ -> config
-      end
-
-    project = %{
-      name: db_project.name,
-      db_id: db_project.id,
-      config: config
-    }
-
-    tracker_issue = db_issue_to_tracker_issue(issue, db_project.name)
-    attempt = job.attempt
-
-    case AgentRunner.run(project, tracker_issue, attempt,
-           user_id: db_project.user_id,
-           agent_id: agent && agent.id
-         ) do
-      {:ok, {:pr_created, pr_url}, _session} ->
-        handle_pr_created(issue, pr_url)
-        :ok
-
-      {:ok, {:completed_with_output, agent_output}, _session} ->
-        handle_completed(issue, agent_output, agent)
-        :ok
-
-      {:ok, _reason, _session} ->
-        :ok
-
-      {:error, {:usage_cap, reason}, _session} ->
-        handle_rate_limit(issue, setting, db_project, agent, job, reason, :usage_cap)
-
-      {:error, {:rate_limited, reason}, _session} ->
-        handle_rate_limit(issue, setting, db_project, agent, job, reason, :rate_limited)
-
-      {:error, reason, _session} ->
-        handle_error(issue, reason, job)
-        {:error, reason}
-
-      {:error, reason} ->
-        handle_error(issue, reason, job)
-        {:error, reason}
+    try do
+      api_url = SynkadeWeb.Endpoint.url() <> "/api/v1/agent"
+      put_in(config, ["agent", "synkade_api_url"], api_url)
+    catch
+      _, _ -> config
     end
+  end
+
+  defp handle_agent_result({:ok, {:pr_created, pr_url}, _}, issue, _, _, _, _) do
+    handle_pr_created(issue, pr_url)
+    :ok
+  end
+
+  defp handle_agent_result({:ok, {:completed_with_output, output}, _}, issue, _, _, agent, _) do
+    handle_completed(issue, output, agent)
+    :ok
+  end
+
+  defp handle_agent_result({:ok, _, _}, _, _, _, _, _), do: :ok
+
+  defp handle_agent_result({:error, {:usage_cap, reason}, _}, issue, setting, db_project, agent, job) do
+    handle_rate_limit(issue, setting, db_project, agent, job, reason, :usage_cap)
+  end
+
+  defp handle_agent_result({:error, {:rate_limited, reason}, _}, issue, setting, db_project, agent, job) do
+    handle_rate_limit(issue, setting, db_project, agent, job, reason, :rate_limited)
+  end
+
+  defp handle_agent_result({:error, reason, _}, issue, _, _, _, job) do
+    handle_error(issue, reason, job)
+    {:error, reason}
+  end
+
+  defp handle_agent_result({:error, reason}, issue, _, _, _, job) do
+    handle_error(issue, reason, job)
+    {:error, reason}
   end
 
   defp handle_pr_created(issue, pr_url) do
@@ -188,19 +185,7 @@ defmodule Synkade.Workers.AgentWorker do
   @default_rate_limit_cooldown 5 * 60
 
   defp handle_rate_limit(issue, setting, db_project, failed_agent, job, info, kind) do
-    # Use retry hint from agent output if available, otherwise use defaults
-    cooldown =
-      case info[:retry_after_seconds] do
-        seconds when is_integer(seconds) and seconds > 0 ->
-          seconds
-
-        _ ->
-          case kind do
-            :usage_cap -> @default_usage_cap_cooldown
-            :rate_limited -> @default_rate_limit_cooldown
-          end
-      end
-
+    cooldown = extract_cooldown(info, kind)
     reason = info[:reason] || inspect(info)
 
     Logger.warning(
@@ -209,7 +194,6 @@ defmodule Synkade.Workers.AgentWorker do
 
     Synkade.AgentCooldowns.set_cooldown(failed_agent.id, cooldown)
 
-    # Try to find a fallback agent (skipping unavailable ones)
     case resolve_agent(issue, db_project, skip_unavailable: true) do
       {:ok, nil} ->
         Logger.info("AgentWorker: no fallback agents available, snoozing")
@@ -223,6 +207,16 @@ defmodule Synkade.Workers.AgentWorker do
         error
     end
   end
+
+  defp extract_cooldown(info, kind) do
+    case info[:retry_after_seconds] do
+      seconds when is_integer(seconds) and seconds > 0 -> seconds
+      _ -> default_cooldown(kind)
+    end
+  end
+
+  defp default_cooldown(:usage_cap), do: @default_usage_cap_cooldown
+  defp default_cooldown(:rate_limited), do: @default_rate_limit_cooldown
 
   defp resolve_agent(issue, db_project, opts \\ []) do
     agents = Settings.list_agents_for_user(db_project.user_id)
