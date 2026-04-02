@@ -101,7 +101,7 @@ defmodule Synkade.Agent.EventParser do
   def icon(n) when n in ~w(Bash bash), do: "\u{2318}"
   def icon(n) when n in ~w(Glob glob), do: "\u{1F50D}"
   def icon(n) when n in ~w(Grep grep), do: "\u{1F50E}"
-  def icon(n) when n in ~w(Agent), do: "\u{1F916}"
+  def icon("Agent"), do: "\u{1F916}"
   def icon(n) when n in ~w(WebSearch WebFetch), do: "\u{1F310}"
   def icon(n) when n in ~w(TodoRead TodoWrite), do: "\u{1F4CB}"
   def icon(_), do: "\u{1F527}"
@@ -144,7 +144,7 @@ defmodule Synkade.Agent.EventParser do
     {detail, nil, nil}
   end
 
-  def extract_detail(n, input) when n in ~w(Agent) and is_map(input) do
+  def extract_detail("Agent", input) when is_map(input) do
     {input["description"] || input["prompt"], nil, nil}
   end
 

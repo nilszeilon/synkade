@@ -60,6 +60,7 @@ defmodule Synkade.Workers.AgentWorker do
     project = %{name: db_project.name, db_id: db_project.id, config: config}
     tracker_issue = db_issue_to_tracker_issue(issue, db_project.name)
 
+
     AgentRunner.run(project, tracker_issue, job.attempt,
       user_id: db_project.user_id,
       agent_id: agent && agent.id
@@ -83,6 +84,7 @@ defmodule Synkade.Workers.AgentWorker do
   #   4. nil — agent CLI uses its own built-in default
   defp build_agent_config(setting, db_project, agent, issue) do
     config = ConfigAdapter.resolve_project_config(setting, db_project, agent)
+
 
     config =
       case get_in(issue.metadata, ["model"]) do

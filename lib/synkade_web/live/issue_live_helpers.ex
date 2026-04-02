@@ -256,6 +256,29 @@ defmodule SynkadeWeb.IssueLiveHelpers do
 
   def format_relative_time(_), do: nil
 
+  @doc """
+  Completes an issue by ID. Returns `{:ok, socket}` or `{:error, socket}`.
+  On success, refreshes the sidebar. Caller can add view-specific logic after.
+  """
+  def handle_complete_issue(issue_id, socket) do
+    case Issues.get_issue(issue_id) do
+      nil ->
+        {:error, Phoenix.LiveView.put_flash(socket, :error, "Issue not found")}
+
+      issue ->
+        case Issues.complete_issue(issue) do
+          {:ok, _} ->
+            {:ok,
+             socket
+             |> SynkadeWeb.Sidebar.assign_sidebar(socket.assigns.current_scope)
+             |> Phoenix.LiveView.put_flash(:info, "Issue archived")}
+
+          {:error, :invalid_transition} ->
+            {:error, Phoenix.LiveView.put_flash(socket, :error, "Cannot archive from current state")}
+        end
+    end
+  end
+
   # Private helper for form conversion
   defp to_form(data, opts \\ []) do
     Phoenix.Component.to_form(data, opts)

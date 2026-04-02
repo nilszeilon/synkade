@@ -8,6 +8,7 @@ defmodule SynkadeWeb.ProjectsLive do
   alias Synkade.Settings.Project
 
   import SynkadeWeb.Components.AgentBrand
+  import SynkadeWeb.IssueLiveHelpers, only: [handle_complete_issue: 2]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -221,17 +222,9 @@ defmodule SynkadeWeb.ProjectsLive do
 
   @impl true
   def handle_event("complete_issue", %{"id" => issue_id}, socket) do
-    issue = Synkade.Issues.get_issue!(issue_id)
-
-    case Synkade.Issues.complete_issue(issue) do
-      {:ok, _} ->
-        {:noreply,
-         socket
-         |> SynkadeWeb.Sidebar.assign_sidebar(socket.assigns.current_scope)
-         |> put_flash(:info, "Issue archived")}
-
-      {:error, :invalid_transition} ->
-        {:noreply, put_flash(socket, :error, "Cannot archive from current state")}
+    case handle_complete_issue(issue_id, socket) do
+      {:ok, socket} -> {:noreply, socket}
+      {:error, socket} -> {:noreply, socket}
     end
   end
 
@@ -788,15 +781,4 @@ defmodule SynkadeWeb.ProjectsLive do
     """
   end
 
-  defp field_error(assigns) do
-    ~H"""
-    <%= if @field.errors != [] do %>
-      <div class="label">
-        <%= for {msg, _opts} <- @field.errors do %>
-          <span class="label-text-alt text-error">{msg}</span>
-        <% end %>
-      </div>
-    <% end %>
-    """
-  end
 end

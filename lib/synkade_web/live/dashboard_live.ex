@@ -6,6 +6,9 @@ defmodule SynkadeWeb.DashboardLive do
   import SynkadeWeb.IssueLiveHelpers
   import SynkadeWeb.ModelPickerHelpers,
     only: [handle_model_picker_event: 3, handle_model_picker_info: 2, model_picker_assigns: 0, model_picker_assigns: 1]
+  import SynkadeWeb.DashboardLive.BoardHelpers
+  import SynkadeWeb.DashboardLive.TrackerHelpers, only: [handle_tracker_event: 3, handle_tracker_info: 2]
+  import SynkadeWeb.DashboardLive.IssueHelpers, only: [handle_issue_event: 3]
 
   alias Synkade.{Issues, Jobs, Settings}
   alias Synkade.Tracker.Client, as: TrackerClient
@@ -343,28 +346,6 @@ defmodule SynkadeWeb.DashboardLive do
   end
 
   @impl true
-  def handle_info(:load_tracker_issues, socket) do
-    project = resolve_project(socket)
-
-    tracker_issues =
-      case project do
-        nil ->
-          []
-
-        project ->
-          case TrackerClient.fetch_all_issues(project.config, project.name, states: ["open"]) do
-            {:ok, issues} -> Enum.sort_by(issues, & &1.created_at, {:desc, DateTime})
-            {:error, _} -> []
-          end
-      end
-
-    {:noreply,
-     socket
-     |> assign(:tracker_issues, tracker_issues)
-     |> assign(:tracker_loading, false)}
-  end
-
-  @impl true
   def handle_info({:agents_updated}, socket) do
     {:noreply, assign(socket, :agents, Settings.list_agents(socket.assigns.current_scope))}
   end
@@ -409,9 +390,11 @@ defmodule SynkadeWeb.DashboardLive do
 
   @impl true
   def handle_info(msg, socket) do
-    case handle_model_picker_info(msg, socket) do
+    with :cont <- handle_tracker_info(msg, socket),
+         :cont <- handle_model_picker_info(msg, socket) do
+      {:noreply, socket}
+    else
       {:halt, socket} -> {:noreply, socket}
-      :cont -> {:noreply, socket}
     end
   end
 
@@ -547,19 +530,13 @@ defmodule SynkadeWeb.DashboardLive do
 
   @impl true
   def handle_event("complete_issue", %{"id" => issue_id}, socket) do
-    case Issues.get_issue(issue_id) do
-      nil ->
-        {:noreply, put_flash(socket, :error, "Issue not found")}
+    case handle_complete_issue(issue_id, socket) do
+      {:ok, socket} ->
+        send(self(), :load_board)
+        {:noreply, socket}
 
-      issue ->
-        case Issues.complete_issue(issue) do
-          {:ok, _} ->
-            send(self(), :load_board)
-            {:noreply, put_flash(socket, :info, "Issue marked done")}
-
-          {:error, :invalid_transition} ->
-            {:noreply, put_flash(socket, :error, "Cannot complete from current state")}
-        end
+      {:error, socket} ->
+        {:noreply, socket}
     end
   end
 
@@ -599,369 +576,17 @@ defmodule SynkadeWeb.DashboardLive do
   end
 
   @impl true
-  def handle_event("tracker_filter", %{"filter" => filter} = params, socket) do
-    # Submit (Enter) vs change
-    if params["_target"] == nil do
-      # Form was submitted — pick top match or create new
-      filter_down = String.downcase(filter)
-
-      filtered =
-        if filter_down == "" do
-          socket.assigns.tracker_issues
-        else
-          Enum.filter(socket.assigns.tracker_issues, fn issue ->
-            String.contains?(String.downcase(issue.title), filter_down) ||
-              String.contains?(String.downcase(issue.identifier), filter_down)
-          end)
-        end
-
-      case filtered do
-        [top | _] ->
-          handle_event("pick_tracker_issue", %{"id" => top.id}, socket)
-
-        [] when filter != "" ->
-          {:noreply,
-           socket
-           |> assign(:tracker_open, false)
-           |> push_patch(to: new_issue_path(socket.assigns.current_project, body: "# #{filter}\n\n"))}
-
-        _ ->
-          {:noreply, socket}
-      end
-    else
-      {:noreply, assign(socket, :tracker_filter, filter)}
-    end
-  end
-
-  @impl true
-  def handle_event("close_tracker", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(:tracker_open, false)
-     |> push_patch(to: dashboard_path(socket.assigns.current_project))}
-  end
-
-  @impl true
-  def handle_event("pick_tracker_issue", %{"id" => tracker_id}, socket) do
-    issue = Enum.find(socket.assigns.tracker_issues, &(&1.id == tracker_id))
-
-    if issue do
-      project = resolve_project(socket)
-      project_id = resolve_db_id(project, socket.assigns.current_scope)
-
-      body = "# #{issue.title}\n\n#{issue.description || ""}"
-
-      case Issues.create_issue(%{
-             "body" => body,
-             "project_id" => project_id,
-             "github_issue_url" => issue.url
-           }) do
-        {:ok, created} ->
-          {:noreply,
-           socket
-           |> assign(:tracker_open, false)
-           |> put_flash(:info, "Issue imported from tracker")
-           |> push_navigate(to: "/issues/#{created.id}")}
-
-        {:error, _} ->
-          {:noreply, put_flash(socket, :error, "Failed to import issue")}
-      end
-    else
-      {:noreply, put_flash(socket, :error, "Issue not found")}
-    end
-  end
-
-  @impl true
-  def handle_event("cancel_form", _params, socket) do
-    {:noreply, push_patch(socket, to: dashboard_path(socket.assigns.current_project))}
-  end
-
-  @impl true
-  def handle_event("validate_issue", %{"issue" => params}, socket) do
-    changeset =
-      %Issues.Issue{}
-      |> Issues.change_issue(params)
-      |> Map.put(:action, :validate)
-
-    {:noreply, assign(socket, :form, to_form(changeset))}
-  end
-
-  @impl true
-  def handle_event("select_create_agent", %{"id" => agent_id}, socket) do
-    {:noreply, assign(socket, :selected_agent_id, agent_id)}
-  end
-
-  @impl true
-  def handle_event("save_issue", params, socket) do
-    issue_params = params["issue"]
-    project_id = issue_params["project_id"] || socket.assigns.form_project_id
-
-    issue_params =
-      issue_params
-      |> Map.put("project_id", project_id)
-
-    case Issues.create_issue(issue_params) do
-      {:ok, issue} ->
-        if params["dispatch"] == "true" do
-          agent_id = params["agent_id"]
-          agent_id = if agent_id == "", do: nil, else: agent_id
-
-          case Issues.dispatch_issue(issue, issue.body, agent_id) do
-            {:ok, _} ->
-              send(self(), :load_board)
-
-              socket =
-                socket
-                |> put_flash(:info, "Issue created and dispatched")
-
-              {:noreply, push_patch(socket, to: dashboard_path(socket.assigns.current_project))}
-
-            {:error, _} ->
-              socket =
-                socket
-                |> put_flash(:error, "Issue created but dispatch failed")
-
-              {:noreply, push_patch(socket, to: dashboard_path(socket.assigns.current_project, issue.id))}
-          end
-        else
-          path = dashboard_path(socket.assigns.current_project, issue.id)
-
-          socket =
-            socket
-            |> put_flash(:info, "Issue created")
-
-          {:noreply, push_patch(socket, to: path)}
-        end
-
-      {:error, changeset} ->
-        {:noreply, assign(socket, :form, to_form(changeset))}
-    end
-  end
-
-  # --- Modal events (new/edit only, view replaced by full-width) ---
-
-  @impl true
-  def handle_event("open_new_issue", _params, socket) do
-    path = new_issue_path(socket.assigns.current_project)
-    {:noreply, push_patch(socket, to: path)}
-  end
-
-  @impl true
-  def handle_event("open_issue", %{"id" => issue_id}, socket) do
-    project_name = socket.assigns.current_project
-    path = dashboard_path(project_name, issue_id)
-    {:noreply, push_patch(socket, to: path)}
-  end
-
-  @impl true
-  def handle_event("edit_issue", _params, socket) do
-    issue = socket.assigns.selected_issue.issue
-
-    {:noreply,
-     assign(socket, :modal, %{
-       mode: :edit,
-       issue: issue,
-       body: issue.body || ""
-     })}
-  end
-
-  @impl true
-  def handle_event("close_modal", _params, socket) do
-    {:noreply, assign(socket, :modal, nil)}
-  end
-
-  @impl true
-  def handle_event("save_edit_issue", %{"body" => body}, socket) do
-    issue = socket.assigns.modal.issue
-    attrs = %{body: String.trim(body)}
-
-    case Issues.update_issue(issue, attrs) do
-      {:ok, updated} ->
-        send(self(), :load_board)
-
-        # Update selected_issue if in detail view
-        socket =
-          if socket.assigns.view_mode == :detail do
-            socket
-            |> assign(:selected_issue, %{issue: updated})
-            |> assign(:modal, nil)
-            |> put_flash(:info, "Issue updated")
-          else
-            socket
-            |> assign(:modal, nil)
-            |> put_flash(:info, "Issue updated")
-          end
-
-        {:noreply, socket}
-
-      {:error, _} ->
-        {:noreply, put_flash(socket, :error, "Failed to update issue")}
-    end
-  end
-
-  @impl true
-  def handle_event("delete_issue", %{"id" => issue_id}, socket) do
-    case Issues.get_issue(issue_id) do
-      nil ->
-        {:noreply, put_flash(socket, :error, "Issue not found")}
-
-      issue ->
-        case Issues.delete_issue(issue) do
-          {:ok, _} ->
-            send(self(), :load_board)
-
-            socket =
-              socket
-              |> assign(:modal, nil)
-              |> put_flash(:info, "Issue deleted")
-
-            if socket.assigns.view_mode == :detail do
-              {:noreply, push_patch(socket, to: dashboard_path(socket.assigns.current_project))}
-            else
-              {:noreply, socket}
-            end
-
-          {:error, _} ->
-            {:noreply, put_flash(socket, :error, "Failed to delete issue")}
-        end
-    end
-  end
-
-  @impl true
   def handle_event(event, params, socket) do
-    case handle_model_picker_event(event, params, socket) do
+    with :cont <- handle_issue_event(event, params, socket),
+         :cont <- handle_tracker_event(event, params, socket),
+         :cont <- handle_model_picker_event(event, params, socket) do
+      {:noreply, socket}
+    else
       {:halt, socket} -> {:noreply, socket}
-      :cont -> {:noreply, socket}
     end
   end
 
   # --- Private helpers ---
-
-  defp dashboard_path(project_name, issue_id \\ nil) do
-    cond do
-      project_name && issue_id ->
-        # Redirect to issue detail
-        "/projects/#{project_name}?" <> URI.encode_query(%{"issue" => issue_id})
-
-      project_name ->
-        "/projects/#{project_name}"
-
-      true ->
-        "/"
-    end
-  end
-
-  defp new_issue_path(project_name, opts \\ []) do
-    base = if project_name, do: "/projects/#{project_name}", else: "/"
-    params = %{"new" => "true"}
-    params = if opts[:body], do: Map.put(params, "body", opts[:body]), else: params
-    base <> "?" <> URI.encode_query(params)
-  end
-
-  # --- Board helpers ---
-
-  defp resolve_project(socket) do
-    projects = socket.assigns.projects
-    current = socket.assigns.current_project
-
-    cond do
-      current && Map.has_key?(projects, current) ->
-        Map.get(projects, current)
-
-      map_size(projects) > 0 ->
-        projects |> Map.values() |> List.first()
-
-      true ->
-        nil
-    end
-  end
-
-  defp resolve_db_id(nil, _scope), do: nil
-
-  defp resolve_db_id(project, scope) do
-    Map.get(project, :db_id) ||
-      case Settings.get_project_by_name(scope, project.name) do
-        %{id: id} -> id
-        _ -> nil
-      end
-  end
-
-  defp categorize_by_state(
-         issues,
-         project_name,
-         dispatch_labels,
-         running,
-         retry_attempts,
-         awaiting_review
-       ) do
-    base = %{"backlog" => [], "worked_on" => []}
-
-    Enum.reduce(issues, base, fn issue, acc ->
-      key = "#{project_name}:#{issue.id}"
-
-      column =
-        cond do
-          Map.has_key?(running, key) or Map.has_key?(retry_attempts, key) ->
-            "worked_on"
-
-          Map.has_key?(awaiting_review, key) ->
-            "worked_on"
-
-          issue.state == "worked_on" ->
-            "worked_on"
-
-          dispatch_labels != [] and Enum.any?(dispatch_labels, &(&1 in issue.labels)) ->
-            "worked_on"
-
-          true ->
-            "backlog"
-        end
-
-      Map.update!(acc, column, fn existing -> existing ++ [issue] end)
-    end)
-  end
-
-  defp recategorize_from_assigns(socket, project_name, dispatch_labels) do
-    # Only recategorize backlog + worked_on (done is loaded separately)
-    all_issues =
-      (Map.get(socket.assigns.board_issues, "backlog", []) ++
-         Map.get(socket.assigns.board_issues, "worked_on", []))
-
-    categorize_by_state(
-      all_issues,
-      project_name,
-      dispatch_labels,
-      socket.assigns.running,
-      socket.assigns.retry_attempts,
-      socket.assigns.awaiting_review
-    )
-  end
-
-  defp move_card_in_assigns(socket, issue_id, from_col, to_col, _dispatch_labels) do
-    board_issues = socket.assigns.board_issues
-
-    {card, from_list} =
-      case Map.get(board_issues, from_col, []) do
-        issues ->
-          case Enum.split_with(issues, fn i -> i.id == issue_id end) do
-            {[card], rest} -> {card, rest}
-            _ -> {nil, issues}
-          end
-      end
-
-    if card do
-      to_list = Map.get(board_issues, to_col, []) ++ [card]
-
-      board_issues =
-        board_issues
-        |> Map.put(from_col, from_list)
-        |> Map.put(to_col, to_list)
-
-      assign(socket, :board_issues, board_issues)
-    else
-      socket
-    end
-  end
 
   defp issue_status(issue, running, retry_attempts, awaiting_review) do
     Enum.find_value(running, fn {_key, entry} ->
@@ -1013,27 +638,9 @@ defmodule SynkadeWeb.DashboardLive do
 
   @impl true
   def render(assigns) do
-    filtered_running =
-      if assigns.current_project,
-        do:
-          Map.filter(assigns.running, fn {_k, e} -> e.project_name == assigns.current_project end),
-        else: assigns.running
-
-    filtered_retries =
-      if assigns.current_project,
-        do:
-          Map.filter(assigns.retry_attempts, fn {_k, e} ->
-            e.project_name == assigns.current_project
-          end),
-        else: assigns.retry_attempts
-
-    filtered_awaiting =
-      if assigns.current_project,
-        do:
-          Map.filter(assigns.awaiting_review, fn {_k, e} ->
-            e.project_name == assigns.current_project
-          end),
-        else: assigns.awaiting_review
+    filtered_running = filter_by_project(assigns.running, assigns.current_project)
+    filtered_retries = filter_by_project(assigns.retry_attempts, assigns.current_project)
+    filtered_awaiting = filter_by_project(assigns.awaiting_review, assigns.current_project)
 
     display_totals =
       if assigns.current_project do
