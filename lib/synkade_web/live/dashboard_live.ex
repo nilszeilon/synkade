@@ -707,9 +707,7 @@ defmodule SynkadeWeb.DashboardLive do
               <h1 class="text-2xl font-bold">
                 {if @current_project, do: @current_project, else: "Dashboard"}
               </h1>
-              <p :if={!@current_project} class="text-sm text-base-content/50 mt-0.5">
-                {@current_scope.user.email}
-              </p>
+  
             </div>
             <div class="flex items-center gap-3">
               <button phx-click="refresh" class="btn btn-sm btn-ghost">
